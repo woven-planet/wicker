@@ -125,60 +125,10 @@ TEST_EXAMPLE_FULL.update(
         },
     }
 )
-TEST_SERIALIZED_JSON_V1 = {
-    "name": "fields",
-    "type": "record",
-    "fields": [
-        {"name": "label", "type": "int", "_description": "Label of the example"},
-        {
-            "name": "lidar_point_cloud",
-            "type": "record",
-            "fields": [
-                {
-                    "name": "lidar_metadata",
-                    "type": "record",
-                    "fields": [
-                        {
-                            "name": "lidar_model",
-                            "type": "string",
-                            "_description": "Model of lidar used to generate data",
-                        },
-                        {
-                            "name": "lidar_calibration_error",
-                            "type": ["null", "double"],
-                            "_description": "Some lidar calibration metric",
-                        },
-                    ],
-                    "_description": "Some metadata about the lidar",
-                },
-            ],
-            "_description": "Lidar point cloud data",
-        },
-        {
-            "name": "timestamp_ns",
-            "type": "long",
-            "_description": "Some timestamp field in ns",
-        },
-        {"name": "ego_speed", "type": "float", "_description": "Absolute speed of ego"},
-        {"name": "qc", "type": ["null", "boolean"], "_description": "A quality control field"},
-        {
-            "name": "extra_metadata",
-            "type": ["null", "record"],
-            "_description": "Extra metadata",
-            "fields": [
-                {"name": "meta_1", "type": "int", "_description": "Metadata 1"},
-                {"name": "meta_2", "type": ["null", "int"], "_description": "Metadata 2"},
-            ],
-        },
-    ],
-    "_description": "",
-    PRIMARY_KEYS_TAG: '["timestamp_ns"]',
-}
 
 TEST_SERIALIZED_JSON_V2 = {
     "_description": "",
-    "_json_version": 2,
-    "_primary_keys": '["timestamp_ns"]',
+    PRIMARY_KEYS_TAG: '["timestamp_ns"]',
     "fields": [
         {"_description": "Label of the example", "name": "label", "type": "int"},
         {
@@ -232,6 +182,7 @@ TEST_SERIALIZED_JSON_V2 = {
     ],
     "name": "fields",
     "type": "record",
+    "_json_version": 2,
 }
 
 
@@ -385,18 +336,18 @@ class TestSchemaSerialization(unittest.TestCase):
     def test_loads(self) -> None:
         self.assertEqual(
             TEST_SCHEMA,
-            serialization.loads(json.dumps(TEST_SERIALIZED_JSON_V1)),
+            serialization.loads(json.dumps(TEST_SERIALIZED_JSON_V2)),
         )
 
     def test_loads_bad_type(self) -> None:
         with self.assertRaises(WickerSchemaException):
-            serialized_bad_type = copy.deepcopy(TEST_SERIALIZED_JSON_V1)
+            serialized_bad_type = copy.deepcopy(TEST_SERIALIZED_JSON_V2)
             serialized_bad_type["fields"][0]["type"] = "BAD_TYPE_123"  # type: ignore
             serialization.loads(json.dumps(serialized_bad_type))
 
     def test_loads_bad_type_nullable(self) -> None:
         with self.assertRaises(WickerSchemaException):
-            serialized_bad_type = copy.deepcopy(TEST_SERIALIZED_JSON_V1)
+            serialized_bad_type = copy.deepcopy(TEST_SERIALIZED_JSON_V2)
             serialized_bad_type["fields"][0]["type"] = ["null", "BAD_TYPE_123"]  # type: ignore
             serialization.loads(json.dumps(serialized_bad_type))
 
