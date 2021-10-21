@@ -1,3 +1,6 @@
+# For convenience copying code from old l5ml_datastore codebase
+l5ml_datastore/*
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
