@@ -81,6 +81,9 @@ TEST_SCHEMA = schema.DatasetSchema(
             ],
             required=False,
         ),
+        schema.ArrayField(
+            schema.StringField("array_stringfield", description="some array"),
+        ),
     ],
     primary_keys=["timestamp_ns"],
 )
@@ -93,6 +96,7 @@ TEST_EXAMPLE_REQUIRED: Dict[str, Any] = {
     },
     "timestamp_ns": 1337,
     "ego_speed": 1337.1337,
+    "array_stringfield": ["foo", "bar", "baz"],
 }
 # When we load the example all the keys for any unset non-required fields will are added
 TEST_EXAMPLE_LOAD_REQUIRED = copy.deepcopy(TEST_EXAMPLE_REQUIRED)
@@ -178,6 +182,10 @@ TEST_SERIALIZED_JSON_V2 = {
                     "type": "record",
                 },
             ],
+        },
+        {
+            "name": "array_stringfield",
+            "type": {"_description": "some array", "items": "string", "name": "array_stringfield", "type": "array"},
         },
     ],
     "name": "fields",
@@ -272,6 +280,20 @@ class TestSchemaParseExample(unittest.TestCase):
         with self.assertRaises(WickerSchemaException) as e:
             dataparsing.parse_example(example, TEST_SCHEMA)
         self.assertIn("Error at path :", str(e.exception))
+
+    def test_fail_type_array(self) -> None:
+        example = copy.deepcopy(TEST_EXAMPLE_FULL)
+        example["array_stringfield"] = "foo"
+        with self.assertRaises(WickerSchemaException) as e:
+            dataparsing.parse_example(example, TEST_SCHEMA)
+        self.assertIn("Error at path array_stringfield:", str(e.exception))
+
+    def test_fail_element_type_array(self) -> None:
+        example = copy.deepcopy(TEST_EXAMPLE_FULL)
+        example["array_stringfield"] = [1, 2, 3]
+        with self.assertRaises(WickerSchemaException) as e:
+            dataparsing.parse_example(example, TEST_SCHEMA)
+        self.assertIn("Error at path array_stringfield.elem[0]:", str(e.exception))
 
 
 class TestSchemaValidation(unittest.TestCase):
@@ -384,6 +406,7 @@ class TestSchemaLoading(unittest.TestCase):
             id(loaded_example["lidar_point_cloud"]["lidar_metadata"]),
         )
         self.assertNotEqual(id(TEST_EXAMPLE_FULL["extra_metadata"]), id(loaded_example["extra_metadata"]))
+        self.assertNotEqual(id(TEST_EXAMPLE_FULL["array_stringfield"]), id(loaded_example["array_stringfield"]))
 
     def test_load_columns_required(self) -> None:
         subset_example = copy.deepcopy(TEST_EXAMPLE_REQUIRED)
