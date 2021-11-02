@@ -46,16 +46,8 @@ def loads(schema_str: str, treat_objects_as_bytes: bool = False) -> schema.Datas
         raise WickerSchemaException(f"Unable load string as JSON: {schema_str}")
 
     # Construct the DatasetSchema
-    json_version = schema_dict.get("_json_version", 1)
     try:
-        if json_version == 1:
-            # The first version of the json encoding is not avro compatible and does not support arrays of pointers
-            # properly. It is superseded by version 2, but we still need to be able to read old schemas.
-            fields = [_loads_v1(d) for d in schema_dict["fields"]]
-        elif json_version == 2:
-            fields = [_loads_v2(d, treat_objects_as_bytes=treat_objects_as_bytes) for d in schema_dict["fields"]]
-        else:
-            raise WickerSchemaException(f"Can not parse schema with json version {json_version}")
+        fields = [_loads(d, treat_objects_as_bytes=treat_objects_as_bytes) for d in schema_dict["fields"]]
         return schema.DatasetSchema(
             fields=fields,
             primary_keys=json.loads(schema_dict.get(PRIMARY_KEYS_TAG, "[]")),
@@ -65,49 +57,7 @@ def loads(schema_str: str, treat_objects_as_bytes: bool = False) -> schema.Datas
         raise WickerSchemaException(f"Malformed serialization of DatasetSchema: {schema_str}")
 
 
-def _loads_v1(schema_dict: Dict[str, Any]) -> schema.SchemaField:
-    """Recursively parses a schema dictionary into the appropriate SchemaField"""
-    type_ = schema_dict["type"]
-    required = True
-
-    # Nullable types are represented in Avro schemas as Union (list) types with "null" as the
-    # first element (by convention)
-    if isinstance(type_, list):
-        assert type_[0] == "null"
-        required = False
-        type_ = type_[1]
-
-    if type_ == "record":
-        return schema.RecordField(
-            name=schema_dict["name"],
-            fields=[_loads_v1(f) for f in schema_dict["fields"]],
-            description=schema_dict["_description"],
-            required=required,
-        )
-    elif type_ == "array":
-        # ArrayField columns are limited to contain only dicts or simple types (and not nested arrays)
-        items = schema_dict["items"]
-        if isinstance(items, dict):
-            # When arrays contain records the name and description fields are repeated in the schema
-            # for the record (represented in the 'items' dict value)
-            element_field = _loads_v1(items)
-        else:
-            element_dict = {k: schema_dict[k] for k in ["name", "_description"]}
-            element_dict["type"] = items
-            element_field = _loads_v1(element_dict)
-        return schema.ArrayField(
-            element_field=element_field,
-            required=required,
-        )
-    else:
-        base_type = _loads_base_types(type_, required, schema_dict)
-        if base_type is not None:
-            return base_type
-
-    raise WickerSchemaException(f"Unhandled type: {type_}")
-
-
-def _loads_v2(schema_dict: Dict[str, Any], treat_objects_as_bytes: bool) -> schema.SchemaField:
+def _loads(schema_dict: Dict[str, Any], treat_objects_as_bytes: bool) -> schema.SchemaField:
     """Recursively parses a schema dictionary into the appropriate SchemaField"""
     type_ = schema_dict["type"]
     required = True
@@ -122,7 +72,7 @@ def _loads_v2(schema_dict: Dict[str, Any], treat_objects_as_bytes: bool) -> sche
     if isinstance(type_, dict) and type_["type"] == "record":
         return schema.RecordField(
             name=schema_dict["name"],
-            fields=[_loads_v2(f, treat_objects_as_bytes=treat_objects_as_bytes) for f in type_["fields"]],
+            fields=[_loads(f, treat_objects_as_bytes=treat_objects_as_bytes) for f in type_["fields"]],
             description=schema_dict["_description"],
             required=required,
         )
@@ -130,7 +80,7 @@ def _loads_v2(schema_dict: Dict[str, Any], treat_objects_as_bytes: bool) -> sche
         # ArrayField columns are limited to contain only dicts or simple types (and not nested arrays)
         element_dict = type_.copy()
         element_dict["type"] = type_["items"]
-        element_field = _loads_v2(element_dict, treat_objects_as_bytes=treat_objects_as_bytes)
+        element_field = _loads(element_dict, treat_objects_as_bytes=treat_objects_as_bytes)
         return schema.ArrayField(
             element_field=element_field,
             required=required,
@@ -299,4 +249,15 @@ class AvroDatasetSchemaSerializer(schema.DatasetSchemaVisitor[Dict[str, Any]]):
         return {
             **self.process_schema_field(field, "bytes"),
             "_l5ml_metatype": "object",
+        }
+
+    def process_array_field(self, field: schema.ArrayField) -> Dict[str, Any]:
+        array_type = field.element_field.accept_visitor(self)
+        array_type["items"] = array_type["type"]
+        array_type["type"] = "array"
+
+        field_type = array_type if field.required else ["null", array_type]
+        return {
+            "name": field.name,
+            "type": field_type,
         }

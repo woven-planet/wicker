@@ -17,7 +17,8 @@ lint:
 
 type-check:
 	@echo "Running wicker type checking with mypy"
-	python -m mypy
+	python -m mypy tests
+	python -m mypy wicker
 
 test:
 	@echo "Running wicker tests"

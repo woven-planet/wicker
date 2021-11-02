@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Tuple, TypeVar
+from typing import Any, Dict, List, Optional, Tuple, TypeVar
 
 from wicker.schema import schema, validation
 
@@ -86,3 +86,19 @@ class LoadExampleVisitor(schema.DatasetSchemaVisitor[Any]):
         if data is None:
             return data
         return field.codec.decode_object(data)
+
+    def process_array_field(self, field: schema.ArrayField) -> Optional[List[Any]]:
+        current_data = validation.validate_field_type(self._current_data, list, field.required, self._current_path)
+        if current_data is None:
+            return current_data
+
+        # Process array elements by setting up the visitor's state and visiting each element
+        processing_path = self._current_path
+        loaded = []
+
+        # Arrays may contain None values if the element field declares that it is not required
+        for element_index, element in enumerate(current_data):
+            self._current_path = processing_path + (f"elem[{element_index}]",)
+            self._current_data = element
+            loaded.append(field.element_field.accept_visitor(self))
+        return loaded

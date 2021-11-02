@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from wicker import schema
 from wicker.core.definitions import ExampleMetadata
@@ -131,6 +131,24 @@ class ParseExampleVisitor(schema.DatasetSchemaVisitor[Any]):
         if data is None:
             return None
         return field.codec.validate_and_encode_object(data)
+
+    def process_array_field(self, field: schema.ArrayField) -> Optional[List[Any]]:
+        val = validation.validate_field_type(self._current_data, list, field.required, self._current_path)
+        if val is None:
+            return val
+
+        # Process array elements by setting up the visitor's state and visiting each element
+        res = []
+        processing_path = self._current_path
+        processing_example = self._current_data
+
+        # Arrays may contain None values if the element field declares that it is not required
+        for element_index, element in enumerate(processing_example):
+            self._current_path = processing_path + (f"elem[{element_index}]",)
+            self._current_data = element
+            # Allow _SkipFieldExceptions to propagate up and skip this array field
+            res.append(field.element_field.accept_visitor(self))
+        return res
 
 
 class ParseExampleMetadataVisitor(ParseExampleVisitor):

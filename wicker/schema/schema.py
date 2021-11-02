@@ -28,6 +28,7 @@ __all__ = [
     "FloatField",
     "DoubleField",
     "RecordField",
+    "ArrayField",
     "ObjectField",
 ]
 
@@ -181,6 +182,26 @@ class RecordField(SchemaField):
             and len(self.fields) == len(other.fields)
             and all([self_field == other_field for self_field, other_field in zip(self.fields, other.fields)])
         )
+
+
+class ArrayField(SchemaField):
+    """A field that contains an array of values (that have the same schema type)"""
+
+    def __init__(self, element_field: SchemaField, required: bool = True):
+        super().__init__(
+            element_field.name,
+            description=element_field.description,
+            required=required,
+            custom_field_tags=element_field.custom_field_tags,
+        )
+        self.element_field = element_field
+
+    def accept_visitor(self, visitor: DatasetSchemaVisitor[_T]) -> _T:
+        """Processes the current schema field with the visitor object"""
+        return visitor.process_array_field(self)
+
+    def __eq__(self, other: Any) -> bool:
+        return super().__eq__(other) and self.element_field == other.element_field
 
 
 class ObjectField(SchemaField):
@@ -337,4 +358,8 @@ class DatasetSchemaVisitor(abc.ABC, Generic[_T]):
 
     @abc.abstractmethod
     def process_record_field(self, field: RecordField) -> _T:
+        pass
+
+    @abc.abstractmethod
+    def process_array_field(self, field: ArrayField) -> _T:
         pass
