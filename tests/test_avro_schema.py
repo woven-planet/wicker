@@ -132,6 +132,7 @@ TEST_EXAMPLE_FULL.update(
 
 TEST_SERIALIZED_JSON_V2 = {
     "_description": "",
+    "_json_version": 2,
     PRIMARY_KEYS_TAG: '["timestamp_ns"]',
     "fields": [
         {"_description": "Label of the example", "name": "label", "type": "int"},
@@ -190,7 +191,6 @@ TEST_SERIALIZED_JSON_V2 = {
     ],
     "name": "fields",
     "type": "record",
-    "_json_version": 2,
 }
 
 
