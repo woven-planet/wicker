@@ -4,33 +4,29 @@ import abc
 import contextlib
 import dataclasses
 import hashlib
-import json
 import threading
 import time
 from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from types import TracebackType
-from typing import Any, Dict, Iterator, List, Optional, Tuple, Type
+from typing import Any, Dict, Iterator, List, Optional, Tuple, Type, Union
 
 from wicker.core.definitions import DatasetDefinition
 from wicker.schema import dataparsing
 
 
 @dataclasses.dataclass
-class ExampleDBKey:
+class ExampleKey:
     """Unique identifier for one example."""
 
     # Name of the partition (usually train/eval/test)
     partition: str
     # Values of the primary keys for the example (in order of key precedence)
-    primary_key_values: List[Any]
+    primary_key_values: List[Union[str, int]]
 
-    def to_json(self) -> str:
-        return json.dumps(dataclasses.asdict(self), sort_keys=True)
-
-    @classmethod
-    def from_json(self, data: str) -> ExampleDBKey:
-        obj = json.loads(data)
-        return ExampleDBKey(partition=obj["partition"], primary_key_values=obj["primary_key_values"])
+    def hash(self) -> str:
+        return hashlib.sha256(
+            "/".join([self.partition, *[str(obj) for obj in self.primary_key_values]]).encode()
+        ).hexdigest()
 
 
 class DatasetWriter:
@@ -76,7 +72,7 @@ class AsyncDatasetWriter(DatasetWriter):
             all examples, defaults to 10
         """
         self.dataset_definition = dataset_definition
-        self.buffer: List[Tuple[ExampleDBKey, Dict[str, Any]]] = []
+        self.buffer: List[Tuple[ExampleKey, Dict[str, Any]]] = []
         self.buffer_size_limit = buffer_size_limit
 
         self.wait_flush_timeout_seconds = wait_flush_timeout_seconds
@@ -106,7 +102,7 @@ class AsyncDatasetWriter(DatasetWriter):
         """
         # Run sanity checks on the data, fill empty fields.
         ex = dataparsing.parse_example(raw_data, self.dataset_definition.schema)
-        example_key = ExampleDBKey(
+        example_key = ExampleKey(
             partition=partition_name, primary_key_values=[ex[k] for k in self.dataset_definition.schema.primary_keys]
         )
         self.buffer.append((example_key, ex))
@@ -153,11 +149,11 @@ class AsyncDatasetWriter(DatasetWriter):
                 self.flush_condition_variable.wait()
             yield
 
-    def _save_row(self, key: ExampleDBKey, hashed_row_key: str, data: Dict[str, Any]) -> str:
-        self._save_row_impl(key, hashed_row_key, data)
-        return hashed_row_key
+    def _save_row(self, key: ExampleKey, data: Dict[str, Any]) -> str:
+        self._save_row_impl(key, data)
+        return key.hash()
 
-    def _save_batch_data(self, batch_data: List[Tuple[ExampleDBKey, Dict[str, Any]]]) -> None:
+    def _save_batch_data(self, batch_data: List[Tuple[ExampleKey, Dict[str, Any]]]) -> None:
         """Save a batch of data to persistent storage
 
         :param row_keys: Unique identifiers for each row Uses only 0-9A-F, can be used as a file name.
@@ -177,17 +173,15 @@ class AsyncDatasetWriter(DatasetWriter):
                 max_in_flight=2 * self.buffer_size_limit,
                 timeout_seconds=self.wait_flush_timeout_seconds,
             ):
-                hashed_row_key = hashlib.sha256(key.to_json().encode()).hexdigest()
-                self.writes_in_flight[hashed_row_key] = data
-            future = self.executor.submit(self._save_row, key, hashed_row_key, data)
+                self.writes_in_flight[key.hash()] = data
+            future = self.executor.submit(self._save_row, key, data)
             future.add_done_callback(done_callback)
 
     @abc.abstractmethod
-    def _save_row_impl(self, key: ExampleDBKey, hashed_row_key: str, data: Dict[str, Any]) -> None:
+    def _save_row_impl(self, key: ExampleKey, data: Dict[str, Any]) -> None:
         """Subclasses should implement this method to save each individual row
 
         :param key: key of row
-        :param hashed_row_key: hashed key for row
         :param data: validated data for row
         """
         pass
