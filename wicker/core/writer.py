@@ -8,10 +8,10 @@ import threading
 import time
 from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from types import TracebackType
-from typing import Any, Dict, Iterator, List, Optional, Tuple, Type, Union
+from typing import Any, Dict, Iterator, List, Optional, Tuple, Type, Union, Generator
 
 from wicker.core.definitions import DatasetDefinition
-from wicker.schema import dataparsing
+from wicker.schema import dataparsing, schema
 
 
 @dataclasses.dataclass
@@ -30,7 +30,7 @@ class ExampleKey:
 
 
 class DatasetWriter:
-    """Abstract class for writing a dataset"""
+    """Abstract class for the backend for writing a dataset"""
 
     @abc.abstractmethod
     def add_example(self, partition_name: str, raw_data: Dict[str, Any]) -> None:
@@ -42,9 +42,18 @@ class DatasetWriter:
         pass
 
     @abc.abstractmethod
-    def commit(self) -> None:
-        """Commits the added examples as a materialized dataset"""
+    def _query(self, dataset_id: str, partition_name: str) -> Generator[ExampleKey, None, None]:
+        """Queries the dataset for a sorted list of ExampleKeys for a given partition. Should be fast (O(minutes))
+        to perform for each partition as this is called on a single machine to assign chunks to jobs to run.
+        """
         pass
+
+    @abc.abstractmethod
+    def _save_schema(self, dataset_schema: schema.DatasetSchema) -> None:
+        """Saves the schema for a dataset
+        """
+        pass
+
 
 
 DEFAULT_BUFFER_SIZE_LIMIT = 1000
