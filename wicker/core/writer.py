@@ -4,13 +4,28 @@ import abc
 import contextlib
 import dataclasses
 import hashlib
+import os
+import pickle
 import threading
 import time
 from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from types import TracebackType
-from typing import Any, Dict, Generator, Iterator, List, Optional, Tuple, Type, Union
+from typing import (
+    Any,
+    Dict,
+    Generator,
+    Iterable,
+    Iterator,
+    List,
+    Optional,
+    Tuple,
+    Type,
+    Union,
+)
 
-from wicker.core.definitions import DatasetDefinition
+import pyarrow as pa
+
+from wicker.core.definitions import DatasetDefinition, DatasetID
 from wicker.core.storage import S3DataStorage, S3PathFactory
 from wicker.schema import dataparsing, serialization
 
@@ -30,50 +45,92 @@ class ExampleKey:
         ).hexdigest()
 
 
-class DatasetWriter:
-    """Abstract class for the backend for writing a dataset"""
+class DatasetWriterMetadataDatabase:
+    """Database for storing metadata, used from inside the DatasetWriterBackend.
+
+    NOTE: Implementors - this is the main implementation integration point for creating a new kind of DatasetWriter.
+    """
+
+    @abc.abstractmethod
+    def save_row_metadata(self, key: ExampleKey, location: str, row_size: int) -> None:
+        """Saves a row in the metadata database, marking it as having been uploaded to S3 and
+        ready for shuffling.
+
+        :param key: The key of the example
+        :param location: The location of the example in S3
+        :param row_size: The size of the file in S3
+        """
+        pass
+
+    @abc.abstractmethod
+    def scan_sorted(self, dataset: DatasetID) -> Generator[ExampleKey, None, None]:
+        """Scans the MetadataDatabase for a **SORTED** list of ExampleKeys for a given dataset. Should be fast O(minutes)
+        to perform as this will be called from a single machine to assign chunks to jobs to run.
+
+        :param dataset: The dataset to scan the metadata database for
+        :return: a Generator of ExampleKeys in **SORTED** primary_key order
+        """
+        pass
+
+
+class DatasetWriterBackend:
+    """The backend for a DatasetWriter.
+
+    Responsible for saving and retrieving data used during the dataset writing and committing workflow.
+    """
 
     def __init__(
         self,
-        dataset_definition: DatasetDefinition,
         s3_path_factory: S3PathFactory,
         s3_storage: S3DataStorage,
+        metadata_database: DatasetWriterMetadataDatabase,
     ):
-        self.dataset_definition = dataset_definition
-        self.s3_path_factory = s3_path_factory
-        self.s3_storage = s3_storage
+        self._s3_path_factory = s3_path_factory
+        self._s3_storage = s3_storage
+        self._metadata_db = metadata_database
 
-    @abc.abstractmethod
-    def add_example(self, partition_name: str, raw_data: Dict[str, Any]) -> None:
-        """Adds an example to the writer
+    def save_row(self, dataset_id: DatasetID, key: ExampleKey, raw_data: Dict[str, Any]) -> None:
+        """Adds an example to the backend
 
         :param partition_name: partition name where the example belongs
         :param raw_data: raw data for the example that conforms to the schema provided at initialization
         """
-        pass
+        hashed_row_key = key.hash()
+        pickled_row = pickle.dumps(raw_data)  # TODO(jchia): Do we want a more sophisticated storage format here?
+        row_s3_path = os.path.join(
+            self._s3_path_factory.get_temporary_row_files_path(dataset_id),
+            hashed_row_key,
+        )
 
-    @abc.abstractmethod
-    def _scan_unordered(self) -> Generator[ExampleKey, None, None]:
-        """Scans the dataset for a non-sorted list of ExampleKeys for a given partition. Should be fast (O(minutes))
-        to perform for each partition as this is called on a single machine to assign chunks to jobs to run.
-        """
-        pass
+        # Persist data in S3 and in MetadataDatabase
+        self._s3_storage.put_object_s3(pickled_row, row_s3_path)
+        self._metadata_db.save_row_metadata(key, row_s3_path, len(pickled_row))
 
-    def _write_schema(
+    def commit_schema(
         self,
+        dataset_definition: DatasetDefinition,
     ) -> None:
-        """Write the schema to storage."""
-        dataset_id = self.dataset_definition.identifier
-        schema_path = self.s3_path_factory.get_dataset_schema_path(dataset_id)
-        serialized_schema = serialization.dumps(self.dataset_definition.schema)
-        self.s3_storage.put_object_s3(serialized_schema.encode(), schema_path)
+        """Write the schema to the backend as part of the commit step."""
+        schema_path = self._s3_path_factory.get_dataset_schema_path(dataset_definition.identifier)
+        serialized_schema = serialization.dumps(dataset_definition.schema)
+        self._s3_storage.put_object_s3(serialized_schema.encode(), schema_path)
+
+    def extract_and_store_heavy_bytes_chunk(
+        self,
+        chunk: Iterable[Dict[str, Any]],
+    ) -> pa.Table:
+        """Extracts and stores all heavy-pointer fields from a chunk of data, storing them as chunked column files
+        and returning a PyArrow table of just the metadata and heavy-pointers.
+        """
+        # TODO(jchia): Implement! Don't need the metadata service for this.
+        pass
 
 
 DEFAULT_BUFFER_SIZE_LIMIT = 1000
 
 
-class AsyncDatasetWriter(DatasetWriter):
-    """Superclass providing async writing functionality to DatasetWriters. Implementors should override
+class DatasetWriter:
+    """DatasetWriter providing async writing functionality. Implementors should override
     the ._save_row_impl method to define functionality for saving each individual row from inside the
     async thread executors.
     """
@@ -81,13 +138,12 @@ class AsyncDatasetWriter(DatasetWriter):
     def __init__(
         self,
         dataset_definition: DatasetDefinition,
-        s3_path_factory: S3PathFactory = S3PathFactory(),
-        s3_storage: S3DataStorage = S3DataStorage(),
+        backend: DatasetWriterBackend,
         buffer_size_limit: int = DEFAULT_BUFFER_SIZE_LIMIT,
         executor: Optional[Executor] = None,
         wait_flush_timeout_seconds: int = 10,
     ):
-        """Create a new AsyncDatasetWriter
+        """Create a new DatasetWriter
 
         :param dataset_definition: definition of the dataset
         :param s3_path_factory: factory for s3 paths
@@ -97,7 +153,9 @@ class AsyncDatasetWriter(DatasetWriter):
         :param wait_flush_timeout_seconds: number of seconds to wait before timing out on flushing
             all examples, defaults to 10
         """
-        super().__init__(dataset_definition, s3_path_factory, s3_storage)
+        self.dataset_definition = dataset_definition
+        self.backend = backend
+
         self.buffer: List[Tuple[ExampleKey, Dict[str, Any]]] = []
         self.buffer_size_limit = buffer_size_limit
 
@@ -106,7 +164,7 @@ class AsyncDatasetWriter(DatasetWriter):
         self.writes_in_flight: Dict[str, Dict[str, Any]] = {}
         self.flush_condition_variable = threading.Condition()
 
-    def __enter__(self) -> AsyncDatasetWriter:
+    def __enter__(self) -> DatasetWriter:
         return self
 
     def __exit__(
@@ -176,7 +234,7 @@ class AsyncDatasetWriter(DatasetWriter):
             yield
 
     def _save_row(self, key: ExampleKey, data: Dict[str, Any]) -> str:
-        self._save_row_impl(key, data)
+        self.backend.save_row(self.dataset_definition.identifier, key, data)
         return key.hash()
 
     def _save_batch_data(self, batch_data: List[Tuple[ExampleKey, Dict[str, Any]]]) -> None:
@@ -202,12 +260,3 @@ class AsyncDatasetWriter(DatasetWriter):
                 self.writes_in_flight[key.hash()] = data
             future = self.executor.submit(self._save_row, key, data)
             future.add_done_callback(done_callback)
-
-    @abc.abstractmethod
-    def _save_row_impl(self, key: ExampleKey, data: Dict[str, Any]) -> None:
-        """Subclasses should implement this method to save each individual row
-
-        :param key: key of row
-        :param data: validated data for row
-        """
-        pass
