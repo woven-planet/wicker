@@ -35,9 +35,11 @@ class DatasetWriter:
 
     def __init__(
         self,
+        dataset_definition: DatasetDefinition,
         s3_path_factory: S3PathFactory,
         s3_storage: S3DataStorage,
     ):
+        self.dataset_definition = dataset_definition
         self.s3_path_factory = s3_path_factory
         self.s3_storage = s3_storage
 
@@ -51,20 +53,19 @@ class DatasetWriter:
         pass
 
     @abc.abstractmethod
-    def _query(self, dataset_id: str, partition_name: str) -> Generator[ExampleKey, None, None]:
-        """Queries the dataset for a sorted list of ExampleKeys for a given partition. Should be fast (O(minutes))
+    def _scan_unordered(self) -> Generator[ExampleKey, None, None]:
+        """Scans the dataset for a non-sorted list of ExampleKeys for a given partition. Should be fast (O(minutes))
         to perform for each partition as this is called on a single machine to assign chunks to jobs to run.
         """
         pass
 
     def _write_schema(
         self,
-        dataset_definition: DatasetDefinition,
     ) -> None:
         """Write the schema to storage."""
-        dataset_id = dataset_definition.identifier
+        dataset_id = self.dataset_definition.identifier
         schema_path = self.s3_path_factory.get_dataset_schema_path(dataset_id)
-        serialized_schema = serialization.dumps(dataset_definition.schema)
+        serialized_schema = serialization.dumps(self.dataset_definition.schema)
         self.s3_storage.put_object_s3(serialized_schema.encode(), schema_path)
 
 
@@ -97,8 +98,7 @@ class AsyncDatasetWriter(DatasetWriter):
         :param wait_flush_timeout_seconds: number of seconds to wait before timing out on flushing
             all examples, defaults to 10
         """
-        super().__init__(s3_path_factory, s3_storage)
-        self.dataset_definition = dataset_definition
+        super().__init__(dataset_definition, s3_path_factory, s3_storage)
         self.buffer: List[Tuple[ExampleKey, Dict[str, Any]]] = []
         self.buffer_size_limit = buffer_size_limit
 
