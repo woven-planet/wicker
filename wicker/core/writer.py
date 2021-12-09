@@ -81,8 +81,8 @@ class AsyncDatasetWriter(DatasetWriter):
     def __init__(
         self,
         dataset_definition: DatasetDefinition,
-        s3_path_factory: S3PathFactory,
-        s3_storage: S3DataStorage,
+        s3_path_factory: S3PathFactory = S3PathFactory(),
+        s3_storage: S3DataStorage = S3DataStorage(),
         buffer_size_limit: int = DEFAULT_BUFFER_SIZE_LIMIT,
         executor: Optional[Executor] = None,
         wait_flush_timeout_seconds: int = 10,
