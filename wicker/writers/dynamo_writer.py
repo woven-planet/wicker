@@ -40,6 +40,8 @@ def _key_to_row_id_and_shard_id(example_key: ExampleKey) -> Tuple[str, int]:
 
 
 def _dataset_shard_name(dataset_definition: DatasetDefinition, shard_id: int) -> str:
+    """Get the name of the DynamoDB partition for a given dataset_definition and shard number
+    """
     return f"{dataset_definition.identifier}_shard{shard_id:02d}"
 
 
