@@ -11,7 +11,8 @@ from types import TracebackType
 from typing import Any, Dict, Iterator, List, Optional, Tuple, Type, Union, Generator
 
 from wicker.core.definitions import DatasetDefinition
-from wicker.schema import dataparsing, schema
+from wicker.core.storage import S3PathFactory, S3DataStorage
+from wicker.schema import dataparsing, schema, serialization
 
 
 @dataclasses.dataclass
@@ -32,6 +33,14 @@ class ExampleKey:
 class DatasetWriter:
     """Abstract class for the backend for writing a dataset"""
 
+    def __init__(
+        self,
+        s3_path_factory: S3PathFactory,
+        s3_storage: S3DataStorage,
+    ):
+        self.s3_path_factory = s3_path_factory
+        self.s3_storage = s3_storage
+
     @abc.abstractmethod
     def add_example(self, partition_name: str, raw_data: Dict[str, Any]) -> None:
         """Adds an example to the writer
@@ -48,11 +57,15 @@ class DatasetWriter:
         """
         pass
 
-    @abc.abstractmethod
-    def _save_schema(self, dataset_schema: schema.DatasetSchema) -> None:
-        """Saves the schema for a dataset
-        """
-        pass
+    def _write_schema(
+        self,
+        dataset_definition: DatasetDefinition,
+    ) -> None:
+        """Write the schema to storage."""
+        dataset_id = dataset_definition.identifier
+        schema_path = self.s3_path_factory.get_dataset_schema_path(dataset_id)
+        serialized_schema = serialization.dumps(dataset_definition.schema)
+        self.s3_storage.put_object_s3(serialized_schema.encode(), schema_path)
 
 
 
@@ -68,6 +81,8 @@ class AsyncDatasetWriter(DatasetWriter):
     def __init__(
         self,
         dataset_definition: DatasetDefinition,
+        s3_path_factory: S3PathFactory,
+        s3_storage: S3DataStorage,
         buffer_size_limit: int = DEFAULT_BUFFER_SIZE_LIMIT,
         executor: Optional[Executor] = None,
         wait_flush_timeout_seconds: int = 10,
@@ -75,11 +90,14 @@ class AsyncDatasetWriter(DatasetWriter):
         """Create a new AsyncDatasetWriter
 
         :param dataset_definition: definition of the dataset
+        :param s3_path_factory: factory for s3 paths
+        :param s3_storage: S3-compatible storage for storing data
         :param buffer_size_limit: size limit to the number of examples buffered in-memory, defaults to 1000
         :param executor: concurrent.futures.Executor to use for async writing, defaults to None
         :param wait_flush_timeout_seconds: number of seconds to wait before timing out on flushing
             all examples, defaults to 10
         """
+        super().__init__(s3_path_factory, s3_storage)
         self.dataset_definition = dataset_definition
         self.buffer: List[Tuple[ExampleKey, Dict[str, Any]]] = []
         self.buffer_size_limit = buffer_size_limit
