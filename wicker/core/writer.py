@@ -8,11 +8,11 @@ import threading
 import time
 from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from types import TracebackType
-from typing import Any, Dict, Iterator, List, Optional, Tuple, Type, Union, Generator
+from typing import Any, Dict, Generator, Iterator, List, Optional, Tuple, Type, Union
 
 from wicker.core.definitions import DatasetDefinition
-from wicker.core.storage import S3PathFactory, S3DataStorage
-from wicker.schema import dataparsing, schema, serialization
+from wicker.core.storage import S3DataStorage, S3PathFactory
+from wicker.schema import dataparsing, serialization
 
 
 @dataclasses.dataclass
@@ -67,7 +67,6 @@ class DatasetWriter:
         schema_path = self.s3_path_factory.get_dataset_schema_path(dataset_id)
         serialized_schema = serialization.dumps(self.dataset_definition.schema)
         self.s3_storage.put_object_s3(serialized_schema.encode(), schema_path)
-
 
 
 DEFAULT_BUFFER_SIZE_LIMIT = 1000

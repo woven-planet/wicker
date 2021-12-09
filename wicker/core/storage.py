@@ -221,8 +221,8 @@ class S3PathFactory:
     def get_dataset_partition_path(self, data_partition: DatasetPartition, s3_prefix: bool = True) -> str:
         full_path = os.path.join(
             self.root_path,
-            data_partition.name,
-            data_partition.version,
+            data_partition.dataset_id.name,
+            data_partition.dataset_id.version,
             f"{data_partition.partition}.parquet",
         )
         if not s3_prefix:
