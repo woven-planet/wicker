@@ -15,11 +15,9 @@ from urllib.parse import urlparse
 import boto3
 from botocore.exceptions import ClientError  # type: ignore
 
+from wicker.core.config import get_config
 from wicker.core.definitions import DatasetID, DatasetPartition
 from wicker.core.filelock import SimpleUnixFileLock
-
-S3_DATASETS_BUCKET_REGION = "us-west-2"
-S3_DATASETS_PATH = "s3://lyft-av-prod-pdx-ml-data/l5ml_datasets"
 
 
 logger = logging.getLogger(__name__)
@@ -192,7 +190,7 @@ class S3PathFactory:
                 - part-1-attempt-2345.parquet
     """
 
-    def __init__(self, s3_root_path: str = S3_DATASETS_PATH) -> None:
+    def __init__(self, s3_root_path: str = get_config().aws_s3_config.s3_datasets_path ) -> None:
         self.root_path = s3_root_path
 
     def __eq__(self, other: Any) -> bool:
