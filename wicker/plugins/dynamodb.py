@@ -1,11 +1,13 @@
+import dataclasses
 import heapq
 from typing import Generator, List, Tuple
 
 import pynamodb
-from pynamodb.attributes import NumberAttribute, UnicodeAttribute
+from pynamodb.attributes import ListAttribute, NumberAttribute, UnicodeAttribute
 from pynamodb.models import Model
 from retry import retry
 
+from wicker.core.config import get_config
 from wicker.core.definitions import DatasetID
 from wicker.core.writer import (
     AbstractDatasetWriterMetadataDatabase,
@@ -20,13 +22,34 @@ HASH_PREFIX_LENGTH = 4
 DYNAMODB_QUERY_PAGINATION_LIMIT = 1000
 
 
+@dataclasses.dataclass(frozen=True)
+class DynamoDBConfig:
+    table_name: str
+    region: str
+
+
+def get_dynamodb_config() -> DynamoDBConfig:
+    raw_config = get_config().raw
+    if "dynamodb_config" not in raw_config:
+        raise RuntimeError("Could not find 'dynamodb' parameters in config")
+    if "table_name" not in raw_config["dynamodb_config"]:
+        raise RuntimeError("Could not find 'table_name' parameter in config.dynamodb_config")
+    if "region" not in raw_config["dynamodb_config"]:
+        raise RuntimeError("Could not find 'region' parameter in config.dynamodb_config")
+    return DynamoDBConfig(
+        table_name=raw_config["dynamodb_config"]["table_name"],
+        region=raw_config["dynamodb_config"]["region"],
+    )
+
+
 class DynamoDBExampleDBRow(Model):
     class Meta:
-        table_name = "l5ml-datastore"
-        region = "us-west-2"  # TODO(jchia: Figure out how to pipe this in as a parameter)
+        table_name = get_dynamodb_config().table_name
+        region = get_dynamodb_config().region
 
     dataset_id = UnicodeAttribute(hash_key=True)
     example_id = UnicodeAttribute(range_key=True)
+    partition = UnicodeAttribute()
     row_data_path = UnicodeAttribute()
     row_size = NumberAttribute()
 
@@ -41,9 +64,10 @@ def _key_to_row_id_and_shard_id(example_key: ExampleKey) -> Tuple[str, int]:
     We completely randomize the hash and range key to optimize for write throughput, but this means
     that sorting needs to be done entirely client-side in our application.
     """
+    partition_example_id = f"{example_key.partition}//{'/'.join([str(key) for key in example_key.primary_key_values])}"
     hash = example_key.hash()
-    shard = int(hash[0], 16) % NUM_DYNAMODB_SHARDS
-    return hash, shard
+    shard = int(hash, 16) % NUM_DYNAMODB_SHARDS
+    return partition_example_id, shard
 
 
 def _dataset_shard_name(dataset_id: DatasetID, shard_id: int) -> str:
@@ -61,10 +85,11 @@ class DynamodbMetadataDatabase(AbstractDatasetWriterMetadataDatabase):
         :param location: The location of the example in S3
         :param row_size: The size of the file in S3
         """
-        example_id, shard_id = _key_to_row_id_and_shard_id(key)
+        partition_example_id, shard_id = _key_to_row_id_and_shard_id(key)
         entry = DynamoDBExampleDBRow(
             dataset_id=_dataset_shard_name(dataset_id, shard_id),
-            example_id=example_id,
+            example_id=partition_example_id,
+            partition=key.partition,
             row_data_path=location,
             row_size=row_size,
         )
@@ -116,7 +141,7 @@ class DynamodbMetadataDatabase(AbstractDatasetWriterMetadataDatabase):
             except StopIteration:
                 pass
             yield ExampleDBRow(
-                example_id=row.example_id,
+                partition=row.partition,
                 row_data_path=row.row_data_path,
                 row_size=row.row_size,
             )

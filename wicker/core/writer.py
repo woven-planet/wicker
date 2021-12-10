@@ -47,7 +47,7 @@ class ExampleKey:
 
 @dataclasses.dataclass
 class ExampleDBRow:
-    example_id: str
+    partition: str
     row_data_path: str
     row_size: int
 
@@ -72,11 +72,13 @@ class AbstractDatasetWriterMetadataDatabase:
 
     @abc.abstractmethod
     def scan_sorted(self, dataset_id: DatasetID) -> Generator[ExampleDBRow, None, None]:
-        """Scans the MetadataDatabase for a **SORTED** list of ExampleKeys for a given dataset. Should be fast O(minutes)
-        to perform as this will be called from a single machine to assign chunks to jobs to run.
+        """Scans the MetadataDatabase for a **SORTED** stream of ExampleDBRows for a given dataset. The stream is sorted
+        by partition first, and then primary_key_values second.
+
+        Should be fast O(minutes) to perform as this will be called from a single machine to assign chunks to jobs to run.
 
         :param dataset: The dataset to scan the metadata database for
-        :return: a Generator of DynamoDBExampleDBRow in **SORTED** primary_key order
+        :return: a Generator of ExampleDBRows in **SORTED** partition + primary_key order
         """
         pass
 
