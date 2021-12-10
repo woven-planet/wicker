@@ -1,14 +1,17 @@
-import os
-import pickle
-from typing import Any, Dict, Generator, Optional, Tuple
+import heapq
+from typing import Generator, List, Tuple
 
 import pynamodb
 from pynamodb.attributes import NumberAttribute, UnicodeAttribute
 from pynamodb.models import Model
 from retry import retry
 
-from wicker.core.definitions import DatasetDefinition
-from wicker.core.writer import AsyncDatasetWriter, ExampleKey
+from wicker.core.definitions import DatasetID
+from wicker.core.writer import (
+    AbstractDatasetWriterMetadataDatabase,
+    ExampleDBRow,
+    ExampleKey,
+)
 
 # DANGER: If these constants are ever changed, this is a backward-incompatible change.
 # Make sure that all the writers and readers of dynamodb are in sync when changing.
@@ -29,55 +32,58 @@ class DynamoDBExampleDBRow(Model):
 
 
 def _key_to_row_id_and_shard_id(example_key: ExampleKey) -> Tuple[str, int]:
-    """Convert an ExampleKey into a DynamoDB HashKey and RangeKey in a deterministic way.
+    """Deterministically convert an ExampleKey into a row_id and a shard_id which are used as
+    DynamoDB RangeKeys and HashKeys respectively.
 
-    HashKeys help to increase write throughput by allowing us to write to different partitions.
+    HashKeys help to increase read/write throughput by allowing us to use different partitions.
     RangeKeys are how the rows are sorted within partitions by DynamoDB.
+
+    We completely randomize the hash and range key to optimize for write throughput, but this means
+    that sorting needs to be done entirely client-side in our application.
     """
     hash = example_key.hash()
     shard = int(hash[0], 16) % NUM_DYNAMODB_SHARDS
     return hash, shard
 
 
-def _dataset_shard_name(dataset_definition: DatasetDefinition, shard_id: int) -> str:
-    """Get the name of the DynamoDB partition for a given dataset_definition and shard number
-    """
-    return f"{dataset_definition.identifier}_shard{shard_id:02d}"
+def _dataset_shard_name(dataset_id: DatasetID, shard_id: int) -> str:
+    """Get the name of the DynamoDB partition for a given dataset_definition and shard number"""
+    return f"{dataset_id}_shard{shard_id:02d}"
 
 
-class DynamodbAsyncDatasetWriter(AsyncDatasetWriter):
-    def _save_row_impl(self, key: ExampleKey, data: Dict[str, Any]) -> None:
-        """Subclasses should implement this method to save each individual row
+class DynamodbMetadataDatabase(AbstractDatasetWriterMetadataDatabase):
+    def save_row_metadata(self, dataset_id: DatasetID, key: ExampleKey, location: str, row_size: int) -> None:
+        """Saves a row in the metadata database, marking it as having been uploaded to S3 and
+        ready for shuffling.
 
-        :param key: key of row
-        :param data: validated data for row
+        :param dataset_id: The ID of the dataset to save to
+        :param key: The key of the example
+        :param location: The location of the example in S3
+        :param row_size: The size of the file in S3
         """
-        hashed_row_key = key.hash()
-        pickled_row = pickle.dumps(data)  # TODO(jchia): Do we want a more sophisticated storage format here?
-        row_s3_path = os.path.join(
-            self.s3_path_factory.get_temporary_row_files_path(self.dataset_definition.identifier),
-            hashed_row_key,
-        )
-
-        # Write to S3 and write a pointer in DynamoDB
-        self.s3_storage.put_object_s3(pickled_row, row_s3_path)
         example_id, shard_id = _key_to_row_id_and_shard_id(key)
         entry = DynamoDBExampleDBRow(
-            dataset_id=_dataset_shard_name(self.dataset_definition, shard_id),
+            dataset_id=_dataset_shard_name(dataset_id, shard_id),
             example_id=example_id,
-            row_data_path=row_s3_path,
-            row_size=len(pickled_row),
+            row_data_path=location,
+            row_size=row_size,
         )
         entry.save()
 
-    @retry(pynamodb.exceptions.QueryError, tries=10, backoff=2, delay=4, jitter=(0, 2))
-    def _scan_unordered(self) -> Generator[ExampleKey, None, None]:
-        """Scans the dataset for a non-sorted list of ExampleKeys for a given partition. Should be fast (O(minutes))
-        to perform for each partition as this is called on a single machine to assign chunks to jobs to run.
+    def scan_sorted(self, dataset_id: DatasetID) -> Generator[ExampleDBRow, None, None]:
+        """Scans the MetadataDatabase for a **SORTED** list of ExampleKeys for a given dataset. Should be fast O(minutes)
+        to perform as this will be called from a single machine to assign chunks to jobs to run.
+
+        :param dataset: The dataset to scan the metadata database for
+        :return: a Generator of DynamoDBExampleDBRow in **SORTED** primary_key order
         """
-        for shard_id in range(NUM_DYNAMODB_SHARDS):
-            # Run a paginated query for all data from the shard, yielding data until the query runs empty
-            hash_key = _dataset_shard_name(self.dataset_definition, shard_id)
+
+        @retry(pynamodb.exceptions.QueryError, tries=10, backoff=2, delay=4, jitter=(0, 2))
+        def shard_iterator(shard_id: int) -> Generator[DynamoDBExampleDBRow, None, None]:
+            """Yields DynamoDBExampleDBRows from a given shard to exhaustion, sorted by example_id in ascending order
+            DynamoDBExampleDBRows are yielded in sorted order of the Dynamodb RangeKey, which is the example_id
+            """
+            hash_key = _dataset_shard_name(dataset_id, shard_id)
             last_evaluated_key = None
             while True:
                 query_results = DynamoDBExampleDBRow.query(
@@ -90,3 +96,27 @@ class DynamodbAsyncDatasetWriter(AsyncDatasetWriter):
                 if query_results.last_evaluated_key is None:
                     break
                 last_evaluated_key = query_results.last_evaluated_key
+
+        # Individual shards have their rows already in sorted order
+        # Elements are popped off each shard to exhaustion and put into a minheap
+        # We yield from the heap to exhaustion to provide a stream of globally sorted example_ids
+        heap: List[Tuple[str, int, DynamoDBExampleDBRow]] = []
+        shard_iterators = {shard_id: shard_iterator(shard_id) for shard_id in range(NUM_DYNAMODB_SHARDS)}
+        for shard_id, iterator in shard_iterators.items():
+            try:
+                row = next(iterator)
+                heapq.heappush(heap, (row.example_id, shard_id, row))
+            except StopIteration:
+                pass
+        while heap:
+            _, shard_id, row = heapq.heappop(heap)
+            try:
+                nextrow = next(shard_iterators[shard_id])
+                heapq.heappush(heap, (nextrow.example_id, shard_id, nextrow))
+            except StopIteration:
+                pass
+            yield ExampleDBRow(
+                example_id=row.example_id,
+                row_data_path=row.row_data_path,
+                row_size=row.row_size,
+            )

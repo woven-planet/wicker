@@ -45,17 +45,25 @@ class ExampleKey:
         ).hexdigest()
 
 
-class DatasetWriterMetadataDatabase:
+@dataclasses.dataclass
+class ExampleDBRow:
+    example_id: str
+    row_data_path: str
+    row_size: int
+
+
+class AbstractDatasetWriterMetadataDatabase:
     """Database for storing metadata, used from inside the DatasetWriterBackend.
 
     NOTE: Implementors - this is the main implementation integration point for creating a new kind of DatasetWriter.
     """
 
     @abc.abstractmethod
-    def save_row_metadata(self, key: ExampleKey, location: str, row_size: int) -> None:
+    def save_row_metadata(self, dataset_id: DatasetID, key: ExampleKey, location: str, row_size: int) -> None:
         """Saves a row in the metadata database, marking it as having been uploaded to S3 and
         ready for shuffling.
 
+        :param dataset_id: The ID of the dataset to save to
         :param key: The key of the example
         :param location: The location of the example in S3
         :param row_size: The size of the file in S3
@@ -63,12 +71,12 @@ class DatasetWriterMetadataDatabase:
         pass
 
     @abc.abstractmethod
-    def scan_sorted(self, dataset: DatasetID) -> Generator[ExampleKey, None, None]:
+    def scan_sorted(self, dataset_id: DatasetID) -> Generator[ExampleDBRow, None, None]:
         """Scans the MetadataDatabase for a **SORTED** list of ExampleKeys for a given dataset. Should be fast O(minutes)
         to perform as this will be called from a single machine to assign chunks to jobs to run.
 
         :param dataset: The dataset to scan the metadata database for
-        :return: a Generator of ExampleKeys in **SORTED** primary_key order
+        :return: a Generator of DynamoDBExampleDBRow in **SORTED** primary_key order
         """
         pass
 
@@ -83,7 +91,7 @@ class DatasetWriterBackend:
         self,
         s3_path_factory: S3PathFactory,
         s3_storage: S3DataStorage,
-        metadata_database: DatasetWriterMetadataDatabase,
+        metadata_database: AbstractDatasetWriterMetadataDatabase,
     ):
         self._s3_path_factory = s3_path_factory
         self._s3_storage = s3_storage
@@ -104,7 +112,7 @@ class DatasetWriterBackend:
 
         # Persist data in S3 and in MetadataDatabase
         self._s3_storage.put_object_s3(pickled_row, row_s3_path)
-        self._metadata_db.save_row_metadata(key, row_s3_path, len(pickled_row))
+        self._metadata_db.save_row_metadata(dataset_id, key, row_s3_path, len(pickled_row))
 
     def commit_schema(
         self,
