@@ -8,8 +8,7 @@ Create a Wicker configuration JSON file. This file can either be at the default 
 ```
 {
     "aws_s3_config": {
-        "s3_datasets_path": <base path to aws bucket and prefix for all data>,
-        "s3_buckets_region": <region of bucket>
+        "s3_datasets_path": <base path to aws bucket and prefix for all data>
     }
 }
 ```
