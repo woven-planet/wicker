@@ -3,7 +3,7 @@ import heapq
 from typing import Generator, List, Tuple
 
 import pynamodb
-from pynamodb.attributes import ListAttribute, NumberAttribute, UnicodeAttribute
+from pynamodb.attributes import NumberAttribute, UnicodeAttribute
 from pynamodb.models import Model
 from retry import retry
 
@@ -11,8 +11,8 @@ from wicker.core.config import get_config
 from wicker.core.definitions import DatasetID
 from wicker.core.writer import (
     AbstractDatasetWriterMetadataDatabase,
-    ExampleDBRow,
     ExampleKey,
+    MetadataDatabaseScanRow,
 )
 
 # DANGER: If these constants are ever changed, this is a backward-incompatible change.
@@ -95,12 +95,12 @@ class DynamodbMetadataDatabase(AbstractDatasetWriterMetadataDatabase):
         )
         entry.save()
 
-    def scan_sorted(self, dataset_id: DatasetID) -> Generator[ExampleDBRow, None, None]:
+    def scan_sorted(self, dataset_id: DatasetID) -> Generator[MetadataDatabaseScanRow, None, None]:
         """Scans the MetadataDatabase for a **SORTED** list of ExampleKeys for a given dataset. Should be fast O(minutes)
         to perform as this will be called from a single machine to assign chunks to jobs to run.
 
         :param dataset: The dataset to scan the metadata database for
-        :return: a Generator of DynamoDBExampleDBRow in **SORTED** primary_key order
+        :return: a Generator of MetadataDatabaseScanRow in **SORTED** primary_key order
         """
 
         @retry(pynamodb.exceptions.QueryError, tries=10, backoff=2, delay=4, jitter=(0, 2))
@@ -140,7 +140,7 @@ class DynamodbMetadataDatabase(AbstractDatasetWriterMetadataDatabase):
                 heapq.heappush(heap, (nextrow.example_id, shard_id, nextrow))
             except StopIteration:
                 pass
-            yield ExampleDBRow(
+            yield MetadataDatabaseScanRow(
                 partition=row.partition,
                 row_data_path=row.row_data_path,
                 row_size=row.row_size,
