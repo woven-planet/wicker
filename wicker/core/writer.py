@@ -128,16 +128,6 @@ class DatasetWriterBackend:
         serialized_schema = serialization.dumps(dataset_definition.schema)
         self._s3_storage.put_object_s3(serialized_schema.encode(), schema_path)
 
-    def extract_and_store_heavy_bytes_chunk(
-        self,
-        chunk: Iterable[Dict[str, Any]],
-    ) -> pa.Table:
-        """Extracts and stores all heavy-pointer fields from a chunk of data, storing them as chunked column files
-        and returning a PyArrow table of just the metadata and heavy-pointers.
-        """
-        # TODO(jchia): Implement! Don't need the metadata service for this.
-        pass
-
 
 DEFAULT_BUFFER_SIZE_LIMIT = 1000
 
