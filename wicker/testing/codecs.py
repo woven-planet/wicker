@@ -29,7 +29,7 @@ class VectorCodec(codecs.Codec):
 
     def validate_and_encode_object(self, obj: Vector) -> bytes:
         # Inefficient but simple encoding method for testing.
-        return json.dumps(obj.data).encode()
+        return json.dumps(obj.data).encode("utf-8")
 
     def decode_object(self, data: bytes) -> Vector:
         return Vector(json.loads(data.decode()))
