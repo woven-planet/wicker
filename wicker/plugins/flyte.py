@@ -213,19 +213,13 @@ def finalize_shuffling_jobs(dataset_id: str, shuffle_results: List[ShuffleWorker
 @flytekit.workflow  # type: ignore
 def WickerDataShufflingWorkflow(
     dataset_id: str,
-    target_file_size: int,
-    target_file_rowgroup_size: int,
 ) -> Dict[str, int]:
     """Pipeline finalizing a wicker dataset.
     :param dataset_id: string representation of the DatasetID we need to process (dataset name + version).
-    :param target_file_size: Size of the concatenated column bytes files to create for each column.
-    :param target_file_rowgroup_size: Number of rows in concatenated column bytes files to create for each column.
     :return: A dictionary mapping partition_name -> size_of_partition.
     """
     jobs = create_shuffling_jobs(
         dataset_id=dataset_id,
-        target_file_size=target_file_size,
-        target_file_rowgroup_size=target_file_rowgroup_size,
     )
     shuffle_results = flytekit.map_task(run_shuffling_job, metadata=flytekit.TaskMetadata(retries=1))(job=jobs)
     result = cast(Dict[str, int], finalize_shuffling_jobs(dataset_id=dataset_id, shuffle_results=shuffle_results))
