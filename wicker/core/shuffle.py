@@ -89,7 +89,10 @@ class ShuffleJobFactory:
     def build_shuffle_jobs(self, dataset_id: DatasetID) -> Generator[ShuffleJob, None, None]:
         # Initialize with first item
         example_keys = self.writer_backend._metadata_db.scan_sorted(dataset_id)
-        initial_key = next(example_keys)
+        try:
+            initial_key = next(example_keys)
+        except StopIteration:
+            return
         job = ShuffleJob(
             dataset_partition=DatasetPartition(dataset_id=dataset_id, partition=initial_key.partition),
             files=[(initial_key.row_data_path, initial_key.row_size)],
