@@ -107,3 +107,41 @@ class TestShuffleJobFactory(unittest.TestCase):
                 ),
             ],
         )
+
+    def test_shuffle_job_factory_multi_partition_multi_working_sets(self) -> None:
+        """Tests the functionality of a shuffle_job_factory when provided with a mock backend"""
+        partitions = ("train", "test")
+        num_rows = 10
+        num_batches = 2
+        worker_max_working_set_size = num_rows // num_batches
+        mock_rows: List[MetadataDatabaseScanRow] = [
+            MetadataDatabaseScanRow(partition=partition, row_data_path=f"somepath{i}", row_size=i)
+            for partition in partitions
+            for i in range(10)
+        ]
+        mock_dataset_writer_backend = unittest.mock.MagicMock()
+        mock_dataset_writer_backend._metadata_db.scan_sorted.return_value = (row for row in mock_rows)
+        job_factory = ShuffleJobFactory(
+            mock_dataset_writer_backend, worker_max_working_set_size=worker_max_working_set_size
+        )
+        self.assertEqual(
+            list(job_factory.build_shuffle_jobs(FAKE_DATASET_DEFINITION)),
+            [
+                ShuffleJob(
+                    dataset_partition=DatasetPartition(
+                        dataset_id=FAKE_DATASET_ID,
+                        partition=partition,
+                    ),
+                    files=[
+                        (row.row_data_path, row.row_size)
+                        for row in mock_rows[
+                            worker_max_working_set_size
+                            * (batch + (partition_index * num_batches)) : worker_max_working_set_size
+                            * (batch + (partition_index * num_batches) + 1)
+                        ]
+                    ],
+                )
+                for partition_index, partition in enumerate(partitions)
+                for batch in range(2)
+            ],
+        )
