@@ -41,7 +41,7 @@ class TestShuffleJobFactory(unittest.TestCase):
         mock_dataset_writer_backend = unittest.mock.MagicMock()
         mock_dataset_writer_backend._metadata_db.scan_sorted.return_value = (row for row in mock_rows)
         job_factory = ShuffleJobFactory(mock_dataset_writer_backend)
-        self.assertEqual(list(job_factory.build_shuffle_jobs(FAKE_DATASET_DEFINITION)), [])
+        self.assertEqual(list(job_factory.build_shuffle_jobs(FAKE_DATASET_ID)), [])
 
     def test_shuffle_job_factory_one_entry(self) -> None:
         """Tests the functionality of a shuffle_job_factory when provided with a mock backend"""
@@ -52,7 +52,7 @@ class TestShuffleJobFactory(unittest.TestCase):
         mock_dataset_writer_backend._metadata_db.scan_sorted.return_value = (row for row in mock_rows)
         job_factory = ShuffleJobFactory(mock_dataset_writer_backend)
         self.assertEqual(
-            list(job_factory.build_shuffle_jobs(FAKE_DATASET_DEFINITION)),
+            list(job_factory.build_shuffle_jobs(FAKE_DATASET_ID)),
             [
                 ShuffleJob(
                     dataset_partition=DatasetPartition(
@@ -74,7 +74,7 @@ class TestShuffleJobFactory(unittest.TestCase):
         mock_dataset_writer_backend._metadata_db.scan_sorted.return_value = (row for row in mock_rows)
         job_factory = ShuffleJobFactory(mock_dataset_writer_backend)
         self.assertEqual(
-            list(job_factory.build_shuffle_jobs(FAKE_DATASET_DEFINITION)),
+            list(job_factory.build_shuffle_jobs(FAKE_DATASET_ID)),
             [
                 ShuffleJob(
                     dataset_partition=DatasetPartition(
@@ -99,7 +99,7 @@ class TestShuffleJobFactory(unittest.TestCase):
             mock_dataset_writer_backend, worker_max_working_set_size=worker_max_working_set_size
         )
         self.assertEqual(
-            list(job_factory.build_shuffle_jobs(FAKE_DATASET_DEFINITION)),
+            list(job_factory.build_shuffle_jobs(FAKE_DATASET_ID)),
             [
                 ShuffleJob(
                     dataset_partition=DatasetPartition(
@@ -135,7 +135,7 @@ class TestShuffleJobFactory(unittest.TestCase):
             mock_dataset_writer_backend, worker_max_working_set_size=worker_max_working_set_size
         )
         self.assertEqual(
-            list(job_factory.build_shuffle_jobs(FAKE_DATASET_DEFINITION)),
+            list(job_factory.build_shuffle_jobs(FAKE_DATASET_ID)),
             [
                 ShuffleJob(
                     dataset_partition=DatasetPartition(

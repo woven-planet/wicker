@@ -12,9 +12,12 @@ written examples for divvying up as ShuffleJobs.
 3. ShuffleWorkers receive the ShuffleJobs and perform the act of retrieving the data and
 persisting the data into S3 as Parquet files (one for each ShuffleJob)
 """
+from __future__ import annotations
+
 import collections
 import concurrent.futures
 import dataclasses
+import json
 import os
 import pickle
 import tempfile
@@ -26,7 +29,7 @@ import pyarrow.filesystem as pafs
 import pyarrow.parquet as papq
 
 from wicker.core.column_files import ColumnBytesFileWriter
-from wicker.core.definitions import DatasetDefinition, DatasetID, DatasetPartition
+from wicker.core.definitions import DatasetID, DatasetPartition
 from wicker.core.storage import S3DataStorage, S3PathFactory
 from wicker.core.writer import DatasetWriterBackend
 from wicker.schema import serialization
@@ -43,6 +46,34 @@ class ShuffleJob:
     dataset_partition: DatasetPartition
     files: List[Tuple[str, int]]
 
+    def to_bytes(self) -> bytes:
+        return json.dumps(
+            {
+                "dataset_partition": {
+                    "dataset_id": {
+                        "name": self.dataset_partition.dataset_id.name,
+                        "version": self.dataset_partition.dataset_id.version,
+                    },
+                    "partition": self.dataset_partition.partition,
+                },
+                "files": self.files,
+            }
+        ).encode("utf-8")
+
+    @classmethod
+    def from_bytes(cls, b: bytes) -> ShuffleJob:
+        data = json.loads(b.decode("utf-8"))
+        return ShuffleJob(
+            dataset_partition=DatasetPartition(
+                dataset_id=DatasetID(
+                    name=data["dataset_partition"]["dataset_id"]["name"],
+                    version=data["dataset_partition"]["dataset_id"]["version"],
+                ),
+                partition=data["dataset_partition"]["partition"],
+            ),
+            files=[(path, size) for path, size in data["files"]],
+        )
+
 
 class ShuffleJobFactory:
     def __init__(
@@ -55,17 +86,15 @@ class ShuffleJobFactory:
         # Factory configurations
         self.worker_max_working_set_size = worker_max_working_set_size
 
-    def build_shuffle_jobs(self, dataset_definition: DatasetDefinition) -> Generator[ShuffleJob, None, None]:
+    def build_shuffle_jobs(self, dataset_id: DatasetID) -> Generator[ShuffleJob, None, None]:
         # Initialize with first item
-        example_keys = self.writer_backend._metadata_db.scan_sorted(dataset_definition.dataset_id)
+        example_keys = self.writer_backend._metadata_db.scan_sorted(dataset_id)
         try:
             initial_key = next(example_keys)
         except StopIteration:
             return
         job = ShuffleJob(
-            dataset_partition=DatasetPartition(
-                dataset_id=dataset_definition.identifier, partition=initial_key.partition
-            ),
+            dataset_partition=DatasetPartition(dataset_id=dataset_id, partition=initial_key.partition),
             files=[(initial_key.row_data_path, initial_key.row_size)],
         )
 
@@ -82,9 +111,7 @@ class ShuffleJobFactory:
             # Yield job and construct new job to keep iterating
             yield job
             job = ShuffleJob(
-                dataset_partition=DatasetPartition(
-                    dataset_id=dataset_definition.identifier, partition=example_key.partition
-                ),
+                dataset_partition=DatasetPartition(dataset_id=dataset_id, partition=example_key.partition),
                 files=[(example_key.row_data_path, example_key.row_size)],
             )
         else:
@@ -156,11 +183,14 @@ class ShuffleWorker:
                 del buffer[current_index]
 
     def process_job(self, job: ShuffleJob) -> pa.Table:
+        # Load dataset schema
         dataset_schema = serialization.loads(
             self.storage.fetch_obj_s3(
                 self.s3_path_factory.get_dataset_schema_path(job.dataset_partition.dataset_id)
             ).decode("utf-8")
         )
+
+        # Initialize data containers to dump into parquet
         heavy_pointer_columns = dataset_schema.get_pointer_columns()
         metadata_columns = dataset_schema.get_non_pointer_columns()
         parquet_metadata: Dict[str, List[Any]] = collections.defaultdict(list)
