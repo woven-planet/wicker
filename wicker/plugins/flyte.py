@@ -1,6 +1,5 @@
 import collections
 import dataclasses
-import logging
 import tempfile
 from typing import Dict, List, Type, cast
 
@@ -8,16 +7,11 @@ import flytekit  # type: ignore
 import pyarrow as pa  # type: ignore
 from flytekit.extend import TypeEngine, TypeTransformer  # type: ignore
 
-from wicker.core.definitions import DatasetDefinition, DatasetID
+from wicker.core.definitions import DatasetID
 from wicker.core.shuffle import ShuffleJob, ShuffleJobFactory, ShuffleWorker, save_index
 from wicker.core.storage import S3DataStorage, S3PathFactory
 from wicker.core.writer import DatasetWriterBackend
 from wicker.plugins.dynamodb import DynamodbMetadataDatabase
-from wicker.schema import serialization
-
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
 
 ###
 # Custom type definitions to clean up passing of data between Flyte tasks
