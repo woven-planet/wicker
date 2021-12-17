@@ -19,6 +19,11 @@ class FakeS3DataStorage(S3DataStorage):
         self.num_read_requests += 1
         return input_path in self.files
 
+    def fetch_obj_s3(self, input_path: str) -> bytes:
+        if input_path not in self.files:
+            raise KeyError(f"File {input_path} not found in the fake s3 storage.")
+        return self.files[input_path]
+
     def fetch_file_s3(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
         if input_path not in self.files:
             raise KeyError(f"File {input_path} not found in the fake s3 storage.")

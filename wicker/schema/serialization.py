@@ -249,6 +249,7 @@ class AvroDatasetSchemaSerializer(schema.DatasetSchemaVisitor[Dict[str, Any]]):
         return {
             **self.process_schema_field(field, "bytes"),
             "_l5ml_metatype": "object",
+            "_is_heavy_pointer": field.is_heavy_pointer,
         }
 
     def process_array_field(self, field: schema.ArrayField) -> Dict[str, Any]:

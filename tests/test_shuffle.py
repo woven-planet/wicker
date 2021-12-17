@@ -1,11 +1,16 @@
+import pickle
 import unittest
-from typing import List
+import unittest.mock
+from typing import IO, Dict, List, Tuple
 
+from wicker.core.column_files import ColumnBytesFileLocationV1
+from wicker.core.config import get_config
 from wicker.core.definitions import DatasetDefinition, DatasetID, DatasetPartition
-from wicker.core.shuffle import ShuffleJob, ShuffleJobFactory
+from wicker.core.shuffle import ShuffleJob, ShuffleJobFactory, ShuffleWorker
 from wicker.core.writer import MetadataDatabaseScanRow
-from wicker.schema import schema
-from wicker.testing.codecs import VectorCodec
+from wicker.schema import dataparsing, schema, serialization
+from wicker.testing.codecs import Vector, VectorCodec
+from wicker.testing.storage import FakeS3DataStorage
 
 DATASET_NAME = "dataset1"
 DATASET_VERSION = "0.0.1"
@@ -17,6 +22,11 @@ FAKE_DATASET_SCHEMA = schema.DatasetSchema(
     ],
     primary_keys=["car_id", "timestamp"],
 )
+FAKE_EXAMPLE = {
+    "timestamp": 1,
+    "car_id": "somecar",
+    "vector": Vector([0, 0, 0]),
+}
 FAKE_DATASET_ID = DatasetID(name=DATASET_NAME, version=DATASET_VERSION)
 FAKE_DATASET_DEFINITION = DatasetDefinition(
     dataset_id=FAKE_DATASET_ID,
@@ -145,3 +155,58 @@ class TestShuffleJobFactory(unittest.TestCase):
                 for batch in range(2)
             ],
         )
+
+
+class TestShuffleWorker(unittest.TestCase):
+    def setUp(self) -> None:
+        self.boto3_patcher = unittest.mock.patch("wicker.core.shuffle.boto3")
+        self.boto3_mock = self.boto3_patcher.start()
+        self.uploaded_column_bytes_files: Dict[Tuple[str, str], bytes] = {}
+
+    def tearDown(self) -> None:
+        self.boto3_patcher.stop()
+        self.uploaded_column_bytes_files.clear()
+
+    @staticmethod
+    def download_fileobj_mock(bucket: str, key: str, bio: IO) -> None:
+        bio.write(
+            pickle.dumps(
+                dataparsing.parse_example(
+                    FAKE_EXAMPLE,
+                    FAKE_DATASET_SCHEMA,
+                )
+            )
+        )
+        bio.seek(0)
+        return None
+
+    def test_process_job(self) -> None:
+        # The threaded workers each construct their own S3DataStorage from a boto3 client to download
+        # file data in parallel.  We mock those out here by mocking out the boto3 client itself.
+        self.boto3_mock.session.Session().client().download_fileobj.side_effect = self.download_fileobj_mock
+
+        fake_job = ShuffleJob(
+            dataset_partition=DatasetPartition(
+                dataset_id=FAKE_DATASET_ID,
+                partition="test",
+            ),
+            files=[(f"s3://somebucket/path/{i}", i) for i in range(10)],
+        )
+
+        fake_storage = FakeS3DataStorage()
+        fake_storage.put_object_s3(
+            serialization.dumps(FAKE_DATASET_SCHEMA).encode("utf-8"),
+            f"{get_config().aws_s3_config.s3_datasets_path}/{FAKE_DATASET_ID.name}"
+            f"/{FAKE_DATASET_ID.version}/avro_schema.json",
+        )
+        worker = ShuffleWorker(storage=fake_storage)
+        shuffle_results = worker.process_job(fake_job)
+
+        self.assertEqual(shuffle_results["timestamp"].to_pylist(), [FAKE_EXAMPLE["timestamp"] for _ in range(10)])
+        self.assertEqual(shuffle_results["car_id"].to_pylist(), [FAKE_EXAMPLE["car_id"] for _ in range(10)])
+        for location_bytes in shuffle_results["vector"].to_pylist():
+            location = ColumnBytesFileLocationV1.from_bytes(location_bytes)
+            path = worker.s3_path_factory.get_column_concatenated_bytes_s3path_from_uuid(location.file_id.bytes)
+            self.assertTrue(path in fake_storage.files)
+            data = fake_storage.files[path][location.byte_offset : location.byte_offset + location.data_size]
+            self.assertEqual(VectorCodec(0).decode_object(data), FAKE_EXAMPLE["vector"])

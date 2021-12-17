@@ -28,7 +28,7 @@ class ExampleKey:
 
     def hash(self) -> str:
         return hashlib.sha256(
-            "/".join([self.partition, *[str(obj) for obj in self.primary_key_values]]).encode()
+            "/".join([self.partition, *[str(obj) for obj in self.primary_key_values]]).encode("utf-8")
         ).hexdigest()
 
 
