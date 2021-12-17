@@ -10,20 +10,7 @@ import threading
 import time
 from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from types import TracebackType
-from typing import (
-    Any,
-    Dict,
-    Generator,
-    Iterable,
-    Iterator,
-    List,
-    Optional,
-    Tuple,
-    Type,
-    Union,
-)
-
-import pyarrow as pa
+from typing import Any, Dict, Generator, Iterator, List, Optional, Tuple, Type, Union
 
 from wicker.core.definitions import DatasetDefinition, DatasetID
 from wicker.core.storage import S3DataStorage, S3PathFactory
