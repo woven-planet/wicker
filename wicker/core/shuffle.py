@@ -29,7 +29,7 @@ from wicker.core.column_files import ColumnBytesFileWriter
 from wicker.core.definitions import DatasetDefinition, DatasetID, DatasetPartition
 from wicker.core.storage import S3DataStorage, S3PathFactory
 from wicker.core.writer import DatasetWriterBackend
-from wicker.schema import schema
+from wicker.schema import serialization
 
 # Maximum working set for each worker
 DEFAULT_WORKER_MAX_WORKING_SET_SIZE = 16384
@@ -41,7 +41,6 @@ class ShuffleJob:
     compute shard."""
 
     dataset_partition: DatasetPartition
-    schema: schema.DatasetSchema
     files: List[Tuple[str, int]]
 
 
@@ -59,12 +58,14 @@ class ShuffleJobFactory:
     def build_shuffle_jobs(self, dataset_definition: DatasetDefinition) -> Generator[ShuffleJob, None, None]:
         # Initialize with first item
         example_keys = self.writer_backend._metadata_db.scan_sorted(dataset_definition.dataset_id)
-        initial_key = next(example_keys)
+        try:
+            initial_key = next(example_keys)
+        except StopIteration:
+            return
         job = ShuffleJob(
             dataset_partition=DatasetPartition(
                 dataset_id=dataset_definition.identifier, partition=initial_key.partition
             ),
-            schema=dataset_definition.schema,
             files=[(initial_key.row_data_path, initial_key.row_size)],
         )
 
@@ -84,7 +85,6 @@ class ShuffleJobFactory:
                 dataset_partition=DatasetPartition(
                     dataset_id=dataset_definition.identifier, partition=example_key.partition
                 ),
-                schema=dataset_definition.schema,
                 files=[(example_key.row_data_path, example_key.row_size)],
             )
         else:
@@ -156,8 +156,13 @@ class ShuffleWorker:
                 del buffer[current_index]
 
     def process_job(self, job: ShuffleJob) -> pa.Table:
-        heavy_pointer_columns = job.schema.get_pointer_columns()
-        metadata_columns = job.schema.get_non_pointer_columns()
+        dataset_schema = serialization.loads(
+            self.storage.fetch_obj_s3(
+                self.s3_path_factory.get_dataset_schema_path(job.dataset_partition.dataset_id)
+            ).decode("utf-8")
+        )
+        heavy_pointer_columns = dataset_schema.get_pointer_columns()
+        metadata_columns = dataset_schema.get_non_pointer_columns()
         parquet_metadata: Dict[str, List[Any]] = collections.defaultdict(list)
 
         # Parse each row, uploading heavy_pointer bytes to S3 and storing only pointers
