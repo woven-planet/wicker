@@ -180,8 +180,22 @@ TypeEngine.register(ShuffleWorkerResultsTransformer())
 ###
 
 
+@flytekit.task(requests=flytekit.Resources(mem="2Gi", cpu="1"), retries=2)
+def initialize_dataset(
+    schema_json_str: str,
+    dataset_id: str,
+) -> str:
+    """Write the schema to the storage."""
+    s3_path_factory = S3PathFactory()
+    s3_storage = S3DataStorage()
+    schema_path = s3_path_factory.get_dataset_schema_path(DatasetID.from_str(dataset_id))
+    s3_storage.put_object_s3(schema_json_str.encode("utf-8"), schema_path)
+    return schema_json_str
+
+
 @flytekit.task(requests=flytekit.Resources(mem="8Gi", cpu="2"), retries=2)
 def create_shuffling_jobs(
+    schema_json_str: str,
     dataset_id: str,
     worker_max_working_set_size: int = 16384,
 ) -> List[ShuffleJob]:
@@ -189,6 +203,7 @@ def create_shuffling_jobs(
 
     The job descriptions are stored into files managed by Flyte.
     :param dataset_id: string representation of the DatasetID we need to process (dataset name + version).
+    :param schema_json_str: string representation of the dataset schema
     :param max_rows_per_worker: Maximum number of rows to assign per working set, defaults to 16384 but can be
         increased if dataset sizes are so large that we want to use fewer workers and don't mind the committing
         step taking longer per-worker.
@@ -243,12 +258,19 @@ def finalize_shuffling_jobs(dataset_id: str, shuffle_results: List[ShuffleWorker
 @flytekit.workflow  # type: ignore
 def WickerDataShufflingWorkflow(
     dataset_id: str,
+    schema_json_str: str,
 ) -> Dict[str, int]:
     """Pipeline finalizing a wicker dataset.
     :param dataset_id: string representation of the DatasetID we need to process (dataset name + version).
+    :param schema_json_str: string representation of the schema, serialized as JSON
     :return: A dictionary mapping partition_name -> size_of_partition.
     """
+    schema_json_str_committed = initialize_dataset(
+        dataset_id=dataset_id,
+        schema_json_str=schema_json_str,
+    )
     jobs = create_shuffling_jobs(
+        schema_json_str=schema_json_str_committed,
         dataset_id=dataset_id,
     )
     shuffle_results = flytekit.map_task(run_shuffling_job, metadata=flytekit.TaskMetadata(retries=1))(job=jobs)
