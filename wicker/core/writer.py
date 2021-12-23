@@ -64,11 +64,11 @@ class AbstractDatasetWriterMetadataDatabase:
         """Scans the MetadataDatabase for a **SORTED** stream of MetadataDatabaseScanRows for a given dataset.
         The stream is sorted by partition first, and then primary_key_values second.
 
-        Should be fast O(minutes) to perform as this will be called from a single machine to assign chunks to
-        jobs to run.
+        Should be fast O(minutes) to perform as this will be called from a single machine to assign chunks to jobs
+        to run.
 
-        :param dataset: The dataset to scan the metadata database for
-        :return: a Generator of MetadataDatabaseScanRows in **SORTED** partition + primary_key order
+        :param dataset_id: The dataset to scan the metadata database for
+        :return: a Generator of ExampleDBRows in **SORTED** partition + primary_key order
         """
         pass
 
@@ -92,7 +92,8 @@ class DatasetWriterBackend:
     def save_row(self, dataset_id: DatasetID, key: ExampleKey, raw_data: Dict[str, Any]) -> None:
         """Adds an example to the backend
 
-        :param partition_name: partition name where the example belongs
+        :param dataset_id: ID of the dataset to save the row to
+        :param key: Key of the example to write
         :param raw_data: raw data for the example that conforms to the schema provided at initialization
         """
         hashed_row_key = key.hash()
