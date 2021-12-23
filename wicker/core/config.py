@@ -25,11 +25,15 @@ class WickerAwsS3Config:
 
 @dataclasses.dataclass(frozen=True)
 class WickerConfig:
+    raw: Dict[str, Any]
     aws_s3_config: WickerAwsS3Config
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> WickerConfig:
-        return cls(aws_s3_config=WickerAwsS3Config.from_json(data["aws_s3_config"]))
+        return cls(
+            raw=data,
+            aws_s3_config=WickerAwsS3Config.from_json(data["aws_s3_config"]),
+        )
 
 
 _CONFIG: Optional[WickerConfig] = None
