@@ -13,9 +13,10 @@ import struct
 import tempfile
 import uuid
 from types import TracebackType
-from typing import IO, Dict, Literal, Optional, Tuple, Type
+from typing import IO, Any, Dict, List, Literal, Optional, Tuple, Type
 
 from wicker.core.storage import S3DataStorage, S3PathFactory
+from wicker.schema import schema, validation
 
 
 @dataclasses.dataclass(order=True)
@@ -169,3 +170,142 @@ class ColumnBytesFileWriter:
         # Get a new UUID so that the next chunk of this column does not overwrite the previous chunks.
         write_buffer.buffer.close()
         self.write_buffers[column_name] = self._get_new_buffer()
+
+
+class ColumnBytesFileCache:
+    """A read-through caching abstraction for accessing ColumnBytesFiles"""
+
+    def __init__(
+        self,
+        local_cache_path_prefix: str = "/tmp",
+        filelock_timeout_seconds: int = -1,
+        path_factory: S3PathFactory = S3PathFactory(),
+        storage: Optional[S3DataStorage] = None,
+    ):
+        """Initializes a ColumnBytesFileCache
+
+        :param local_cache_path_prefix: root to path on disk to use as a disk cache, defaults to "/tmp"
+        :type local_cache_path_prefix: str, optional
+        :param filelock_timeout_seconds: number of seconds after which to timeout on waiting for downloads,
+            defaults to -1 which indicates to wait forever
+        :type filelock_timeout_seconds: int, optional
+        """
+        self._s3_storage = storage if storage is not None else S3DataStorage()
+        self._root_path = local_cache_path_prefix
+        self._filelock_timeout_seconds = filelock_timeout_seconds
+        self._columns_root_path = path_factory.get_column_concatenated_bytes_files_path()
+
+    def read(
+        self,
+        cbf_info: ColumnBytesFileLocationV1,
+    ) -> bytes:
+        column_concatenated_bytes_file_path = os.path.join(self._columns_root_path, str(cbf_info.file_id))
+
+        local_path = self._s3_storage.fetch_file_s3(
+            column_concatenated_bytes_file_path,
+            self._root_path,
+            timeout_seconds=self._filelock_timeout_seconds,
+        )
+
+        with open(local_path, "rb") as f:
+            f.seek(cbf_info.byte_offset)
+            return f.read(cbf_info.data_size)
+
+    def resolve_pointers(
+        self,
+        example: validation.AvroRecord,
+        schema: schema.DatasetSchema,
+    ) -> validation.AvroRecord:
+        visitor = ResolvePointersVisitor(example, schema, self)
+        return visitor.resolve_pointers()
+
+
+class ResolvePointersVisitor(schema.DatasetSchemaVisitor[Any]):
+    """schema.DatasetSchemaVisitor class that will resolve all heavy pointers in an example by
+    downloading the appropriate ColumnBytesFile files and retrieving the appropriate bytes
+    """
+
+    def __init__(
+        self,
+        example: validation.AvroRecord,
+        schema: schema.DatasetSchema,
+        cbf_cache: ColumnBytesFileCache,
+    ):
+        self.cbf_cache = cbf_cache
+
+        # Pointers to original data (data should be kept immutable)
+        self._schema = schema
+        self._example = example
+
+        # Pointers to help keep visitor state during tree traversal
+        self._current_data: Any = self._example
+        self._current_path: Tuple[str, ...] = tuple()
+
+    def resolve_pointers(self) -> Dict[str, Any]:
+        """Resolve all heavy pointers"""
+        # Since the original input example is non-None, the loaded example will be non-None also
+        example: Dict[str, Any] = self._schema.schema_record.accept_visitor(self)
+        return example
+
+    def process_record_field(self, field: schema.RecordField) -> Optional[validation.AvroRecord]:
+        """Visit an schema.RecordField schema field"""
+        current_data = validation.validate_dict(self._current_data, field.required, self._current_path)
+        if current_data is None:
+            return current_data
+
+        # Process nested fields by setting up the visitor's state and visiting each node
+        processing_path = self._current_path
+        processing_example = current_data
+        loaded = {}
+
+        # When reading records, the client might restrict the columns to load to a subset of the
+        # full columns, so check if the key is actually present in the example being processed
+        for nested_field in field.fields:
+            if nested_field.name in processing_example:
+                self._current_path = processing_path + (nested_field.name,)
+                self._current_data = processing_example[nested_field.name]
+                loaded[nested_field.name] = nested_field.accept_visitor(self)
+        return loaded
+
+    def process_array_field(self, field: schema.ArrayField) -> Optional[List[Any]]:
+        current_data = validation.validate_field_type(self._current_data, list, field.required, self._current_path)
+        if current_data is None:
+            return current_data
+
+        # Process array elements by setting up the visitor's state and visiting each element
+        processing_path = self._current_path
+        loaded = []
+
+        # Arrays may contain None values if the element field declares that it is not required
+        for element_index, element in enumerate(current_data):
+            self._current_path = processing_path + (f"elem[{element_index}]",)
+            self._current_data = element
+            loaded.append(field.element_field.accept_visitor(self))
+        return loaded
+
+    def process_int_field(self, field: schema.IntField) -> Any:
+        return self._current_data
+
+    def process_long_field(self, field: schema.LongField) -> Any:
+        return self._current_data
+
+    def process_string_field(self, field: schema.StringField) -> Any:
+        return self._current_data
+
+    def process_bool_field(self, field: schema.BoolField) -> Any:
+        return self._current_data
+
+    def process_float_field(self, field: schema.FloatField) -> Any:
+        return self._current_data
+
+    def process_double_field(self, field: schema.DoubleField) -> Any:
+        return self._current_data
+
+    def process_object_field(self, field: schema.ObjectField) -> Any:
+        if not field.is_heavy_pointer:
+            return self._current_data
+        data = validation.validate_field_type(self._current_data, bytes, field.required, self._current_path)
+        if data is None:
+            return data
+        cbf_info = ColumnBytesFileLocationV1.from_bytes(data)
+        return self.cbf_cache.read(cbf_info)
