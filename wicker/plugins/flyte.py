@@ -1,5 +1,6 @@
 import collections
 import dataclasses
+import json
 import tempfile
 from typing import Dict, List, Type, cast
 
@@ -7,7 +8,7 @@ import flytekit  # type: ignore
 import pyarrow as pa  # type: ignore
 from flytekit.extend import TypeEngine, TypeTransformer  # type: ignore
 
-from wicker.core.definitions import DatasetID
+from wicker.core.definitions import DatasetID, DatasetPartition
 from wicker.core.shuffle import ShuffleJob, ShuffleJobFactory, ShuffleWorker, save_index
 from wicker.core.storage import S3DataStorage, S3PathFactory
 from wicker.core.writer import DatasetWriterBackend
@@ -34,6 +35,35 @@ class ShuffleJobTransformer(TypeTransformer[ShuffleJob]):
         """
         return flytekit.LiteralType(blob=self._TYPE_INFO)
 
+    @staticmethod
+    def _shuffle_jobs_to_bytes(job: ShuffleJob) -> bytes:
+        return json.dumps(
+            {
+                "dataset_partition": {
+                    "dataset_id": {
+                        "name": job.dataset_partition.dataset_id.name,
+                        "version": job.dataset_partition.dataset_id.version,
+                    },
+                    "partition": job.dataset_partition.partition,
+                },
+                "files": job.files,
+            }
+        ).encode("utf-8")
+
+    @staticmethod
+    def _shuffle_jobs_from_bytes(b: bytes) -> ShuffleJob:
+        data = json.loads(b.decode("utf-8"))
+        return ShuffleJob(
+            dataset_partition=DatasetPartition(
+                dataset_id=DatasetID(
+                    name=data["dataset_partition"]["dataset_id"]["name"],
+                    version=data["dataset_partition"]["dataset_id"]["version"],
+                ),
+                partition=data["dataset_partition"]["partition"],
+            ),
+            files=[(path, size) for path, size in data["files"]],
+        )
+
     def to_literal(
         self,
         ctx: flytekit.FlyteContext,
@@ -47,7 +77,7 @@ class ShuffleJobTransformer(TypeTransformer[ShuffleJob]):
         # Step 1: lets upload all the data into a remote place recommended by Flyte
         remote_path = ctx.file_access.get_random_remote_path()
         with tempfile.NamedTemporaryFile() as tmpfile:
-            tmpfile.write(python_val.to_bytes())
+            tmpfile.write(self._shuffle_jobs_to_bytes(python_val))
             tmpfile.flush()
             tmpfile.seek(0)
             ctx.file_access.upload(tmpfile.name, remote_path)
@@ -69,7 +99,7 @@ class ShuffleJobTransformer(TypeTransformer[ShuffleJob]):
         ctx.file_access.download(lv.scalar.blob.uri, local_path)
         # Step 2: create the ShuffleJob object
         with open(local_path, "rb") as f:
-            return ShuffleJob.from_bytes(f.read())
+            return self._shuffle_jobs_from_bytes(f.read())
 
 
 @dataclasses.dataclass

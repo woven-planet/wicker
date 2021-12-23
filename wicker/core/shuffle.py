@@ -46,34 +46,6 @@ class ShuffleJob:
     dataset_partition: DatasetPartition
     files: List[Tuple[str, int]]
 
-    def to_bytes(self) -> bytes:
-        return json.dumps(
-            {
-                "dataset_partition": {
-                    "dataset_id": {
-                        "name": self.dataset_partition.dataset_id.name,
-                        "version": self.dataset_partition.dataset_id.version,
-                    },
-                    "partition": self.dataset_partition.partition,
-                },
-                "files": self.files,
-            }
-        ).encode("utf-8")
-
-    @classmethod
-    def from_bytes(cls, b: bytes) -> ShuffleJob:
-        data = json.loads(b.decode("utf-8"))
-        return ShuffleJob(
-            dataset_partition=DatasetPartition(
-                dataset_id=DatasetID(
-                    name=data["dataset_partition"]["dataset_id"]["name"],
-                    version=data["dataset_partition"]["dataset_id"]["version"],
-                ),
-                partition=data["dataset_partition"]["partition"],
-            ),
-            files=[(path, size) for path, size in data["files"]],
-        )
-
 
 class ShuffleJobFactory:
     def __init__(
