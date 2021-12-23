@@ -10,9 +10,12 @@ Avro specification: https://avro.apache.org/docs/current/spec.html
 from __future__ import annotations
 
 import abc
+import io
 import json
 import re
-from typing import Any, Dict, Generic, List, Optional, TypeVar
+from typing import Any, Dict, Generic, List, Optional, Tuple, Type, TypeVar
+
+import numpy as np
 
 from wicker.core.errors import WickerSchemaException
 from wicker.schema import codecs
@@ -30,6 +33,7 @@ __all__ = [
     "RecordField",
     "ArrayField",
     "ObjectField",
+    "NumpyField",
 ]
 
 _T = TypeVar("_T")
@@ -251,6 +255,105 @@ class ObjectField(SchemaField):
 
     def __eq__(self, other: Any) -> bool:
         return super().__eq__(other) and self.codec == other.codec
+
+
+class WickerNumpyCodec(codecs.Codec):
+    def __init__(self, shape: Optional[Tuple[int, ...]], dtype=str):
+        self.shape = shape
+        # Validate the dtype is a valid numpy dtype
+        try:
+            self.dtype = np.dtype(dtype)
+        except TypeError:
+            raise WickerSchemaException(f"Specified dtype: {dtype} not understood by numpy")
+
+    @staticmethod
+    def _codec_name() -> str:
+        return "wicker_numpy"
+
+    def save_codec_to_dict(self) -> Dict[str, Any]:
+        """If you want to save some parameters of this codec with the dataset
+        schema, return the fields here. The returned dictionary should be JSON compatible.
+        Note that this is a dataset-level value, not a per example value."""
+        return {
+            "shape": [d for d in self.shape] if self.shape is not None else None,
+            "dtype": str(self.dtype),
+        }
+
+    @staticmethod
+    def load_codec_from_dict(data: Dict[str, Any]) -> WickerNumpyCodec:
+        """Create a new instance of this codec with the given parameters."""
+        return WickerNumpyCodec(
+            shape=tuple(data["shape"]) if data["shape"] is not None else None,
+            dtype=data["dtype"],
+        )
+
+    def validate_and_encode_object(self, obj: np.ndarray) -> bytes:
+        """Encode the given object into bytes. The function is also responsible for validating the data.
+        :param obj: Object to encode
+        :return: The encoded bytes for the given object."""
+        if obj.dtype != self.dtype:
+            raise WickerSchemaException(
+                f"Example provided a numpy array with dtype {obj.dtype}, " f"expected {self.dtype}"
+            )
+        if self.shape is not None:
+            if len(obj.shape) != len(self.shape):
+                raise WickerSchemaException(
+                    f"Example provided a numpy array with shape {obj.shape}, "
+                    f"which has a different number of dimensions from expected shape {self.shape}"
+                )
+            for arr_dim_size, field_dim_size in zip(obj.shape, self.shape):
+                if field_dim_size == -1:
+                    continue
+                if arr_dim_size != field_dim_size:
+                    raise WickerSchemaException(
+                        f"Example provided a numpy array with shape {obj.shape}, "
+                        f"which is incompatible with expected shape {self.shape}"
+                    )
+
+        # Serialize array as .npy bytes
+        bio = io.BytesIO()
+        np.save(bio, obj)
+        return bio.getvalue()
+
+    def decode_object(self, data: bytes) -> np.ndarray:
+        """Decode an object from the given bytes. This is the opposite of validate_and_encode_object.
+        We expect obj == decode_object(validate_and_encode_object(obj))
+        :param data: bytes to decode.
+        :return: Decoded object."""
+        return np.load(io.BytesIO(data))
+
+    def object_type(self) -> Type[Any]:
+        """Return the expected type of the objects handled by this codec.
+        This method can be overriden to match more specific classes."""
+        return np.ndarray
+
+
+class NumpyField(ObjectField):
+    """An ObjectField that uses a Codec for encoding Numpy arrays"""
+
+    def __init__(
+        self,
+        name: str,
+        shape: Optional[Tuple[int, ...]],
+        dtype: str,
+        description: str = "",
+        required: bool = True,
+        is_heavy_pointer: bool = True,
+    ) -> None:
+        """Create a NumpyField
+
+        :param name: name of the field
+        :param shape: shape of the numpy array that we expect, or None to indicate that all shapes are acceptable,
+            `-1` denotes that a given dimension can have any size.
+        :param dtype: dtype of the numpy array that we expect,
+        """
+        super().__init__(
+            name=name,
+            codec=WickerNumpyCodec(shape=shape, dtype=dtype),
+            description=description,
+            required=required,
+            is_heavy_pointer=is_heavy_pointer,
+        )
 
 
 class DatasetSchema:
