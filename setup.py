@@ -26,6 +26,7 @@ setup(
     install_requires=[
         "numpy>=1.18.3",
         "pyarrow",
+        "boto3",
     ],
     python_requires='>=3.8',
 )
