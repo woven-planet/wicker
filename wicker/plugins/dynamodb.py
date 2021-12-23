@@ -2,7 +2,13 @@ import dataclasses
 import heapq
 from typing import Generator, List, Tuple
 
-import pynamodb
+try:
+    import pynamodb  # type: ignore
+except ImportError:
+    raise RuntimeError(
+        "pynamodb is not detected in current environment, install Wicker with extra arguments:"
+        " `pip install wicker[dynamodb]`"
+    )
 from pynamodb.attributes import NumberAttribute, UnicodeAttribute
 from pynamodb.models import Model
 from retry import retry

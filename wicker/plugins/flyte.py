@@ -4,7 +4,13 @@ import json
 import tempfile
 from typing import Dict, List, Type, cast
 
-import flytekit  # type: ignore
+try:
+    import flytekit  # type: ignore
+except ImportError:
+    raise RuntimeError(
+        "flytekit is not detected in current environment, install Wicker with extra arguments:"
+        " `pip install wicker[flyte]`"
+    )
 import pyarrow as pa  # type: ignore
 from flytekit.extend import TypeEngine, TypeTransformer  # type: ignore
 
@@ -259,6 +265,7 @@ def finalize_shuffling_jobs(dataset_id: str, shuffle_results: List[ShuffleWorker
 def WickerDataShufflingWorkflow(
     dataset_id: str,
     schema_json_str: str,
+    worker_max_working_set_size: int = 16384,
 ) -> Dict[str, int]:
     """Pipeline finalizing a wicker dataset.
     :param dataset_id: string representation of the DatasetID we need to process (dataset name + version).
@@ -272,6 +279,7 @@ def WickerDataShufflingWorkflow(
     jobs = create_shuffling_jobs(
         schema_json_str=schema_json_str_committed,
         dataset_id=dataset_id,
+        worker_max_working_set_size=worker_max_working_set_size,
     )
     shuffle_results = flytekit.map_task(run_shuffling_job, metadata=flytekit.TaskMetadata(retries=1))(job=jobs)
     result = cast(Dict[str, int], finalize_shuffling_jobs(dataset_id=dataset_id, shuffle_results=shuffle_results))
