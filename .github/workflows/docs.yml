@@ -50,6 +50,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BASE_BRANCH: master # The branch the action should deploy from.
           BRANCH: gh-pages # The branch the action should deploy to.
-          FOLDER: docs/build # The folder the action should deploy (only stuff inside will be copied).
+          FOLDER: docs/build/html # The folder the action should deploy (only stuff inside will be copied).
         # Reactivate when ready
         # if: github.event_name == 'push'
