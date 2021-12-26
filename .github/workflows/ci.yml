@@ -43,3 +43,6 @@ jobs:
 
       - name: Run lints
         run: make lint
+
+      - name: Run type checks
+        run: make type-check
