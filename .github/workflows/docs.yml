@@ -1,0 +1,50 @@
+name: ci
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push or pull request events but only for the main branch
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "run-ci"
+  run-ci:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    # Set environment variables
+    env:
+      WICKER_CONFIG_PATH: tests/.wickerconfig.test.json
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+
+      - name: Check out repo
+        uses: actions/checkout@v2
+
+      - name: Set up Python 3.8
+        uses: actions/setup-python@v1
+        with:
+          python-version: 3.8
+
+      - name: Build docs
+        run: |
+          pushd docs
+          make html
+          popd
+
+      - name: Deploy docs
+        uses: JamesIves/github-pages-deploy-action@releases/v3
+        with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_BRANCH: master # The branch the action should deploy from.
+          BRANCH: gh-pages # The branch the action should deploy to.
+          FOLDER: docs/build # The folder the action should deploy (only stuff inside will be copied).
+        # Reactivate when ready
+        # if: github.event_name == 'push'
