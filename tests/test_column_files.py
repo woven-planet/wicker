@@ -1,4 +1,5 @@
 import os
+import tempfile
 import unittest
 import uuid
 from unittest.mock import MagicMock
@@ -110,61 +111,65 @@ class TestColumnBytesFileWriter(unittest.TestCase):
         )
 
     def test_write_large_file(self) -> None:
-        path_factory = S3PathFactory()
-        storage = FakeS3DataStorage()
-        with ColumnBytesFileWriter(storage=storage, s3_path_factory=path_factory, target_file_size=10) as ccb:
-            info1 = ccb.add(FAKE_COL, FAKE_BYTES)
-            self.assertEqual(info1.byte_offset, 0)
-            self.assertEqual(info1.data_size, len(FAKE_BYTES))
-            info1 = ccb.add(FAKE_COL, FAKE_BYTES)
-            self.assertEqual(info1.byte_offset, len(FAKE_BYTES))
-            self.assertEqual(info1.data_size, len(FAKE_BYTES))
-            info1 = ccb.add(FAKE_COL, FAKE_BYTES)
-            self.assertEqual(info1.byte_offset, len(FAKE_BYTES) * 2)
-            self.assertEqual(info1.data_size, len(FAKE_BYTES))
-            info1 = ccb.add(FAKE_COL, FAKE_BYTES)
-            self.assertEqual(info1.byte_offset, len(FAKE_BYTES) * 3)
-            self.assertEqual(info1.data_size, len(FAKE_BYTES))
-            info2 = ccb.add(FAKE_COL, FAKE_BYTES)
-            self.assertEqual(info2.byte_offset, 0)
-            self.assertEqual(info2.data_size, len(FAKE_BYTES))
-            self.assertNotEqual(info1.file_id, info2.file_id)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path_factory = S3PathFactory()
+            storage = FakeS3DataStorage(tmpdir=tmpdir)
+            with ColumnBytesFileWriter(storage=storage, s3_path_factory=path_factory, target_file_size=10) as ccb:
+                info1 = ccb.add(FAKE_COL, FAKE_BYTES)
+                self.assertEqual(info1.byte_offset, 0)
+                self.assertEqual(info1.data_size, len(FAKE_BYTES))
+                info1 = ccb.add(FAKE_COL, FAKE_BYTES)
+                self.assertEqual(info1.byte_offset, len(FAKE_BYTES))
+                self.assertEqual(info1.data_size, len(FAKE_BYTES))
+                info1 = ccb.add(FAKE_COL, FAKE_BYTES)
+                self.assertEqual(info1.byte_offset, len(FAKE_BYTES) * 2)
+                self.assertEqual(info1.data_size, len(FAKE_BYTES))
+                info1 = ccb.add(FAKE_COL, FAKE_BYTES)
+                self.assertEqual(info1.byte_offset, len(FAKE_BYTES) * 3)
+                self.assertEqual(info1.data_size, len(FAKE_BYTES))
+                info2 = ccb.add(FAKE_COL, FAKE_BYTES)
+                self.assertEqual(info2.byte_offset, 0)
+                self.assertEqual(info2.data_size, len(FAKE_BYTES))
+                self.assertNotEqual(info1.file_id, info2.file_id)
 
-            info1 = ccb.add(FAKE_COL2, FAKE_BYTES2)
-            self.assertEqual(info1.byte_offset, 0)
-            self.assertEqual(info1.data_size, len(FAKE_BYTES2))
-            info2 = ccb.add(FAKE_COL2, FAKE_BYTES2)
-            self.assertEqual(info2.byte_offset, 0)
-            self.assertEqual(info2.data_size, len(FAKE_BYTES2))
-            self.assertNotEqual(info1.file_id, info2.file_id)
-            info3 = ccb.add(FAKE_COL2, FAKE_BYTES2)
-            self.assertEqual(info3.byte_offset, 0)
-            self.assertEqual(info3.data_size, len(FAKE_BYTES2))
-            self.assertNotEqual(info2.file_id, info3.file_id)
+                info1 = ccb.add(FAKE_COL2, FAKE_BYTES2)
+                self.assertEqual(info1.byte_offset, 0)
+                self.assertEqual(info1.data_size, len(FAKE_BYTES2))
+                info2 = ccb.add(FAKE_COL2, FAKE_BYTES2)
+                self.assertEqual(info2.byte_offset, 0)
+                self.assertEqual(info2.data_size, len(FAKE_BYTES2))
+                self.assertNotEqual(info1.file_id, info2.file_id)
+                info3 = ccb.add(FAKE_COL2, FAKE_BYTES2)
+                self.assertEqual(info3.byte_offset, 0)
+                self.assertEqual(info3.data_size, len(FAKE_BYTES2))
+                self.assertNotEqual(info2.file_id, info3.file_id)
 
     def test_write_manyrows_file(self) -> None:
-        path_factory = S3PathFactory()
-        storage = FakeS3DataStorage()
-        with ColumnBytesFileWriter(storage=storage, s3_path_factory=path_factory, target_file_rowgroup_size=1) as ccb:
-            info1 = ccb.add(FAKE_COL, FAKE_BYTES)
-            self.assertEqual(info1.byte_offset, 0)
-            self.assertEqual(info1.data_size, len(FAKE_BYTES))
-            info2 = ccb.add(FAKE_COL, FAKE_BYTES)
-            self.assertEqual(info2.byte_offset, 0)
-            self.assertEqual(info2.data_size, len(FAKE_BYTES))
-            self.assertNotEqual(info1.file_id, info2.file_id)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path_factory = S3PathFactory()
+            storage = FakeS3DataStorage(tmpdir=tmpdir)
+            with ColumnBytesFileWriter(
+                storage=storage, s3_path_factory=path_factory, target_file_rowgroup_size=1
+            ) as ccb:
+                info1 = ccb.add(FAKE_COL, FAKE_BYTES)
+                self.assertEqual(info1.byte_offset, 0)
+                self.assertEqual(info1.data_size, len(FAKE_BYTES))
+                info2 = ccb.add(FAKE_COL, FAKE_BYTES)
+                self.assertEqual(info2.byte_offset, 0)
+                self.assertEqual(info2.data_size, len(FAKE_BYTES))
+                self.assertNotEqual(info1.file_id, info2.file_id)
 
-            info1 = ccb.add(FAKE_COL2, FAKE_BYTES2)
-            self.assertEqual(info1.byte_offset, 0)
-            self.assertEqual(info1.data_size, len(FAKE_BYTES2))
-            info2 = ccb.add(FAKE_COL2, FAKE_BYTES2)
-            self.assertEqual(info2.byte_offset, 0)
-            self.assertEqual(info2.data_size, len(FAKE_BYTES2))
-            self.assertNotEqual(info1.file_id, info2.file_id)
-            info3 = ccb.add(FAKE_COL2, FAKE_BYTES2)
-            self.assertEqual(info3.byte_offset, 0)
-            self.assertEqual(info3.data_size, len(FAKE_BYTES2))
-            self.assertNotEqual(info2.file_id, info3.file_id)
+                info1 = ccb.add(FAKE_COL2, FAKE_BYTES2)
+                self.assertEqual(info1.byte_offset, 0)
+                self.assertEqual(info1.data_size, len(FAKE_BYTES2))
+                info2 = ccb.add(FAKE_COL2, FAKE_BYTES2)
+                self.assertEqual(info2.byte_offset, 0)
+                self.assertEqual(info2.data_size, len(FAKE_BYTES2))
+                self.assertNotEqual(info1.file_id, info2.file_id)
+                info3 = ccb.add(FAKE_COL2, FAKE_BYTES2)
+                self.assertEqual(info3.byte_offset, 0)
+                self.assertEqual(info3.data_size, len(FAKE_BYTES2))
+                self.assertNotEqual(info2.file_id, info3.file_id)
 
 
 class TestCCBInfo(unittest.TestCase):
