@@ -1,4 +1,5 @@
 import pickle
+import tempfile
 import unittest
 import unittest.mock
 from typing import IO, Dict, List, Tuple
@@ -181,32 +182,33 @@ class TestShuffleWorker(unittest.TestCase):
         return None
 
     def test_process_job(self) -> None:
-        # The threaded workers each construct their own S3DataStorage from a boto3 client to download
-        # file data in parallel.  We mock those out here by mocking out the boto3 client itself.
-        self.boto3_mock.session.Session().client().download_fileobj.side_effect = self.download_fileobj_mock
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # The threaded workers each construct their own S3DataStorage from a boto3 client to download
+            # file data in parallel.  We mock those out here by mocking out the boto3 client itself.
+            self.boto3_mock.session.Session().client().download_fileobj.side_effect = self.download_fileobj_mock
 
-        fake_job = ShuffleJob(
-            dataset_partition=DatasetPartition(
-                dataset_id=FAKE_DATASET_ID,
-                partition="test",
-            ),
-            files=[(f"s3://somebucket/path/{i}", i) for i in range(10)],
-        )
+            fake_job = ShuffleJob(
+                dataset_partition=DatasetPartition(
+                    dataset_id=FAKE_DATASET_ID,
+                    partition="test",
+                ),
+                files=[(f"s3://somebucket/path/{i}", i) for i in range(10)],
+            )
 
-        fake_storage = FakeS3DataStorage()
-        fake_storage.put_object_s3(
-            serialization.dumps(FAKE_DATASET_SCHEMA).encode("utf-8"),
-            f"{get_config().aws_s3_config.s3_datasets_path}/{FAKE_DATASET_ID.name}"
-            f"/{FAKE_DATASET_ID.version}/avro_schema.json",
-        )
-        worker = ShuffleWorker(storage=fake_storage)
-        shuffle_results = worker.process_job(fake_job)
+            fake_storage = FakeS3DataStorage(tmpdir=tmpdir)
+            fake_storage.put_object_s3(
+                serialization.dumps(FAKE_DATASET_SCHEMA).encode("utf-8"),
+                f"{get_config().aws_s3_config.s3_datasets_path}/{FAKE_DATASET_ID.name}"
+                f"/{FAKE_DATASET_ID.version}/avro_schema.json",
+            )
+            worker = ShuffleWorker(storage=fake_storage)
+            shuffle_results = worker.process_job(fake_job)
 
-        self.assertEqual(shuffle_results["timestamp"].to_pylist(), [FAKE_EXAMPLE["timestamp"] for _ in range(10)])
-        self.assertEqual(shuffle_results["car_id"].to_pylist(), [FAKE_EXAMPLE["car_id"] for _ in range(10)])
-        for location_bytes in shuffle_results["vector"].to_pylist():
-            location = ColumnBytesFileLocationV1.from_bytes(location_bytes)
-            path = worker.s3_path_factory.get_column_concatenated_bytes_s3path_from_uuid(location.file_id.bytes)
-            self.assertTrue(path in fake_storage.files)
-            data = fake_storage.files[path][location.byte_offset : location.byte_offset + location.data_size]
-            self.assertEqual(VectorCodec(0).decode_object(data), FAKE_EXAMPLE["vector"])
+            self.assertEqual(shuffle_results["timestamp"].to_pylist(), [FAKE_EXAMPLE["timestamp"] for _ in range(10)])
+            self.assertEqual(shuffle_results["car_id"].to_pylist(), [FAKE_EXAMPLE["car_id"] for _ in range(10)])
+            for location_bytes in shuffle_results["vector"].to_pylist():
+                location = ColumnBytesFileLocationV1.from_bytes(location_bytes)
+                path = worker.s3_path_factory.get_column_concatenated_bytes_s3path_from_uuid(location.file_id.bytes)
+                self.assertTrue(fake_storage.check_exists_s3(path))
+                data = fake_storage.fetch_obj_s3(path)[location.byte_offset : location.byte_offset + location.data_size]
+                self.assertEqual(VectorCodec(0).decode_object(data), FAKE_EXAMPLE["vector"])

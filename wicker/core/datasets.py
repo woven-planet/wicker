@@ -53,6 +53,7 @@ class S3Dataset(AbstractDataset):
         columns_to_load: Optional[List[str]] = None,
         storage: Optional[S3DataStorage] = None,
         s3_path_factory: Optional[S3PathFactory] = None,
+        pa_filesystem: Optional[pafs.FileSystem] = None,
         filelock_timeout_seconds: int = FILE_LOCK_TIMEOUT_SECONDS,
         treat_objects_as_bytes: bool = False,
     ):
@@ -83,6 +84,9 @@ class S3Dataset(AbstractDataset):
             path_factory=self._s3_path_factory,
             storage=self._storage,
         )
+        self._pa_filesystem = (
+            pafs.S3FileSystem(region=get_config().aws_s3_config.region) if pa_filesystem is None else pa_filesystem
+        )
 
         self._dataset_id = DatasetID(name=dataset_name, version=dataset_version)
         self._partition = DatasetPartition(dataset_id=self._dataset_id, partition=dataset_partition_name)
@@ -106,8 +110,7 @@ class S3Dataset(AbstractDataset):
     def arrow_table(self) -> pyarrow.Table:
         path = self._s3_path_factory.get_dataset_partition_path(self._partition, s3_prefix=False)
         if not self._arrow_table:
-            filesystem = pafs.S3FileSystem(region=get_config().aws_s3_config.region)
-            self._arrow_table = papq.read_table(path, filesystem=filesystem)
+            self._arrow_table = papq.read_table(path, filesystem=self._pa_filesystem)
         return self._arrow_table
 
     def __len__(self) -> int:
