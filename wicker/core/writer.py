@@ -10,20 +10,7 @@ import threading
 import time
 from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from types import TracebackType
-from typing import (
-    Any,
-    Dict,
-    Generator,
-    Iterable,
-    Iterator,
-    List,
-    Optional,
-    Tuple,
-    Type,
-    Union,
-)
-
-import pyarrow as pa
+from typing import Any, Dict, Generator, Iterator, List, Optional, Tuple, Type, Union
 
 from wicker.core.definitions import DatasetDefinition, DatasetID
 from wicker.core.storage import S3DataStorage, S3PathFactory
@@ -41,12 +28,14 @@ class ExampleKey:
 
     def hash(self) -> str:
         return hashlib.sha256(
-            "/".join([self.partition, *[str(obj) for obj in self.primary_key_values]]).encode()
+            "/".join([self.partition, *[str(obj) for obj in self.primary_key_values]]).encode("utf-8")
         ).hexdigest()
 
 
 @dataclasses.dataclass
-class ExampleDBRow:
+class MetadataDatabaseScanRow:
+    """Container for data obtained by scanning the MetadataDatabase"""
+
     partition: str
     row_data_path: str
     row_size: int
@@ -71,9 +60,9 @@ class AbstractDatasetWriterMetadataDatabase:
         pass
 
     @abc.abstractmethod
-    def scan_sorted(self, dataset_id: DatasetID) -> Generator[ExampleDBRow, None, None]:
-        """Scans the MetadataDatabase for a **SORTED** stream of ExampleDBRows for a given dataset. The stream is sorted
-        by partition first, and then primary_key_values second.
+    def scan_sorted(self, dataset_id: DatasetID) -> Generator[MetadataDatabaseScanRow, None, None]:
+        """Scans the MetadataDatabase for a **SORTED** stream of MetadataDatabaseScanRows for a given dataset.
+        The stream is sorted by partition first, and then primary_key_values second.
 
         Should be fast O(minutes) to perform as this will be called from a single machine to assign chunks to jobs
         to run.
@@ -126,16 +115,6 @@ class DatasetWriterBackend:
         schema_path = self._s3_path_factory.get_dataset_schema_path(dataset_definition.identifier)
         serialized_schema = serialization.dumps(dataset_definition.schema)
         self._s3_storage.put_object_s3(serialized_schema.encode(), schema_path)
-
-    def extract_and_store_heavy_bytes_chunk(
-        self,
-        chunk: Iterable[Dict[str, Any]],
-    ) -> pa.Table:
-        """Extracts and stores all heavy-pointer fields from a chunk of data, storing them as chunked column files
-        and returning a PyArrow table of just the metadata and heavy-pointers.
-        """
-        # TODO(jchia): Implement! Don't need the metadata service for this.
-        pass
 
 
 DEFAULT_BUFFER_SIZE_LIMIT = 1000

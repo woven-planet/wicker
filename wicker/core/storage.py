@@ -6,10 +6,11 @@ Boto3 S3 documentation links:
 - https://boto3.amazonaws.com/v1/documentation/api/latest/guide/resources.html
 - https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html
 """
+import io
 import logging
 import os
 import uuid
-from typing import Any, Tuple
+from typing import Any, Optional, Tuple
 from urllib.parse import urlparse
 
 import boto3
@@ -25,14 +26,14 @@ logger = logging.getLogger(__name__)
 class S3DataStorage:
     """Storage routines for reading and writing objects in S3"""
 
-    def __init__(self) -> None:
+    def __init__(self, session: Optional[boto3.session.Session] = None) -> None:
         """Constructor for an S3Storage instance
 
         Part of the reason to structure S3 routines as a class rather utility functions is to enable
         unit tests to easily mock / patch the S3 client or to utilize the S3 Stubber. Unit tests
         might also find it convenient to mock or patch member functions on instances of this class.
         """
-        self.client = boto3.client("s3")
+        self.client = boto3.client("s3") if session is None else session.client("s3")
 
     @staticmethod
     def bucket_key_from_s3_path(s3_path: str) -> Tuple[str, str]:
@@ -73,10 +74,6 @@ class S3DataStorage:
         :param timeout_seconds: number of seconds till timing out on waiting for the file to be downloaded
         :return: local path to the downloaded file
         """
-        # For legacy support where we had a bugs where some paths did not start with s3://
-        if not input_path.startswith("s3://"):
-            input_path = f"s3://{input_path}"
-
         bucket, key = self.bucket_key_from_s3_path(input_path)
         local_path = os.path.join(local_prefix, key)
 
@@ -99,45 +96,16 @@ class S3DataStorage:
 
         return local_path
 
-    def fetch_partial_file_s3(
-        self, input_path: str, local_prefix: str, offset: int, size: int, timeout_seconds: int = 120
-    ) -> str:
-        # TODO(flefevere): Refactor the locking with fetch_file_s3.
-        """Fetches a file from S3 to the local machine and skips it if it already exists. This function
-        is safe to call concurrently from multiple processes and utilizes a local filelock to block
-        parallel downloads such that only one process will perform the download.
+    def fetch_obj_s3(self, input_path: str) -> bytes:
+        """Fetches an object from S3 as bytes in memory
 
-        This function assumes the input_path is a valid file in S3.
-
-        :param input_path: input file path in S3
-        :param local_prefix: local path that specifies where to download the file
-        :param offset: starting position of the download (in bytes)
-        :param size: number of bytes to download
-        :param timeout_seconds: number of seconds till timing out on waiting for the file to be downloaded
-        :return: local path to the downloaded file
+        :param input_path: path to object in s3
+        :return: bytes of data in file
         """
         bucket, key = self.bucket_key_from_s3_path(input_path)
-        local_path = os.path.join(local_prefix, key) + f".{offset}_{size}"
-        lock_path = local_path + ".lock"
-        success_marker = local_path + ".success"
-        os.makedirs(os.path.dirname(local_path), exist_ok=True)
-
-        while not os.path.isfile(success_marker):
-            with SimpleUnixFileLock(lock_path, timeout_seconds=timeout_seconds):
-                if not os.path.isfile(success_marker):
-
-                    # For now, we will only download the file if it has not already been downloaded already.
-                    # Long term, we would also add a size check or md5sum comparison against the object in S3.
-                    filedir = os.path.split(local_path)[0]
-                    os.makedirs(filedir, exist_ok=True)
-                    response = self.client.get_object(Bucket=bucket, Key=key, Range=f"bytes={offset}-{offset+size}")
-                    with open(local_path, "wb") as f:
-                        f.write(response["Body"].read())
-
-                    with open(success_marker, "w"):
-                        pass
-
-        return local_path
+        bio = io.BytesIO()
+        self.client.download_fileobj(bucket, key, bio)
+        return bio.getvalue()
 
     def put_object_s3(self, object_bytes: bytes, s3_path: str) -> None:
         """Upload an object to S3
