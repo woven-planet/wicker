@@ -2,11 +2,9 @@ name: publish
 
 # Controls when the workflow will run
 on:
-  # Triggers the workflow on push events but only for the main branch
+  # Triggers the workflow on push events but only for tags starting with v*
   push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+    tags: ["v*"]
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
