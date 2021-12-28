@@ -24,7 +24,7 @@ from typing import Any, Dict, Generator, List, Optional, Tuple
 
 import boto3
 import pyarrow as pa
-import pyarrow.filesystem as pafs
+import pyarrow.fs as pafs
 import pyarrow.parquet as papq
 
 from wicker.core.column_files import ColumnBytesFileWriter

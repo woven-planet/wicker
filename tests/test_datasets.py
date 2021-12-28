@@ -1,8 +1,8 @@
 import os
 import tempfile
-from typing import Iterator, Tuple
 import unittest
 from contextlib import contextmanager
+from typing import Iterator, Tuple
 
 import numpy as np
 import pyarrow as pa  # type: ignore
