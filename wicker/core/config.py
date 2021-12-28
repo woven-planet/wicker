@@ -15,11 +15,13 @@ WICKER_CONFIG_PATH = os.getenv("WICKER_CONFIG_PATH", os.path.expanduser("~/.wick
 @dataclasses.dataclass(frozen=True)
 class WickerAwsS3Config:
     s3_datasets_path: str
+    region: str
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> WickerAwsS3Config:
         return cls(
             s3_datasets_path=data["s3_datasets_path"],
+            region=data["region"],
         )
 
 
