@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.abspath('../..'))
 # -- Project information -----------------------------------------------------
 
 project = 'Wicker'
-copyright = '2021, Woven Planet'
+copyright = '2021, Woven Planet L5'
 author = 'Jay Chia, Alex Bain, Francois Lefevere, Ben Hansen, Jason Zhao'
 
 
