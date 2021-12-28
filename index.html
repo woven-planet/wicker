@@ -15,6 +15,7 @@
     <script src="_static/doctools.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Getting Started" href="getstarted.html" />
    
   <link rel="stylesheet" href="_static/custom.css" type="text/css" />
   
@@ -33,7 +34,37 @@
             
   <section id="welcome-to-wicker-s-documentation">
 <h1>Welcome to Wicker’s documentation!<a class="headerlink" href="#welcome-to-wicker-s-documentation" title="Permalink to this headline">¶</a></h1>
+<p>Wicker is a Python framework for storing and serving Machine Learning datasets. It provides:</p>
+<p><strong>Abstraction of underlying storage</strong></p>
+<blockquote>
+<div><p>Read and write data as Python dictionaries - don’t worry about where/how it is stored.</p>
+</div></blockquote>
+<p><strong>Schematized Data</strong></p>
+<blockquote>
+<div><p>Enforce a schema when reading and writing your data, providing readability and useability for users of your datasets.</p>
+</div></blockquote>
+<p><strong>Metadata Indexing</strong></p>
+<blockquote>
+<div><p>Easily store, query and visualize your metadata in your own stores such as BigQuery or Snowflake for downstream analyses.</p>
+</div></blockquote>
+<p><strong>Efficient Dataloading</strong></p>
+<blockquote>
+<div><p>Built and optimized for high-throughput distributed training of deep learning models.</p>
+</div></blockquote>
 <div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="getstarted.html">Getting Started</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="getstarted.html#installation">Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getstarted.html#configuration">Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getstarted.html#writing-your-first-dataset">Writing your first Dataset</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getstarted.html#reading-from-your-dataset">Reading from your Dataset</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="schema.html">Wicker Schemas</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="schema.html#schema-fields">Schema Fields</a></li>
+</ul>
+</li>
+</ul>
 </div>
 </section>
 <section id="indices-and-tables">
@@ -62,11 +93,16 @@
 
 
 <h3>Navigation</h3>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="getstarted.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="schema.html">Wicker Schemas</a></li>
+</ul>
 
 <div class="relations">
 <h3>Related Topics</h3>
 <ul>
   <li><a href="#">Documentation overview</a><ul>
+      <li>Next: <a href="getstarted.html" title="next chapter">Getting Started</a></li>
   </ul></li>
 </ul>
 </div>
@@ -93,7 +129,7 @@
       <div class="clearer"></div>
     </div>
     <div class="footer">
-      &copy;2021, Jay Chia, Alex Bain, Francois Lefevere, Ben Hansen, Jason Zhao.
+      &copy;2021, Woven Planet L5.
       
       |
       Powered by <a href="http://sphinx-doc.org/">Sphinx 4.3.2</a>

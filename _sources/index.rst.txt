@@ -6,11 +6,31 @@
 Welcome to Wicker's documentation!
 ==================================
 
+Wicker is a Python framework for storing and serving Machine Learning datasets. It provides:
+
+**Abstraction of underlying storage**
+
+   Read and write data as Python dictionaries - don't worry about where/how it is stored.
+
+
+**Schematized Data**
+
+   Enforce a schema when reading and writing your data, providing readability and useability for users of your datasets.
+
+
+**Metadata Indexing**
+
+   Easily store, query and visualize your metadata in your own stores such as BigQuery or Snowflake for downstream analyses.
+
+
+**Efficient Dataloading**
+
+   Built and optimized for high-throughput distributed training of deep learning models.
+
+
 .. toctree::
-   :maxdepth: 2
-   :caption: Contents:
-
-
+   getstarted
+   schema
 
 Indices and tables
 ==================
