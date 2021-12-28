@@ -2,9 +2,8 @@ import json
 import re
 from typing import Any, Dict, Type, Union
 
-from wicker import schema
 from wicker.core.errors import WickerSchemaException
-from wicker.schema import codecs
+from wicker.schema import codecs, schema
 from wicker.schema.schema import PRIMARY_KEYS_TAG
 
 JSON_SCHEMA_VERSION = 2
@@ -22,7 +21,7 @@ def dumps(schema: schema.DatasetSchema, pretty: bool = True) -> str:
     :rtype: str
     """
     visitor = AvroDatasetSchemaSerializer()
-    jdata = schema.schema_record.accept_visitor(visitor)
+    jdata = schema.schema_record._accept_visitor(visitor)
     jdata.update(jdata["type"])
     jdata["_json_version"] = JSON_SCHEMA_VERSION
     if pretty:
@@ -210,7 +209,7 @@ class AvroDatasetSchemaSerializer(schema.DatasetSchemaVisitor[Dict[str, Any]]):
     def process_record_field(self, field: schema.RecordField) -> Dict[str, Any]:
         record_type = {
             "type": "record",
-            "fields": [nested_field.accept_visitor(self) for nested_field in field.fields],
+            "fields": [nested_field._accept_visitor(self) for nested_field in field.fields],
             "name": field.name,
         }
         return self.process_schema_field(field, record_type)
@@ -253,7 +252,7 @@ class AvroDatasetSchemaSerializer(schema.DatasetSchemaVisitor[Dict[str, Any]]):
         }
 
     def process_array_field(self, field: schema.ArrayField) -> Dict[str, Any]:
-        array_type = field.element_field.accept_visitor(self)
+        array_type = field.element_field._accept_visitor(self)
         array_type["items"] = array_type["type"]
         array_type["type"] = "array"
 
