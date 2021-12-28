@@ -244,7 +244,7 @@ class ResolvePointersVisitor(schema.DatasetSchemaVisitor[Any]):
     def resolve_pointers(self) -> Dict[str, Any]:
         """Resolve all heavy pointers"""
         # Since the original input example is non-None, the loaded example will be non-None also
-        example: Dict[str, Any] = self._schema.schema_record.accept_visitor(self)
+        example: Dict[str, Any] = self._schema.schema_record._accept_visitor(self)
         return example
 
     def process_record_field(self, field: schema.RecordField) -> Optional[validation.AvroRecord]:
@@ -264,7 +264,7 @@ class ResolvePointersVisitor(schema.DatasetSchemaVisitor[Any]):
             if nested_field.name in processing_example:
                 self._current_path = processing_path + (nested_field.name,)
                 self._current_data = processing_example[nested_field.name]
-                loaded[nested_field.name] = nested_field.accept_visitor(self)
+                loaded[nested_field.name] = nested_field._accept_visitor(self)
         return loaded
 
     def process_array_field(self, field: schema.ArrayField) -> Optional[List[Any]]:
@@ -280,7 +280,7 @@ class ResolvePointersVisitor(schema.DatasetSchemaVisitor[Any]):
         for element_index, element in enumerate(current_data):
             self._current_path = processing_path + (f"elem[{element_index}]",)
             self._current_data = element
-            loaded.append(field.element_field.accept_visitor(self))
+            loaded.append(field.element_field._accept_visitor(self))
         return loaded
 
     def process_int_field(self, field: schema.IntField) -> Any:

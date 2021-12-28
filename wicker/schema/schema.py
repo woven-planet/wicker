@@ -1,12 +1,3 @@
-"""This file provides an API for defining an Avro-compatible schema in Python
-
-Avro is a structured file format and schemas for Avro data are defined as JSON.
-This module provides Python classes to encode these schemas as tree datastructure
-which we can operate on using implementations of the DatasetSchemaVisitor class.
-
-Avro specification: https://avro.apache.org/docs/current/spec.html
-"""
-
 from __future__ import annotations
 
 import abc
@@ -22,8 +13,6 @@ from wicker.schema import codecs
 
 __all__ = [
     "DatasetSchema",
-    "DatasetSchemaVisitor",
-    "SchemaField",
     "IntField",
     "LongField",
     "StringField",
@@ -92,7 +81,7 @@ class SchemaField(abc.ABC):
         return False
 
     @abc.abstractmethod
-    def accept_visitor(self, visitor: DatasetSchemaVisitor[_T]) -> _T:
+    def _accept_visitor(self, visitor: DatasetSchemaVisitor[_T]) -> _T:
         """Processes the current schema field with the visitor object"""
         raise NotImplementedError()
 
@@ -100,7 +89,7 @@ class SchemaField(abc.ABC):
 class IntField(SchemaField):
     """A field that stores a 32-bit int"""
 
-    def accept_visitor(self, visitor: DatasetSchemaVisitor[_T]) -> _T:
+    def _accept_visitor(self, visitor: DatasetSchemaVisitor[_T]) -> _T:
         """Processes the current schema field with the visitor object"""
         return visitor.process_int_field(self)
 
@@ -108,7 +97,7 @@ class IntField(SchemaField):
 class LongField(SchemaField):
     """A field that stores a 64-bit long"""
 
-    def accept_visitor(self, visitor: DatasetSchemaVisitor[_T]) -> _T:
+    def _accept_visitor(self, visitor: DatasetSchemaVisitor[_T]) -> _T:
         """Processes the current schema field with the visitor object"""
         return visitor.process_long_field(self)
 
@@ -116,7 +105,7 @@ class LongField(SchemaField):
 class StringField(SchemaField):
     """A field that stores a string"""
 
-    def accept_visitor(self, visitor: DatasetSchemaVisitor[_T]) -> _T:
+    def _accept_visitor(self, visitor: DatasetSchemaVisitor[_T]) -> _T:
         """Processes the current schema field with the visitor object"""
         return visitor.process_string_field(self)
 
@@ -124,7 +113,7 @@ class StringField(SchemaField):
 class BoolField(SchemaField):
     """A field that stores a boolean"""
 
-    def accept_visitor(self, visitor: DatasetSchemaVisitor[_T]) -> _T:
+    def _accept_visitor(self, visitor: DatasetSchemaVisitor[_T]) -> _T:
         """Processes the current schema field with the visitor object"""
         return visitor.process_bool_field(self)
 
@@ -132,7 +121,7 @@ class BoolField(SchemaField):
 class FloatField(SchemaField):
     """A field that stores a 32-bit float"""
 
-    def accept_visitor(self, visitor: DatasetSchemaVisitor[_T]) -> _T:
+    def _accept_visitor(self, visitor: DatasetSchemaVisitor[_T]) -> _T:
         """Processes the current schema field with the visitor object"""
         return visitor.process_float_field(self)
 
@@ -140,7 +129,7 @@ class FloatField(SchemaField):
 class DoubleField(SchemaField):
     """A field that stores a 64-bit double"""
 
-    def accept_visitor(self, visitor: DatasetSchemaVisitor[_T]) -> _T:
+    def _accept_visitor(self, visitor: DatasetSchemaVisitor[_T]) -> _T:
         """Processes the current schema field with the visitor object"""
         return visitor.process_double_field(self)
 
@@ -176,7 +165,7 @@ class RecordField(SchemaField):
 
         self.fields: List[SchemaField] = fields
 
-    def accept_visitor(self, visitor: DatasetSchemaVisitor[_T]) -> _T:
+    def _accept_visitor(self, visitor: DatasetSchemaVisitor[_T]) -> _T:
         """Processes the current schema field with the visitor object"""
         return visitor.process_record_field(self)
 
@@ -200,7 +189,7 @@ class ArrayField(SchemaField):
         )
         self.element_field = element_field
 
-    def accept_visitor(self, visitor: DatasetSchemaVisitor[_T]) -> _T:
+    def _accept_visitor(self, visitor: DatasetSchemaVisitor[_T]) -> _T:
         """Processes the current schema field with the visitor object"""
         return visitor.process_array_field(self)
 
@@ -249,7 +238,7 @@ class ObjectField(SchemaField):
         """Whether to store this field as a separate file"""
         return self._is_heavy_pointer
 
-    def accept_visitor(self, visitor: DatasetSchemaVisitor[_T]) -> _T:
+    def _accept_visitor(self, visitor: DatasetSchemaVisitor[_T]) -> _T:
         """Processes the current schema field with the visitor object"""
         return visitor.process_object_field(self)
 

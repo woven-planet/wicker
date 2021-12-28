@@ -1,9 +1,8 @@
 from typing import Any, Dict, List, Optional, Tuple
 
-from wicker import schema
 from wicker.core.definitions import ExampleMetadata
 from wicker.core.errors import WickerSchemaException
-from wicker.schema import validation
+from wicker.schema import schema, validation
 
 
 def parse_example(example: Dict[str, Any], schema: schema.DatasetSchema) -> validation.AvroRecord:
@@ -69,7 +68,7 @@ class ParseExampleVisitor(schema.DatasetSchemaVisitor[Any]):
     def parse_example(self) -> Dict[str, Any]:
         """Parses an example into a form that is suitable for storage in an Avro format"""
         # Since the original input example is non-None, the parsed example will be non-None also
-        example: Dict[str, Any] = self._schema.schema_record.accept_visitor(self)
+        example: Dict[str, Any] = self._schema.schema_record._accept_visitor(self)
         return example
 
     def process_record_field(self, field: schema.RecordField) -> Optional[validation.AvroRecord]:
@@ -101,7 +100,7 @@ class ParseExampleVisitor(schema.DatasetSchemaVisitor[Any]):
             self._current_path = processing_path + (nested_field.name,)
             self._current_data = processing_example[nested_field.name]
             try:
-                res[nested_field.name] = nested_field.accept_visitor(self)
+                res[nested_field.name] = nested_field._accept_visitor(self)
             except _SkipFieldException:
                 pass
         return res
@@ -147,7 +146,7 @@ class ParseExampleVisitor(schema.DatasetSchemaVisitor[Any]):
             self._current_path = processing_path + (f"elem[{element_index}]",)
             self._current_data = element
             # Allow _SkipFieldExceptions to propagate up and skip this array field
-            res.append(field.element_field.accept_visitor(self))
+            res.append(field.element_field._accept_visitor(self))
         return res
 
 

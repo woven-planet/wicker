@@ -1,14 +1,3 @@
-# wicker-internal
-Internal pre-open source release Wicker repository
+# Wicker
 
-# Getting Started
-
-Create a Wicker configuration JSON file. This file can either be at the default location (`~/.wickerconfig`) or at a location specified by an environment variable `WICKER_CONFIG_PATH`.
-
-```
-{
-    "aws_s3_config": {
-        "s3_datasets_path": <base path to aws bucket and prefix for all data>
-    }
-}
-```
+Wicker is an open source framework for Machine Learning dataset storage and serving developed at Woven Planet L5.

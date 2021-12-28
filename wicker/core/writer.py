@@ -129,7 +129,9 @@ class DatasetWriter:
     def __init__(
         self,
         dataset_definition: DatasetDefinition,
-        backend: DatasetWriterBackend,
+        metadata_database: AbstractDatasetWriterMetadataDatabase,
+        s3_path_factory: Optional[S3PathFactory] = None,
+        s3_storage: Optional[S3DataStorage] = None,
         buffer_size_limit: int = DEFAULT_BUFFER_SIZE_LIMIT,
         executor: Optional[Executor] = None,
         wait_flush_timeout_seconds: int = 10,
@@ -145,7 +147,11 @@ class DatasetWriter:
             all examples, defaults to 10
         """
         self.dataset_definition = dataset_definition
-        self.backend = backend
+        self.backend = DatasetWriterBackend(
+            s3_path_factory if s3_path_factory is not None else S3PathFactory(),
+            s3_storage if s3_storage is not None else S3DataStorage(),
+            metadata_database,
+        )
 
         self.buffer: List[Tuple[ExampleKey, Dict[str, Any]]] = []
         self.buffer_size_limit = buffer_size_limit
