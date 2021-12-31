@@ -23,6 +23,7 @@ __all__ = [
     "ArrayField",
     "ObjectField",
     "NumpyField",
+    "BytesField",
 ]
 
 _T = TypeVar("_T")
@@ -339,6 +340,64 @@ class NumpyField(ObjectField):
         super().__init__(
             name=name,
             codec=WickerNumpyCodec(shape=shape, dtype=dtype),
+            description=description,
+            required=required,
+            is_heavy_pointer=is_heavy_pointer,
+        )
+
+
+class WickerNoopBytesCodec(codecs.Codec):
+    @staticmethod
+    def _codec_name() -> str:
+        return "wicker_bytes"
+
+    def save_codec_to_dict(self) -> Dict[str, Any]:
+        """If you want to save some parameters of this codec with the dataset
+        schema, return the fields here. The returned dictionary should be JSON compatible.
+        Note that this is a dataset-level value, not a per example value."""
+        return {}
+
+    @staticmethod
+    def load_codec_from_dict(data: Dict[str, Any]) -> WickerNoopBytesCodec:
+        """Create a new instance of this codec with the given parameters."""
+        return WickerNoopBytesCodec()
+
+    def validate_and_encode_object(self, obj: bytes) -> bytes:
+        """Encode the given object into bytes. The function is also responsible for validating the data.
+        :param obj: Object to encode
+        :return: The encoded bytes for the given object."""
+        return obj
+
+    def decode_object(self, data: bytes) -> bytes:
+        """Decode an object from the given bytes. This is the opposite of validate_and_encode_object.
+        We expect obj == decode_object(validate_and_encode_object(obj))
+        :param data: bytes to decode.
+        :return: Decoded object."""
+        return data
+
+    def object_type(self) -> Type[Any]:
+        """Return the expected type of the objects handled by this codec.
+        This method can be overriden to match more specific classes."""
+        return bytes
+
+
+class BytesField(ObjectField):
+    """An ObjectField that uses a no-op Codec for encoding pure bytes"""
+
+    def __init__(
+        self,
+        name: str,
+        description: str = "",
+        required: bool = True,
+        is_heavy_pointer: bool = True,
+    ) -> None:
+        """Create a BytesField
+
+        :param name: name of the field
+        """
+        super().__init__(
+            name=name,
+            codec=WickerNoopBytesCodec(),
             description=description,
             required=required,
             is_heavy_pointer=is_heavy_pointer,
