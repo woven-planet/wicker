@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import collections
 import dataclasses
-from typing import Any, Dict, Iterator, Tuple
+from typing import Any, Dict, Iterable, Tuple
 
 import pyarrow as pa
 
@@ -69,7 +69,7 @@ def persist_wicker_dataset(
     s3_storage.put_object_s3(serialization.dumps(dataset_schema).encode("utf-8"), schema_path)
 
     # Write rows to S3 storage for shuffle
-    def add_examples(partition_data_tups: Iterator[Tuple[str, Dict[str, Any]]]) -> Iterator[Any]:
+    def add_examples(partition_data_tups: Iterable[Tuple[str, Dict[str, Any]]]) -> Iterable[Any]:
         with DatasetWriter(
             dataset_definition=DatasetDefinition(
                 DatasetID(name=dataset_name, version=dataset_version),

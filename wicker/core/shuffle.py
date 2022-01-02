@@ -104,15 +104,13 @@ def _initialize_download_thread():
 class ShuffleWorker:
     def __init__(
         self,
-        target_column_file_size: int = int(256e6),
-        target_max_column_file_numrows: int = 256,
+        target_rowgroup_bytes_size: int = int(256e6),
         max_worker_threads: int = 16,
         max_memory_usage_bytes: int = int(2e9),
         storage: S3DataStorage = S3DataStorage(),
         s3_path_factory: S3PathFactory = S3PathFactory(),
     ):
-        self.target_column_file_size = target_column_file_size
-        self.target_max_column_file_numrows = target_max_column_file_numrows
+        self.target_rowgroup_bytes_size = target_rowgroup_bytes_size
         self.max_worker_threads = max_worker_threads
         self.max_memory_usage_bytes = max_memory_usage_bytes
         self.storage = storage
@@ -153,6 +151,22 @@ class ShuffleWorker:
                 buffer_size -= current_file_size
                 del buffer[current_index]
 
+    def _estimate_target_file_rowgroup_size(
+        self,
+        job: ShuffleJob,
+        target_rowgroup_size_bytes: int = int(256e6),
+        min_target_rowgroup_size: int = 16,
+    ) -> int:
+        """Estimates the number of rows to include in each rowgroup using a target size for the rowgroup
+
+        :param job: job to estimate
+        :param target_rowgroup_size_bytes: target size in bytes of a rowgroup, defaults to 256MB
+        :param min_target_rowgroup_size: minimum number of rows in a rowgroup
+        :return: target number of rows in a rowgroup
+        """
+        average_filesize = sum([size for _, size in job.files]) / len(job.files)
+        return max(min_target_rowgroup_size, int(target_rowgroup_size_bytes / average_filesize))
+
     def process_job(self, job: ShuffleJob) -> pa.Table:
         # Load dataset schema
         dataset_schema = serialization.loads(
@@ -160,6 +174,9 @@ class ShuffleWorker:
                 self.s3_path_factory.get_dataset_schema_path(job.dataset_partition.dataset_id)
             ).decode("utf-8")
         )
+
+        # Estimate how many rows to add to each ColumnBytesFile
+        target_file_rowgroup_size = self._estimate_target_file_rowgroup_size(job)
 
         # Initialize data containers to dump into parquet
         heavy_pointer_columns = dataset_schema.get_pointer_columns()
@@ -171,8 +188,7 @@ class ShuffleWorker:
         with ColumnBytesFileWriter(
             self.storage,
             self.s3_path_factory,
-            target_file_size=self.target_column_file_size,
-            target_file_rowgroup_size=self.target_max_column_file_numrows,
+            target_file_rowgroup_size=target_file_rowgroup_size,
         ) as writer:
             for data in self._download_files(job):
                 for col in metadata_columns:
