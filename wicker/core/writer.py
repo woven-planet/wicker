@@ -134,7 +134,7 @@ class DatasetWriter:
         s3_storage: Optional[S3DataStorage] = None,
         buffer_size_limit: int = DEFAULT_BUFFER_SIZE_LIMIT,
         executor: Optional[Executor] = None,
-        wait_flush_timeout_seconds: int = 10,
+        wait_flush_timeout_seconds: int = 300,
     ):
         """Create a new DatasetWriter
 
