@@ -23,11 +23,15 @@ except ImportError:
 
 from wicker import schema
 from wicker.core.definitions import DatasetDefinition, DatasetID
-from wicker.core.shuffle import save_index, ShuffleJobFactory, ShuffleJob, ShuffleWorker
+from wicker.core.shuffle import ShuffleJob, ShuffleJobFactory, ShuffleWorker, save_index
 from wicker.core.storage import S3DataStorage, S3PathFactory
-from wicker.schema import serialization
-from wicker.core.writer import AbstractDatasetWriterMetadataDatabase, DatasetWriter, DatasetWriterBackend
+from wicker.core.writer import (
+    AbstractDatasetWriterMetadataDatabase,
+    DatasetWriter,
+    DatasetWriterBackend,
+)
 from wicker.plugins.dynamodb import DynamodbMetadataDatabase
+from wicker.schema import serialization
 
 
 @dataclasses.dataclass
@@ -76,6 +80,7 @@ def persist_wicker_dataset(
             for partition, data in partition_data_tups:
                 writer.add_example(partition, data)
         yield
+
     rdd.mapPartitions(add_examples).collect()
 
     # Run shuffling on the same cluster by downloading from the metadata_database and S3
@@ -85,6 +90,7 @@ def persist_wicker_dataset(
             pa_table=worker.process_job(job),
             partition=job.dataset_partition.partition,
         )
+
     backend = DatasetWriterBackend(s3_path_factory, s3_storage, metadata_database)
     job_factory = ShuffleJobFactory(backend)
     shuffle_jobs = list(job_factory.build_shuffle_jobs(DatasetID(name=dataset_name, version=dataset_version)))
