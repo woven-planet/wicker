@@ -110,7 +110,9 @@ def persist_wicker_dataset(
     # See: https://spark.apache.org/docs/latest/api/python/reference/api/pyspark.RDD.zip.html
     #
     # (spark_partition_idx, (partition, data))
-    def zipWithPartitionIndex(partition_idx: int, it: Iterable[Tuple[str, Dict[str, Any]]]) -> Iterable[Tuple[int, Tuple[str, Dict[str, Any]]]]:
+    def zipWithPartitionIndex(
+        partition_idx: int, it: Iterable[Tuple[str, Dict[str, Any]]]
+    ) -> Iterable[Tuple[int, Tuple[str, Dict[str, Any]]]]:
         for tup in it:
             yield (partition_idx, tup)
 
@@ -189,10 +191,12 @@ def persist_wicker_dataset(
                 *pa.Table.from_pydict({col: [data[col]] for col in dataset_schema.get_all_column_names()}).to_batches(),
             ]
         ),
-        mergeCombiners=lambda tbl1, tbl2: pa.Table.from_batches([
-            *tbl1.to_batches(),  # type: ignore
-            *tbl2.to_batches(),  # type: ignore
-        ]),
+        mergeCombiners=lambda tbl1, tbl2: pa.Table.from_batches(
+            [
+                *tbl1.to_batches(),  # type: ignore
+                *tbl2.to_batches(),  # type: ignore
+            ]
+        ),
     )
     rdd7 = rdd6.map(save_partition_tbl)
     written = rdd7.collect()

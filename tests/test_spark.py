@@ -1,9 +1,9 @@
 import copy
 import os
+import random
 import tempfile
 import unittest
 import uuid
-import random
 
 import pyarrow.parquet as papq
 from pyspark.sql import SparkSession
@@ -31,8 +31,9 @@ EXAMPLES = [
             "foo": random.randint(0, 10000),
             "bar": random.choice(RANDOM_UUIDS),
             "bytescol": b"0",
-        }
-    ) for i in range(10000)
+        },
+    )
+    for i in range(10000)
 ]
 
 
