@@ -20,19 +20,18 @@ except ImportError:
     )
 
 from wicker import schema
-from wicker.schema import dataparsing
 from wicker.core.column_files import ColumnBytesFileWriter
 from wicker.core.definitions import DatasetID
 from wicker.core.shuffle import save_index
 from wicker.core.storage import S3DataStorage, S3PathFactory
-from wicker.schema import serialization
+from wicker.schema import dataparsing, serialization
 
 
 def _persist_spark_partition_wicker(
     spark_partition_iter: Iterable[Tuple[str, Dict[str, Any]]],
     dataset_schema: schema.DatasetSchema,
     target_max_column_file_numrows: int = 50,
-    storage: S3DataStorage = S3DataStorage(),
+    s3_storage: S3DataStorage = S3DataStorage(),
     s3_path_factory: S3PathFactory = S3PathFactory(),
 ) -> Iterable[Tuple[str, Dict[str, Any]]]:
     """Persists a Spark partition of examples with parsed bytes into S3Storage as ColumnBytesFiles,
@@ -54,7 +53,7 @@ def _persist_spark_partition_wicker(
         # Create ColumnBytesFileWriter lazily as required, for each partition
         if partition not in column_bytes_file_writers:
             column_bytes_file_writers[partition] = ColumnBytesFileWriter(
-                storage,
+                s3_storage,
                 s3_path_factory,
                 target_file_rowgroup_size=target_max_column_file_numrows,
             )
@@ -97,11 +96,10 @@ def persist_wicker_dataset(
     s3_storage.put_object_s3(serialization.dumps(dataset_schema).encode("utf-8"), schema_path)
 
     # Parse each row to throw errors early if they fail validation
-    def parse_row(partition_data_tup: Tuple[str, Dict[str, Any]]) -> Tuple[str, Dict[str, Any]]:
-        partition, data = partition_data_tup
-        return partition, dataparsing.parse_example(data, dataset_schema)
+    def parse_row(data: Dict[str, Any]) -> Dict[str, Any]:
+        return dataparsing.parse_example(data, dataset_schema)
 
-    rdd = rdd.map(parse_row)
+    rdd = rdd.mapValues(parse_row)
 
     # Make sure to cache the RDD to ease future computations, since it seems that sortBy and zipWithIndex
     # trigger actions and we want to avoid recomputing the source RDD at all costs
@@ -112,14 +110,15 @@ def persist_wicker_dataset(
     # See: https://spark.apache.org/docs/latest/api/python/reference/api/pyspark.RDD.zip.html
     #
     # (spark_partition_idx, (partition, data))
-    def zipWithPartitionIndex(partition_idx: int, it: Iterable[Tuple[str, Dict[str, Any]]]):
+    def zipWithPartitionIndex(partition_idx: int, it: Iterable[Tuple[str, Dict[str, Any]]]) -> Iterable[Tuple[int, Tuple[str, Dict[str, Any]]]]:
         for tup in it:
             yield (partition_idx, tup)
-    rdd = rdd.mapPartitionsWithIndex(zipWithPartitionIndex)
+
+    rdd0 = rdd.mapPartitionsWithIndex(zipWithPartitionIndex)
 
     def get_row_keys(partition_data_tup: Tuple[str, Dict[str, Any]]) -> Tuple[Any, ...]:
         partition, data = partition_data_tup
-        return tuple(partition, *[data[pk] for pk in dataset_schema.primary_keys])
+        return (partition,) + tuple(data[pk] for pk in dataset_schema.primary_keys)
 
     # Obtain an RDD of the argsort of the primary keys. Must have same partitioning as our source
     # RDD to enable us to zip them together later on.
@@ -134,15 +133,15 @@ def persist_wicker_dataset(
     #       (spark_partition_idx, global_sorted_idx)
     # 7. Repartition by spark_partition_idx
     # 8. (spark_partition_idx, global_sorted_idx) -> global_sorted_idx
-    global_sorted_idx_rdd = rdd
-    global_sorted_idx_rdd = global_sorted_idx_rdd.mapValues(get_row_keys)
-    global_sorted_idx_rdd = global_sorted_idx_rdd.zipWithIndex()
-    global_sorted_idx_rdd = global_sorted_idx_rdd.sortBy(lambda x: x[0][1])
-    global_sorted_idx_rdd = global_sorted_idx_rdd.zipWithIndex()
-    global_sorted_idx_rdd = global_sorted_idx_rdd.sortBy(lambda x: x[0][1])
-    global_sorted_idx_rdd = global_sorted_idx_rdd.map(lambda x: (x[0][0][0], x[1]))
-    global_sorted_idx_rdd = global_sorted_idx_rdd.partitionBy(rdd.getNumPartitions(), partitionFunc=lambda x: x)
-    global_sorted_idx_rdd = global_sorted_idx_rdd.values()
+    global_sorted_idx_rdd = rdd0
+    global_sorted_idx_rdd0 = global_sorted_idx_rdd.mapValues(get_row_keys)
+    global_sorted_idx_rdd1 = global_sorted_idx_rdd0.zipWithIndex()
+    global_sorted_idx_rdd2 = global_sorted_idx_rdd1.sortBy(lambda x: x[0][1])  # type: ignore
+    global_sorted_idx_rdd3 = global_sorted_idx_rdd2.zipWithIndex()
+    global_sorted_idx_rdd4 = global_sorted_idx_rdd3.sortBy(lambda x: x[0][1])  # type: ignore
+    global_sorted_idx_rdd5 = global_sorted_idx_rdd4.map(lambda x: (x[0][0][0], x[1]))
+    global_sorted_idx_rdd6 = global_sorted_idx_rdd5.partitionBy(rdd.getNumPartitions(), partitionFunc=lambda x: x)
+    global_sorted_idx_rdd7 = global_sorted_idx_rdd6.values()
 
     # Zip our argsort RDD with our source RDD, and use the argsort indices to repartition + sort our data.
     # Note that this performs a distributed shuffle of our heavy bytes data to bring them into contiguous order.
@@ -153,15 +152,15 @@ def persist_wicker_dataset(
     # 3. Repartition and sort by global_sorted_idx to obtain partitions of contiguous, globally sorted examples
     # 4. (global_sorted_idx, (partition, data)) -> (partition, data)
     # 5. Write each partition of (partition, data) into Wicker
-    rdd = rdd.zip(global_sorted_idx_rdd)
-    rdd = rdd.map(lambda x: (x[1], x[0][1]))
-    rdd = rdd.repartitionAndSortWithinPartitions(
+    rdd1 = rdd0.zip(global_sorted_idx_rdd7)
+    rdd2 = rdd1.map(lambda x: (x[1], x[0][1]))
+    rdd3 = rdd2.repartitionAndSortWithinPartitions(  # type: ignore
         # TODO(jchia): Magic number, we should derive this based on row size
         partitionFunc=lambda x: x // 256,
         keyfunc=lambda x: x,
     )
-    rdd = rdd.values()
-    rdd = rdd.mapPartitions(
+    rdd4 = rdd3.values()
+    rdd5 = rdd4.mapPartitions(
         lambda spark_iterator: _persist_spark_partition_wicker(
             spark_iterator,
             dataset_schema,
@@ -175,22 +174,27 @@ def persist_wicker_dataset(
     # For each dataset partition, persist the metadata as a Parquet file in S3
     def save_partition_tbl(partition_table_tuple: Tuple[str, pa.Table]) -> Tuple[str, int]:
         partition, pa_tbl = partition_table_tuple
-        save_index(dataset_name, dataset_version, {partition: pa_tbl}, s3_storage=s3_storage, s3_path_factory=s3_path_factory)
+        save_index(
+            dataset_name, dataset_version, {partition: pa_tbl}, s3_storage=s3_storage, s3_path_factory=s3_path_factory
+        )
         return (partition, pa_tbl.num_rows)
 
-    rdd = rdd.combineByKey(
+    rdd6 = rdd5.combineByKey(
         createCombiner=lambda data: pa.Table.from_pydict(
             {col: [data[col]] for col in dataset_schema.get_all_column_names()}
         ),
         mergeValue=lambda tbl, data: pa.Table.from_batches(
             [
-                *tbl.to_batches(),
+                *tbl.to_batches(),  # type: ignore
                 *pa.Table.from_pydict({col: [data[col]] for col in dataset_schema.get_all_column_names()}).to_batches(),
             ]
         ),
-        mergeCombiners=lambda tbl1, tbl2: pa.Table.from_batches([*tbl1.to_batches(), *tbl2.to_batches()]),
+        mergeCombiners=lambda tbl1, tbl2: pa.Table.from_batches([
+            *tbl1.to_batches(),  # type: ignore
+            *tbl2.to_batches(),  # type: ignore
+        ]),
     )
-    rdd = rdd.map(save_partition_tbl)
-    written = rdd.collect()
+    rdd7 = rdd6.map(save_partition_tbl)
+    written = rdd7.collect()
 
     return {partition: size for partition, size in written}
