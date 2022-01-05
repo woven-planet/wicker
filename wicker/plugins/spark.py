@@ -7,8 +7,6 @@ for large datasets.
 
 from __future__ import annotations
 
-import collections
-import dataclasses
 from typing import Any, Dict, Iterable, Tuple
 
 import pyarrow as pa
@@ -22,22 +20,55 @@ except ImportError:
     )
 
 from wicker import schema
-from wicker.core.definitions import DatasetDefinition, DatasetID
-from wicker.core.shuffle import ShuffleJob, ShuffleJobFactory, ShuffleWorker, save_index
+from wicker.schema import dataparsing
+from wicker.core.column_files import ColumnBytesFileWriter
+from wicker.core.definitions import DatasetID
+from wicker.core.shuffle import save_index
 from wicker.core.storage import S3DataStorage, S3PathFactory
-from wicker.core.writer import (
-    AbstractDatasetWriterMetadataDatabase,
-    DatasetWriter,
-    DatasetWriterBackend,
-)
-from wicker.plugins.dynamodb import DynamodbMetadataDatabase
 from wicker.schema import serialization
 
 
-@dataclasses.dataclass
-class _ShuffleWorkerResults:
-    partition: str
-    pa_table: pa.Table
+def _persist_spark_partition_wicker(
+    spark_partition_iter: Iterable[Tuple[str, Dict[str, Any]]],
+    dataset_schema: schema.DatasetSchema,
+    target_max_column_file_numrows: int = 50,
+    storage: S3DataStorage = S3DataStorage(),
+    s3_path_factory: S3PathFactory = S3PathFactory(),
+) -> Iterable[Tuple[str, Dict[str, Any]]]:
+    """Persists a Spark partition of examples with parsed bytes into S3Storage as ColumnBytesFiles,
+    returning a new Spark partition of examples with heavy-pointers and metadata only.
+    :param spark_partition_iter: Spark partition of `(partition_str, example)`, where `example` is a dictionary of
+        parsed bytes that needs to be uploaded to S3
+    :param dataset_schema: schema of dataset
+    :param target_max_column_file_numrows: Maximum number of rows in column files. Defaults to 50.
+    :param storage: S3DataStorage to use. Defaults to S3DataStorage().
+    :param s3_path_factory: S3PathFactory to use. Defaults to S3PathFactory().
+    :return: a Generator of `(partition_str, example)`, where `example` is a dictionary with heavy-pointers
+        that point to ColumnBytesFiles in S3 in place of the parsed bytes
+    """
+    column_bytes_file_writers: Dict[str, ColumnBytesFileWriter] = {}
+    heavy_pointer_columns = dataset_schema.get_pointer_columns()
+    metadata_columns = dataset_schema.get_non_pointer_columns()
+
+    for partition, example in spark_partition_iter:
+        # Create ColumnBytesFileWriter lazily as required, for each partition
+        if partition not in column_bytes_file_writers:
+            column_bytes_file_writers[partition] = ColumnBytesFileWriter(
+                storage,
+                s3_path_factory,
+                target_file_rowgroup_size=target_max_column_file_numrows,
+            )
+
+        # Write to ColumnBytesFileWriter and return only metadata + heavy-pointers
+        parquet_metadata: Dict[str, Any] = {col: example[col] for col in metadata_columns}
+        for col in heavy_pointer_columns:
+            loc = column_bytes_file_writers[partition].add(col, example[col])
+            parquet_metadata[col] = loc.to_bytes()
+        yield partition, parquet_metadata
+
+    # Flush all writers when finished
+    for partition in column_bytes_file_writers:
+        column_bytes_file_writers[partition].close()
 
 
 def persist_wicker_dataset(
@@ -45,8 +76,8 @@ def persist_wicker_dataset(
     dataset_version: str,
     dataset_schema: schema.DatasetSchema,
     rdd: pyspark.rdd.RDD[Tuple[str, Dict[str, Any]]],
-    # TODO(jchia): Extend this to support other databases
-    metadata_database: AbstractDatasetWriterMetadataDatabase = DynamodbMetadataDatabase(),
+    s3_storage: S3DataStorage = S3DataStorage(),
+    s3_path_factory: S3PathFactory = S3PathFactory(),
 ) -> Dict[str, int]:
     """Persists a Spark RDD as a Wicker dataset. RDD must be provided as an RDD of Tuples of (partition, example),
     where `partition` is a string representing the dataset partition (e.g. train/test/eval) for that given row,
@@ -59,56 +90,107 @@ def persist_wicker_dataset(
     :param dataset_version: version of the dataset
     :param dataset_schema: schema of the dataset
     :param rdd: RDD of data to be persisted as a Wicker dataset
-    :param metadata_database: Metadata database to use as intermediate storage for shuffle
     :return: A dictionary of partition name to size
     """
     # Write schema to S3
-    s3_storage = S3DataStorage()
-    s3_path_factory = S3PathFactory()
     schema_path = s3_path_factory.get_dataset_schema_path(DatasetID(name=dataset_name, version=dataset_version))
     s3_storage.put_object_s3(serialization.dumps(dataset_schema).encode("utf-8"), schema_path)
 
-    # Write rows to S3 storage for shuffle
-    def add_examples(partition_data_tups: Iterable[Tuple[str, Dict[str, Any]]]) -> Iterable[Any]:
-        with DatasetWriter(
-            dataset_definition=DatasetDefinition(
-                DatasetID(name=dataset_name, version=dataset_version),
-                schema=dataset_schema,
-            ),
-            metadata_database=metadata_database,
-        ) as writer:
-            for partition, data in partition_data_tups:
-                writer.add_example(partition, data)
-        yield
+    # Parse each row to throw errors early if they fail validation
+    def parse_row(partition_data_tup: Tuple[str, Dict[str, Any]]) -> Tuple[str, Dict[str, Any]]:
+        partition, data = partition_data_tup
+        return partition, dataparsing.parse_example(data, dataset_schema)
 
-    rdd.mapPartitions(add_examples).collect()
+    rdd = rdd.map(parse_row)
 
-    # Run shuffling on the same cluster by downloading from the metadata_database and S3
-    def run_shuffling_job(job: ShuffleJob) -> _ShuffleWorkerResults:
-        worker = ShuffleWorker(storage=S3DataStorage(), s3_path_factory=S3PathFactory())
-        return _ShuffleWorkerResults(
-            pa_table=worker.process_job(job),
-            partition=job.dataset_partition.partition,
-        )
+    # Make sure to cache the RDD to ease future computations, since it seems that sortBy and zipWithIndex
+    # trigger actions and we want to avoid recomputing the source RDD at all costs
+    rdd = rdd.cache()
 
-    backend = DatasetWriterBackend(s3_path_factory, s3_storage, metadata_database)
-    job_factory = ShuffleJobFactory(backend)
-    shuffle_jobs = list(job_factory.build_shuffle_jobs(DatasetID(name=dataset_name, version=dataset_version)))
-    shuffle_results = rdd.context.parallelize(shuffle_jobs, len(shuffle_jobs)).map(run_shuffling_job).collect()
+    # Materialize partitioning index to RDD to properly do a `.zip` later, which assumes that
+    # the two RDDs have the same number of partitions and the same number of elements in each partition
+    # See: https://spark.apache.org/docs/latest/api/python/reference/api/pyspark.RDD.zip.html
+    #
+    # (spark_partition_idx, (partition, data))
+    def zipWithPartitionIndex(partition_idx: int, it: Iterable[Tuple[str, Dict[str, Any]]]):
+        for tup in it:
+            yield (partition_idx, tup)
+    rdd = rdd.mapPartitionsWithIndex(zipWithPartitionIndex)
 
-    results_by_partition = collections.defaultdict(list)
-    for result in shuffle_results:
-        results_by_partition[result.partition].append(result.pa_table)
+    def get_row_keys(partition_data_tup: Tuple[str, Dict[str, Any]]) -> Tuple[Any, ...]:
+        partition, data = partition_data_tup
+        return tuple(partition, *[data[pk] for pk in dataset_schema.primary_keys])
 
-    tables_by_partition: Dict[str, pa.Table] = {}
-    for partition in results_by_partition:
-        tables_by_partition[partition] = pa.concat_tables(results_by_partition[partition])
+    # Obtain an RDD of the argsort of the primary keys. Must have same partitioning as our source
+    # RDD to enable us to zip them together later on.
+    #
+    # 1. (spark_partition_idx, (partition, data)) -> (spark_partition_idx, primary_key)
+    # 2. (spark_partition_idx, primary_key) -> ((spark_partition_idx, primary_key), original_idx)
+    # 3. Sort by primary_key
+    # 4. ((spark_partition_idx, primary_key), original_idx) ->
+    #       (((spark_partition_idx, primary_key), original_idx), global_sorted_idx)
+    # 5. Sort by original_idx
+    # 6. (((spark_partition_idx, primary_key), original_idx), global_sorted_idx) ->
+    #       (spark_partition_idx, global_sorted_idx)
+    # 7. Repartition by spark_partition_idx
+    # 8. (spark_partition_idx, global_sorted_idx) -> global_sorted_idx
+    global_sorted_idx_rdd = rdd
+    global_sorted_idx_rdd = global_sorted_idx_rdd.mapValues(get_row_keys)
+    global_sorted_idx_rdd = global_sorted_idx_rdd.zipWithIndex()
+    global_sorted_idx_rdd = global_sorted_idx_rdd.sortBy(lambda x: x[0][1])
+    global_sorted_idx_rdd = global_sorted_idx_rdd.zipWithIndex()
+    global_sorted_idx_rdd = global_sorted_idx_rdd.sortBy(lambda x: x[0][1])
+    global_sorted_idx_rdd = global_sorted_idx_rdd.map(lambda x: (x[0][0][0], x[1]))
+    global_sorted_idx_rdd = global_sorted_idx_rdd.partitionBy(rdd.getNumPartitions(), partitionFunc=lambda x: x)
+    global_sorted_idx_rdd = global_sorted_idx_rdd.values()
 
-    save_index(
-        dataset_name,
-        dataset_version,
-        tables_by_partition,
-        s3_storage=s3_storage,
-        s3_path_factory=s3_path_factory,
+    # Zip our argsort RDD with our source RDD, and use the argsort indices to repartition + sort our data.
+    # Note that this performs a distributed shuffle of our heavy bytes data to bring them into contiguous order.
+    # We then do a mapPartitions to write each partition into Wicker
+    #
+    # 1. (spark_partition_idx, (partition, data)) -> ((spark_partition_idx, (partition, data)), global_sorted_idx)
+    # 2. ((spark_partition_idx, (partition, data)), global_sorted_idx) -> (global_sorted_idx, (partition, data))
+    # 3. Repartition and sort by global_sorted_idx to obtain partitions of contiguous, globally sorted examples
+    # 4. (global_sorted_idx, (partition, data)) -> (partition, data)
+    # 5. Write each partition of (partition, data) into Wicker
+    rdd = rdd.zip(global_sorted_idx_rdd)
+    rdd = rdd.map(lambda x: (x[1], x[0][1]))
+    rdd = rdd.repartitionAndSortWithinPartitions(
+        # TODO(jchia): Magic number, we should derive this based on row size
+        partitionFunc=lambda x: x // 256,
+        keyfunc=lambda x: x,
     )
-    return {partition_name: len(tables_by_partition[partition_name]) for partition_name in tables_by_partition}
+    rdd = rdd.values()
+    rdd = rdd.mapPartitions(
+        lambda spark_iterator: _persist_spark_partition_wicker(
+            spark_iterator,
+            dataset_schema,
+            # TODO(jchia): Magic number, we should derive this based on row size
+            target_max_column_file_numrows=50,
+            s3_storage=s3_storage,
+            s3_path_factory=s3_path_factory,
+        )
+    )
+
+    # For each dataset partition, persist the metadata as a Parquet file in S3
+    def save_partition_tbl(partition_table_tuple: Tuple[str, pa.Table]) -> Tuple[str, int]:
+        partition, pa_tbl = partition_table_tuple
+        save_index(dataset_name, dataset_version, {partition: pa_tbl}, s3_storage=s3_storage, s3_path_factory=s3_path_factory)
+        return (partition, pa_tbl.num_rows)
+
+    rdd = rdd.combineByKey(
+        createCombiner=lambda data: pa.Table.from_pydict(
+            {col: [data[col]] for col in dataset_schema.get_all_column_names()}
+        ),
+        mergeValue=lambda tbl, data: pa.Table.from_batches(
+            [
+                *tbl.to_batches(),
+                *pa.Table.from_pydict({col: [data[col]] for col in dataset_schema.get_all_column_names()}).to_batches(),
+            ]
+        ),
+        mergeCombiners=lambda tbl1, tbl2: pa.Table.from_batches([*tbl1.to_batches(), *tbl2.to_batches()]),
+    )
+    rdd = rdd.map(save_partition_tbl)
+    written = rdd.collect()
+
+    return {partition: size for partition, size in written}
