@@ -10,7 +10,7 @@ import io
 import logging
 import os
 import uuid
-from typing import Any, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
 import boto3
@@ -34,6 +34,12 @@ class S3DataStorage:
         might also find it convenient to mock or patch member functions on instances of this class.
         """
         self.client = boto3.client("s3") if session is None else session.client("s3")
+
+    def __getstate__(self) -> Dict[Any, Any]:
+        return {}
+
+    def __setstate__(self, state: Dict[Any, Any]) -> None:
+        return
 
     @staticmethod
     def bucket_key_from_s3_path(s3_path: str) -> Tuple[str, str]:
