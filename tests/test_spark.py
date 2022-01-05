@@ -61,10 +61,6 @@ class LocalWritingTestCase(unittest.TestCase):
             foobar = [(barval.as_py(), fooval.as_py()) for fooval, barval in zip(tbl["foo"], tbl["bar"])]
             self.assertEqual(foobar, sorted(foobar))
 
-    @unittest.skipUnless(
-        os.getenv("SPARK_UNIT_TESTS"),
-        "Unit-test requires correct setup to run, can run in OneBox with Java11 installed",
-    )
     def test_simple_schema_local_writing(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             fake_storage = FakeS3DataStorage(tmpdir=tmpdir)
