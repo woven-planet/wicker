@@ -3,6 +3,7 @@ import os
 import tempfile
 import unittest
 import uuid
+import random
 
 import pyarrow.parquet as papq
 from pyspark.sql import SparkSession
@@ -22,8 +23,16 @@ SCHEMA = schema.DatasetSchema(
         schema.BytesField("bytescol"),
     ],
 )
+RANDOM_UUIDS = [str(uuid.uuid4()) for _ in range(10)]
 EXAMPLES = [
-    ("train" if i % 2 == 0 else "test", {"foo": i, "bar": str(uuid.uuid4()), "bytescol": b"0"}) for i in range(1000)
+    (
+        "train" if i % 2 == 0 else "test",
+        {
+            "foo": random.randint(0, 10000),
+            "bar": random.choice(RANDOM_UUIDS),
+            "bytescol": b"0",
+        }
+    ) for i in range(10000)
 ]
 
 
@@ -41,7 +50,7 @@ class LocalWritingTestCase(unittest.TestCase):
                 concatenated_bytes_filepath = os.path.join(columns_path, filename)
                 with open(concatenated_bytes_filepath, "rb") as bytescol_file:
                     all_read_bytes += bytescol_file.read()
-            self.assertEqual(all_read_bytes, b"0" * 1000)
+            self.assertEqual(all_read_bytes, b"0" * 10000)
 
             # Load parquet file and assert ordering of primary_key
             self.assertIn(
