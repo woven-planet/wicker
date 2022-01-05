@@ -1,5 +1,6 @@
 import os
 import shutil
+from typing import Any, Dict
 
 from wicker.core.storage import S3DataStorage
 
@@ -7,6 +8,13 @@ from wicker.core.storage import S3DataStorage
 class FakeS3DataStorage(S3DataStorage):
     def __init__(self, tmpdir: str = "/tmp") -> None:
         self._tmpdir = tmpdir
+
+    def __getstate__(self) -> Dict[Any, Any]:
+        return {"tmpdir": self._tmpdir}
+
+    def __setstate__(self, state: Dict[Any, Any]) -> None:
+        self._tmpdir = state["tmpdir"]
+        return
 
     def _get_local_path(self, path: str) -> str:
         return os.path.join(self._tmpdir, path.replace("s3://", ""))
