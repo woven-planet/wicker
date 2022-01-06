@@ -14,6 +14,7 @@ from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
 import boto3
+import boto3.session
 from botocore.exceptions import ClientError  # type: ignore
 
 from wicker.core.config import get_config
@@ -33,12 +34,15 @@ class S3DataStorage:
         unit tests to easily mock / patch the S3 client or to utilize the S3 Stubber. Unit tests
         might also find it convenient to mock or patch member functions on instances of this class.
         """
-        self.client = boto3.client("s3") if session is None else session.client("s3")
+        self.session = boto3.session.Session() if session is None else session
+        self.client = self.session.client("s3")
 
     def __getstate__(self) -> Dict[Any, Any]:
         return {}
 
     def __setstate__(self, state: Dict[Any, Any]) -> None:
+        self.session = boto3.session.Session()
+        self.client = self.session.client("s3")
         return
 
     @staticmethod
