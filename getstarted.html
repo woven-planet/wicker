@@ -37,9 +37,11 @@
 <h1>Getting Started<a class="headerlink" href="#getting-started" title="Permalink to this headline">¶</a></h1>
 <p>Wicker is an open source framework for Machine Learning dataset storage and serving developed at Woven Planet L5.</p>
 <p>Wicker leverages other open source technologies such as Apache Arrow and Apache Parquet to store and serve data. Operating
-Wicker requires users to provide an object store, a metadata database and a data engine. Out of the box, Wicker provides
-integrations with several widely used technologies, but also allows users to build and use their own implementations to
-easily integrate with their own infrastructure.</p>
+Wicker mainly requires users to provide an object store (currently Wicker is only compatible with AWS S3, but integrations with
+other cloud object stores are a work-in-progress).</p>
+<p>Out of the box, Wicker provides integrations with several widely used technologies such as Spark, Flyte and DynamoDB to allow users
+to write Wicker datasets from these data infrastructures. However, Wicker was built with a high degree of extensibility in mind, and
+allows users to build and use their own implementations to easily integrate with their own infrastructure.</p>
 <section id="installation">
 <h2>Installation<a class="headerlink" href="#installation" title="Permalink to this headline">¶</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">wicker</span></code></p>
@@ -55,10 +57,6 @@ users may optionally add these options as extra install arguments:</p>
     &quot;aws_s3_config&quot;: {
         &quot;s3_datasets_path&quot;: &quot;s3://my-bucket/somepath&quot;,  // Path to the AWS bucket + prefix to use
         &quot;region&quot;: &quot;us-west-2&quot;  // Region of your bucket
-    },
-    &quot;dynamodb_config&quot;: {
-        &quot;table_name&quot;: &quot;my-table&quot;,  // name of the table to use in dynamodb
-        &quot;region&quot;: &quot;us-west-2&quot;  // region of your table
     }
 }
 </pre></div>
@@ -66,69 +64,113 @@ users may optionally add these options as extra install arguments:</p>
 </section>
 <section id="writing-your-first-dataset">
 <h2>Writing your first Dataset<a class="headerlink" href="#writing-your-first-dataset" title="Permalink to this headline">¶</a></h2>
-<p>Wicker allows users to work both locally and in the cloud, by leveraging different compute and storage backends.
-When working locally, users can use the plugins found in <code class="docutils literal notranslate"><span class="pre">wicker.plugins.local</span></code> to use their local machine’s resources
-as a backend for writing datasets.</p>
+<p>Wicker allows users to work both locally and in the cloud, by leveraging different compute and storage backends.</p>
+<p>Note that every dataset must have a defined schema. We define schemas using Wicker’s schema library:</p>
 <div class="highlight-python3 notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">wicker</span> <span class="kn">import</span> <span class="n">schema</span>
-<span class="kn">from</span> <span class="nn">wicker.core.definitions</span> <span class="kn">import</span> <span class="n">DatasetID</span>
-<span class="kn">from</span> <span class="nn">wicker.core.writer</span> <span class="kn">import</span> <span class="n">DatasetWriter</span>
-<span class="kn">from</span> <span class="nn">wicker.plugins</span> <span class="kn">import</span> <span class="n">local</span><span class="p">,</span> <span class="n">dynamodb</span>
-<span class="kn">from</span> <span class="nn">wicker.core.storage</span> <span class="kn">import</span> <span class="n">S3PathFactory</span><span class="p">,</span> <span class="n">S3DataStorage</span>
 
-<span class="c1"># (1): Give your dataset a name and a version</span>
-<span class="n">dataset_id</span> <span class="o">=</span> <span class="n">DatasetID</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_new_dataset&quot;</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="s2">&quot;0.0.1&quot;</span><span class="p">)</span>
-
-<span class="c1"># (2): Define a schema for your dataset</span>
-<span class="n">my_schema</span> <span class="o">=</span> <span class="n">schema</span><span class="o">.</span><span class="n">DatasetSchema</span><span class="p">(</span>
-    <span class="n">primary_keys</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;foo&quot;</span><span class="p">,</span> <span class="s2">&quot;bar&quot;</span><span class="p">],</span>
+<span class="n">MY_SCHEMA</span> <span class="o">=</span> <span class="n">schema</span><span class="o">.</span><span class="n">DatasetSchema</span><span class="p">(</span>
+    <span class="n">primary_keys</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;foo&quot;</span><span class="p">],</span>
     <span class="n">fields</span><span class="o">=</span><span class="p">[</span>
         <span class="n">schema</span><span class="o">.</span><span class="n">StringField</span><span class="p">(</span><span class="s2">&quot;foo&quot;</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;This is an optional human-readable description of the field&quot;</span><span class="p">),</span>
-        <span class="n">schema</span><span class="o">.</span><span class="n">IntField</span><span class="p">(</span><span class="s2">&quot;bar&quot;</span><span class="p">),</span>
-        <span class="n">schema</span><span class="o">.</span><span class="n">FloatField</span><span class="p">(</span><span class="s2">&quot;baz&quot;</span><span class="p">,</span> <span class="n">required</span><span class="o">=</span><span class="kc">False</span><span class="p">),</span>
-        <span class="n">schema</span><span class="o">.</span><span class="n">NumpyField</span><span class="p">(</span><span class="s2">&quot;arr&quot;</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">&quot;float64&quot;</span><span class="p">)</span>
+        <span class="n">schema</span><span class="o">.</span><span class="n">NumpyField</span><span class="p">(</span><span class="s2">&quot;arr&quot;</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">&quot;float64&quot;</span><span class="p">),</span>
     <span class="p">]</span>
 <span class="p">)</span>
+</pre></div>
+</div>
+<p>The above schema defines a dataset that consists of data that looks like:</p>
+<div class="highlight-python3 notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+    <span class="s2">&quot;foo&quot;</span><span class="p">:</span> <span class="s2">&quot;some_string&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;arr&quot;</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span>
+        <span class="p">[</span><span class="mf">1.</span><span class="p">,</span> <span class="mf">1.</span><span class="p">,</span> <span class="mf">1.</span><span class="p">,</span> <span class="mf">1.</span><span class="p">],</span>
+        <span class="p">[</span><span class="mf">1.</span><span class="p">,</span> <span class="mf">1.</span><span class="p">,</span> <span class="mf">1.</span><span class="p">,</span> <span class="mf">1.</span><span class="p">],</span>
+        <span class="p">[</span><span class="mf">1.</span><span class="p">,</span> <span class="mf">1.</span><span class="p">,</span> <span class="mf">1.</span><span class="p">,</span> <span class="mf">1.</span><span class="p">],</span>
+        <span class="p">[</span><span class="mf">1.</span><span class="p">,</span> <span class="mf">1.</span><span class="p">,</span> <span class="mf">1.</span><span class="p">,</span> <span class="mf">1.</span><span class="p">],</span>
+    <span class="p">])</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>We have the guarantee that the dataset will be:</p>
+<ol class="arabic simple">
+<li><p>Sorted by each examples’s <cite>“foo”</cite> field as this is the only primary_key of the dataset</p></li>
+<li><p>Each example’s <cite>“arr”</cite> field contains a 4-by-4 numpy array of float64 values</p></li>
+</ol>
+<p>After defining a schema, we can then start to write data conforming to this schema to a dataset</p>
+<section id="using-spark">
+<h3>Using Spark<a class="headerlink" href="#using-spark" title="Permalink to this headline">¶</a></h3>
+<p>Spark is a common data engine and Wicker provides integrations to write datasets from Spark.</p>
+<div class="highlight-python3 notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">wicker.plugins.spark</span> <span class="kn">import</span> <span class="n">persist_wicker_dataset</span>
 
-<span class="c1"># (3): Add examples to your Dataset</span>
-<span class="n">dataset_definition</span> <span class="o">=</span> <span class="n">DatasetDefinition</span><span class="p">(</span><span class="n">dataset_id</span><span class="p">,</span> <span class="n">my_schema</span><span class="p">)</span>
+<span class="n">examples</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">(</span>
+        <span class="s2">&quot;train&quot;</span><span class="p">,</span>  <span class="c1"># Wicker dataset partition that this row belongs to</span>
+        <span class="p">{</span>
+            <span class="s2">&quot;foo&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;foo</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;arr&quot;</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">((</span><span class="mi">4</span><span class="p">,</span> <span class="mi">4</span><span class="p">)),</span>
+        <span class="p">}</span>
+    <span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1000</span><span class="p">)</span>
+<span class="p">]</span>
+
+<span class="n">rdd</span> <span class="o">=</span> <span class="n">spark_context</span><span class="o">.</span><span class="n">parallelize</span><span class="p">(</span><span class="n">examples</span><span class="p">)</span>
+<span class="n">persist_wicker_dataset</span><span class="p">(</span>
+    <span class="s2">&quot;my_dataset_name&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;0.0.1&quot;</span><span class="p">,</span>
+    <span class="n">MY_SCHEMA</span><span class="p">,</span>
+    <span class="n">rdd</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>And that’s it! Wicker will handle all the sorting and persisting of the data for you under the hood.</p>
+</section>
+<section id="using-non-data-engine-infrastructures">
+<h3>Using Non-Data Engine Infrastructures<a class="headerlink" href="#using-non-data-engine-infrastructures" title="Permalink to this headline">¶</a></h3>
+<p>Not all users have access to infrastructure like Spark, or want to fire up something quite as heavyweight for
+maybe a smaller dataset or use-case. For these users, Wicker exposes a <code class="docutils literal notranslate"><span class="pre">DatasetWriter</span></code> API for adding and committing
+examples from any environment.</p>
+<p>To make this work, Wicker needs an intermediate <code class="docutils literal notranslate"><span class="pre">MetadataDatabase</span></code> to store and index information about each row before
+it commits the dataset. We provide a default integration with DynamoDB, but users can implement their own integrations easily
+by implementing the abstract interface <code class="docutils literal notranslate"><span class="pre">wicker.core.writer.AbstractDatasetWriterMetadataDatabase</span></code>, and use their own
+MetadataDatabases as intermediate storage for persisting their data. Integrations with other databases as to use as a Wicker-compatible
+MetadataDatabase is a work-in-progress.</p>
+<p>Below, we provide an example of how we can use <a class="reference external" href="https://flyte.org/">Flyte</a> to commit our datasets, using DynamoDB as our
+MetadataDatabase. More plugins are being written for other commonly used cloud infrastructure such as AWS Batch, Kubernetes etc.</p>
+<div class="highlight-python3 notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">wicker.schema</span> <span class="kn">import</span> <span class="n">serialization</span>
+<span class="kn">from</span> <span class="nn">wicker.core.definitions</span> <span class="kn">import</span> <span class="n">DatasetDefinition</span><span class="p">,</span> <span class="n">DatasetID</span>
+<span class="kn">from</span> <span class="nn">wicker.core.writer</span> <span class="kn">import</span> <span class="n">DatasetWriter</span>
+<span class="kn">from</span> <span class="nn">wicker.plugins</span> <span class="kn">import</span> <span class="n">dynamodb</span><span class="p">,</span> <span class="n">flyte</span>
+
+<span class="c1"># First, add the following to our ~/.wickerconfig.json file to enable Wicker&#39;s DynamoDB integrations</span>
+<span class="c1">#</span>
+<span class="c1"># &quot;dynamodb_config&quot;: { // only if users need to use DynamoDB for writing datasets</span>
+<span class="c1">#     &quot;table_name&quot;: &quot;my-table&quot;,  // name of the table to use in dynamodb</span>
+<span class="c1">#     &quot;region&quot;: &quot;us-west-2&quot;  // region of your table</span>
+<span class="c1"># }</span>
+
 <span class="n">metadata_database</span> <span class="o">=</span> <span class="n">dynamodb</span><span class="o">.</span><span class="n">DynamodbMetadataDatabase</span><span class="p">()</span>
+<span class="n">dataset_definition</span> <span class="o">=</span> <span class="n">DatasetDefinition</span><span class="p">(</span><span class="n">DatasetID</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_dataset&quot;</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="s2">&quot;0.0.1&quot;</span><span class="p">),</span> <span class="n">MY_SCHEMA</span><span class="p">)</span>
+
+<span class="c1"># (1): Add examples to your dataset</span>
+<span class="c1">#</span>
+<span class="c1"># Note that this can be called from anywhere asynchronously, e.g. in different Flyte workers, from</span>
+<span class="c1"># a Jupyter notebook, a local Python script etc - as long as the same metadata_database config is used</span>
 <span class="k">with</span> <span class="n">DatasetWriter</span><span class="p">(</span><span class="n">dataset_definition</span><span class="p">,</span> <span class="n">metadata_database</span><span class="p">)</span> <span class="k">as</span> <span class="n">writer</span><span class="p">:</span>
     <span class="n">writer</span><span class="o">.</span><span class="n">add_example</span><span class="p">(</span>
-        <span class="s2">&quot;train&quot;</span><span class="p">,</span>  <span class="c1"># Name of your partition (e.g. train, test, eval, unittest, ...)</span>
+        <span class="s2">&quot;train&quot;</span><span class="p">,</span>  <span class="c1"># Name of your Wicker dataset partition (e.g. train, test, eval, unittest, ...)</span>
         <span class="p">{</span>
-            <span class="s2">&quot;foo&quot;</span><span class="p">:</span> <span class="s2">&quot;some_string&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;bar&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
-            <span class="s2">&quot;baz&quot;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span>
+            <span class="s2">&quot;foo&quot;</span><span class="p">:</span> <span class="s2">&quot;foo1&quot;</span><span class="p">,</span>
             <span class="s2">&quot;arr&quot;</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">eye</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">&quot;float64&quot;</span><span class="p">),</span>
         <span class="p">},</span>  <span class="c1"># Raw data for a single example that conforms to your schema</span>
     <span class="p">)</span>
 
-<span class="c1"># (4): Commit your dataset when ready (can be called from separate process)</span>
-<span class="n">local</span><span class="o">.</span><span class="n">commit_dataset</span><span class="p">(</span>
-    <span class="n">dataset_definition</span><span class="p">,</span>
-    <span class="n">metadata_database</span><span class="p">,</span>
+<span class="c1"># (2): When ready, commit the dataset.</span>
+<span class="c1">#</span>
+<span class="c1"># Trigger the Flyte workflow to commit the dataset, either from the Flyte UI, Flyte CLI or from a Python script</span>
+<span class="n">flyte</span><span class="o">.</span><span class="n">WickerDataShufflingWorkflow</span><span class="p">(</span>
+    <span class="n">dataset_id</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">dataset_definition</span><span class="o">.</span><span class="n">dataset_id</span><span class="p">),</span>
+    <span class="n">schema_json_str</span><span class="o">=</span><span class="n">serialization</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">MY_SCHEMA</span><span class="p">),</span>
 <span class="p">)</span>
 </pre></div>
 </div>
 <ol class="arabic simple">
-<li><p>Every dataset must have a name and a version, and we create one explicitly using a <code class="docutils literal notranslate"><span class="pre">DatasetID</span></code></p></li>
-<li><dl class="simple">
-<dt>Every dataset also has an associated schema, which we create using the <code class="docutils literal notranslate"><span class="pre">Wicker.schema</span></code> library.</dt><dd><ol class="loweralpha simple">
-<li><dl class="simple">
-<dt>This particular schema consists 4 columns:</dt><dd><ol class="lowerroman simple">
-<li><p>Column <code class="docutils literal notranslate"><span class="pre">foo</span></code> is guaranteed to be a String. <code class="docutils literal notranslate"><span class="pre">foo</span></code> is also a primary key.</p></li>
-<li><p>Column <code class="docutils literal notranslate"><span class="pre">bar</span></code> is guaranteed to be an integer. <code class="docutils literal notranslate"><span class="pre">bar</span></code> is also a primary key.</p></li>
-<li><p>Column <code class="docutils literal notranslate"><span class="pre">baz</span></code> is guaranteed to be an float. It is also designated <code class="docutils literal notranslate"><span class="pre">required=False</span></code> which means that users may choose to omit this field when writing data.</p></li>
-<li><p>Column <code class="docutils literal notranslate"><span class="pre">arr</span></code> is Numpy array field. It is guaranteed to have a shape of <code class="docutils literal notranslate"><span class="pre">(4,</span> <span class="pre">4)</span></code> and each element is a <code class="docutils literal notranslate"><span class="pre">float64</span></code>.</p></li>
-</ol>
-</dd>
-</dl>
-</li>
-<li><p>Note that the primary key here is going to be a tuple of <code class="docutils literal notranslate"><span class="pre">(foo,</span> <span class="pre">bar)</span></code>, and clients reading/writing from this dataset should assume that all rows will contain a unique tuple of their <code class="docutils literal notranslate"><span class="pre">foo</span></code> and <code class="docutils literal notranslate"><span class="pre">bar</span></code> columns. The ordering of the keys matter as well, as rows in a datasets are sorted based on these tuples and keys must be listed in order of precedence. Primary keys can only be of types <code class="docutils literal notranslate"><span class="pre">StringField</span></code>, <code class="docutils literal notranslate"><span class="pre">IntField</span></code>, <code class="docutils literal notranslate"><span class="pre">LongField</span></code>, <code class="docutils literal notranslate"><span class="pre">BoolField</span></code>.</p></li>
-</ol>
-</dd>
-</dl>
-</li>
 <li><dl class="simple">
 <dt>Start adding examples to your dataset. Note:</dt><dd><ol class="loweralpha simple">
 <li><p>Here we use a <code class="docutils literal notranslate"><span class="pre">DynamodbMetadataDatabase</span></code> as the metadata storage for this dataset, but users can use other Metadata Database implementations here as well if they do not have an accessible DynamoDB instance.</p></li>
@@ -137,8 +179,9 @@ as a backend for writing datasets.</p>
 </dd>
 </dl>
 </li>
-<li><p>Commit your dataset. Note here that we use the committing functionality provided by <code class="docutils literal notranslate"><span class="pre">wicker.plugins.local.commit_dataset</span></code>, but users may also choose to use other plugins such as the Spark or Flyte plugins for committing much larger datasets.</p></li>
+<li><p>Commit your dataset. Note here that we use the committing functionality provided by <code class="docutils literal notranslate"><span class="pre">wicker.plugins.flyte</span></code>, but more plugins for other data infrastructures are a work-in-progress (e.g. Kubernetes, AWS Batch)</p></li>
 </ol>
+</section>
 </section>
 <section id="reading-from-your-dataset">
 <h2>Reading from your Dataset<a class="headerlink" href="#reading-from-your-dataset" title="Permalink to this headline">¶</a></h2>
@@ -188,7 +231,11 @@ as a backend for writing datasets.</p>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Getting Started</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#installation">Installation</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#configuration">Configuration</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#writing-your-first-dataset">Writing your first Dataset</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#writing-your-first-dataset">Writing your first Dataset</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#using-spark">Using Spark</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#using-non-data-engine-infrastructures">Using Non-Data Engine Infrastructures</a></li>
+</ul>
+</li>
 <li class="toctree-l2"><a class="reference internal" href="#reading-from-your-dataset">Reading from your Dataset</a></li>
 </ul>
 </li>
