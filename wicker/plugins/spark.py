@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable, Tuple
 
 import pyarrow as pa
+import pyarrow.compute as pc
 
 try:
     import pyspark
@@ -28,6 +29,7 @@ from wicker.schema import dataparsing, serialization
 
 SPARK_PARTITION_SIZE = 256
 
+PrimaryKeyTuple = Tuple[Any, ...]
 UnparsedExample = Dict[str, Any]
 ParsedExample = Dict[str, Any]
 PointerParsedExample = Dict[str, Any]
@@ -114,7 +116,7 @@ def persist_wicker_dataset(
 
     # Key each row with the partition + primary_keys
     # (partition, data) -> (primary_key_tup, (partition, data))
-    def get_row_keys(partition_data_tup: Tuple[str, ParsedExample]) -> Tuple[Any, ...]:
+    def get_row_keys(partition_data_tup: Tuple[str, ParsedExample]) -> PrimaryKeyTuple:
         partition, data = partition_data_tup
         return (partition,) + tuple(data[pk] for pk in dataset_schema.primary_keys)
 
@@ -165,7 +167,16 @@ def persist_wicker_dataset(
             ]
         ),
     )
-    rdd6 = rdd5.map(save_partition_tbl)
-    written = rdd6.collect()
+    rdd6 = rdd5.mapValues(
+        lambda pa_tbl: pc.take(
+            pa_tbl,
+            pc.sort_indices(
+                pa_tbl,
+                sort_keys=[(pk, "ascending") for pk in dataset_schema.primary_keys],
+            ),
+        )
+    )
+    rdd7 = rdd6.map(save_partition_tbl)
+    written = rdd7.collect()
 
     return {partition: size for partition, size in written}
