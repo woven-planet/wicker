@@ -10,6 +10,7 @@ from pyspark.sql import SparkSession
 
 from wicker import schema
 from wicker.core.config import get_config
+from wicker.core.errors import WickerDatastoreException
 from wicker.plugins.spark import persist_wicker_dataset
 from wicker.testing.storage import FakeS3DataStorage
 
@@ -23,18 +24,21 @@ SCHEMA = schema.DatasetSchema(
         schema.BytesField("bytescol"),
     ],
 )
-RANDOM_UUIDS = [str(uuid.uuid4()) for _ in range(10)]
+# RANDOM_UUIDS = [str(uuid.uuid4()) for _ in range(10)]
 EXAMPLES = [
     (
         "train" if i % 2 == 0 else "test",
         {
             "foo": random.randint(0, 10000),
-            "bar": random.choice(RANDOM_UUIDS),
+            "bar": str(uuid.uuid4()),
             "bytescol": b"0",
         },
     )
     for i in range(10000)
 ]
+# Examples with a duplicated key
+EXAMPLES_DUPES = copy.deepcopy(EXAMPLES)
+EXAMPLES_DUPES[5000] = EXAMPLES_DUPES[0]
 
 
 class LocalWritingTestCase(unittest.TestCase):
@@ -76,3 +80,24 @@ class LocalWritingTestCase(unittest.TestCase):
                 s3_storage=fake_storage,
             )
             self.assert_written_correctness(tmpdir)
+
+    def test_dupe_primary_keys_raises_exception(self) -> None:
+        with self.assertRaises(WickerDatastoreException) as e:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                fake_storage = FakeS3DataStorage(tmpdir=tmpdir)
+                spark_session = SparkSession.builder.appName("test").master("local[*]")
+                spark = spark_session.getOrCreate()
+                sc = spark.sparkContext
+                rdd = sc.parallelize(copy.deepcopy(EXAMPLES_DUPES), 100)
+                persist_wicker_dataset(
+                    DATASET_NAME,
+                    DATASET_VERSION,
+                    SCHEMA,
+                    rdd,
+                    s3_storage=fake_storage,
+                )
+
+            self.assertIn(
+                "Error: dataset examples do not have unique primary key tuples",
+                str(e.exception),
+            )
