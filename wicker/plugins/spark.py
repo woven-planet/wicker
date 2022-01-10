@@ -23,6 +23,7 @@ except ImportError:
 from wicker import schema
 from wicker.core.column_files import ColumnBytesFileWriter
 from wicker.core.definitions import DatasetID
+from wicker.core.errors import WickerDatastoreException
 from wicker.core.shuffle import save_index
 from wicker.core.storage import S3DataStorage, S3PathFactory
 from wicker.schema import dataparsing, serialization
@@ -121,6 +122,14 @@ def persist_wicker_dataset(
         return (partition,) + tuple(data[pk] for pk in dataset_schema.primary_keys)
 
     rdd1 = rdd0.keyBy(get_row_keys)
+
+    # the number of unique keys in the rdd
+    num_unique_keys = len(rdd0.countByKey())
+    if dataset_size != num_unique_keys:
+        raise WickerDatastoreException(
+            f"""Error: dataset examples do not have unique primary key tuples.
+            Dataset has has {dataset_size} examples but {num_unique_keys} unique primary keys"""
+        )
 
     # Sort RDD by keys
     rdd2: pyspark.rdd.RDD[Tuple[Tuple[Any, ...], Tuple[str, ParsedExample]]] = rdd1.sortByKey(

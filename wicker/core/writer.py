@@ -13,6 +13,7 @@ from types import TracebackType
 from typing import Any, Dict, Generator, Iterator, List, Optional, Tuple, Type, Union
 
 from wicker.core.definitions import DatasetDefinition, DatasetID
+from wicker.core.errors import WickerDatastoreException
 from wicker.core.storage import S3DataStorage, S3PathFactory
 from wicker.schema import dataparsing, serialization
 
@@ -254,6 +255,11 @@ class DatasetWriter:
                 max_in_flight=2 * self.buffer_size_limit,
                 timeout_seconds=self.wait_flush_timeout_seconds,
             ):
-                self.writes_in_flight[key.hash()] = data
+                key_hash = key.hash()
+                if key_hash in self.writes_in_flight:
+                    raise WickerDatastoreException(
+                        f"Error: data example has non unique key {key}, primary keys must be unique"
+                    )
+                self.writes_in_flight[key_hash] = data
             future = self.executor.submit(self._save_row, key, data)
             future.add_done_callback(done_callback)
