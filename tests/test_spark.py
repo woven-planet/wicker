@@ -24,7 +24,6 @@ SCHEMA = schema.DatasetSchema(
         schema.BytesField("bytescol"),
     ],
 )
-# RANDOM_UUIDS = [str(uuid.uuid4()) for _ in range(10)]
 EXAMPLES = [
     (
         "train" if i % 2 == 0 else "test",
