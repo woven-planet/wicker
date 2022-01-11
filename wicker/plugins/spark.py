@@ -20,9 +20,12 @@ except ImportError:
         " `pip install wicker[spark]`"
     )
 
+from operator import add
+
 from wicker import schema
 from wicker.core.column_files import ColumnBytesFileWriter
 from wicker.core.definitions import DatasetID
+from wicker.core.errors import WickerDatastoreException
 from wicker.core.shuffle import save_index
 from wicker.core.storage import S3DataStorage, S3PathFactory
 from wicker.schema import dataparsing, serialization
@@ -128,6 +131,20 @@ def persist_wicker_dataset(
         numPartitions=dataset_size // SPARK_PARTITION_SIZE,
         ascending=True,
     )
+
+    def set_partition(iterator: Iterable[PrimaryKeyTuple]) -> Iterable[int]:
+        key_set = set(iterator)
+        yield len(key_set)
+
+    # the number of unique keys in rdd partitions
+    # this is softer check than collecting all the keys in all partitions to check uniqueness9
+    rdd_key_count: int = rdd2.map(lambda x: x[0]).mapPartitions(set_partition).reduce(add)
+    num_unique_keys = rdd_key_count
+    if dataset_size != num_unique_keys:
+        raise WickerDatastoreException(
+            f"""Error: dataset examples do not have unique primary key tuples.
+            Dataset has has {dataset_size} examples but {num_unique_keys} unique primary keys"""
+        )
 
     # Write data to Column Byte Files
     rdd3 = rdd2.values()
