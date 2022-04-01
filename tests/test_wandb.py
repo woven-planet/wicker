@@ -67,17 +67,18 @@ def test_version_dataset(temp_config, dataset_name, dataset_version, dataset_met
 
             # establish the expected calls
             expected_artifact_calls = [
-                call(f"{dataset_name}_{dataset_version}", type="dataset"),
+                call(dataset_name, type="dataset"),
                 call().add_reference(
                     f"{config['aws_s3_config']['s3_datasets_path']}{dataset_name}/{dataset_version}/assets",
                     name="dataset",
                 ),
+                call().metadata.__setitem__("version", dataset_version),
             ]
             for key, value in dataset_metadata.items():
                 expected_artifact_calls.append(call().metadata.__setitem__(key, value))
 
             expected_run_calls = [
-                call(project=f"{dataset_name}_curation", name=f"{dataset_name}_{dataset_version}"),
+                call(project=f"{dataset_name}_curation", name=dataset_name),
                 call().log_artifact(patched_artifact()),
             ]
 
