@@ -2,7 +2,6 @@ import os
 from typing import Any, Dict, Literal
 
 import wandb
-
 from wicker.core.config import get_config
 from wicker.core.definitions import DatasetID
 from wicker.core.storage import S3PathFactory
@@ -34,11 +33,12 @@ def version_dataset(
     dataset_uri = _identify_s3_url_for_dataset_version(dataset_name, dataset_version, dataset_backend)
 
     # establish the artifact and save the dir/s3_url to the artifact
-    data_artifact = wandb.Artifact(dataset_name, type="dataset")
+    data_artifact = wandb.Artifact(f"{dataset_name}_{dataset_version}", type="dataset")
     data_artifact.add_reference(dataset_uri, name="dataset")
 
     # save metadata dict to the artifact
     data_artifact.metadata["version"] = dataset_version
+    data_artifact.metadata["s3_uri"] = dataset_uri
     for key, value in metadata.items():
         data_artifact.metadata[key] = value
 

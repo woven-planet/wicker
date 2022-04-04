@@ -37,7 +37,7 @@ def temp_config(request, tmpdir):
         (
             {
                 "config_json": {
-                    "aws_s3_config": {"s3_datasets_path": "'s3://test_path_to_nowhere/", "region": "us-west-2"},
+                    "aws_s3_config": {"s3_datasets_path": "s3://test_path_to_nowhere/", "region": "us-west-2"},
                     "wandb_config": {
                         "wandb_api_key": "test_api_key",
                         "wandb_base_url": "test_base_url",
@@ -67,12 +67,15 @@ def test_version_dataset(temp_config, dataset_name, dataset_version, dataset_met
 
             # establish the expected calls
             expected_artifact_calls = [
-                call(dataset_name, type="dataset"),
+                call(f"{dataset_name}_{dataset_version}", type="dataset"),
                 call().add_reference(
                     f"{config['aws_s3_config']['s3_datasets_path']}{dataset_name}/{dataset_version}/assets",
                     name="dataset",
                 ),
                 call().metadata.__setitem__("version", dataset_version),
+                call().metadata.__setitem__(
+                    "s3_uri", f"{config['aws_s3_config']['s3_datasets_path']}{dataset_name}/{dataset_version}/assets"
+                ),
             ]
             for key, value in dataset_metadata.items():
                 expected_artifact_calls.append(call().metadata.__setitem__(key, value))
