@@ -2,6 +2,7 @@ import os
 from typing import Any, Dict, Literal
 
 import wandb
+
 from wicker.core.config import get_config
 from wicker.core.definitions import DatasetID
 from wicker.core.storage import S3PathFactory
