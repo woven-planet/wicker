@@ -13,7 +13,6 @@ from typing import Any, Dict, Optional
 class WickerWandBConfig:
     wandb_base_url: str
     wandb_api_key: str
-    wandb_user_email: str
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> WickerWandBConfig:
@@ -21,7 +20,6 @@ class WickerWandBConfig:
         return cls(
             wandb_api_key=data.get("wandb_api_key", None),
             wandb_base_url=data.get("wandb_base_url", None),
-            wandb_user_email=data.get("wandb_user_email", None),
         )
 
 

@@ -5,8 +5,8 @@ from unittest.mock import call, patch
 import pytest
 
 from wicker.plugins.wandb import (
-    _acquire_wandb_credentials,
     _identify_s3_url_for_dataset_version,
+    _set_wandb_credentials,
     version_dataset,
 )
 
@@ -41,7 +41,6 @@ def temp_config(request, tmpdir):
                     "wandb_config": {
                         "wandb_api_key": "test_api_key",
                         "wandb_base_url": "test_base_url",
-                        "wandb_user_email": "test_user_email",
                     },
                 }
             },
@@ -60,7 +59,7 @@ def test_version_dataset(temp_config, dataset_name, dataset_version, dataset_met
     """
     # need to mock out all the wandb calls and test just the inputs to them
     _, config = temp_config
-    with patch("wicker.plugins.wandb.wandb.init", spec=True) as patched_wandb_init:
+    with patch("wicker.plugins.wandb.wandb.init") as patched_wandb_init:
         with patch("wicker.plugins.wandb.wandb.Artifact") as patched_artifact:
             # version the dataset with the patched functions/classes
             version_dataset(dataset_name, dataset_version, dataset_metadata)
@@ -81,7 +80,7 @@ def test_version_dataset(temp_config, dataset_name, dataset_version, dataset_met
                 expected_artifact_calls.append(call().metadata.__setitem__(key, value))
 
             expected_run_calls = [
-                call(project=f"{dataset_name}_curation", name=dataset_name),
+                call(project="dataset_curation", name=f"{dataset_name}_{dataset_version}"),
                 call().log_artifact(patched_artifact()),
             ]
 
@@ -101,7 +100,6 @@ def test_version_dataset(temp_config, dataset_name, dataset_version, dataset_met
                     "wandb_config": {
                         "wandb_base_url": "config_base",
                         "wandb_api_key": "config_key",
-                        "wandb_user_email": "config_email",
                     }
                 }
             },
@@ -110,7 +108,7 @@ def test_version_dataset(temp_config, dataset_name, dataset_version, dataset_met
     ids=["basic test to override all params"],
     indirect=["temp_config"],
 )
-def test_acquire_wandb_credentials(credentials_to_load, temp_config, tmpdir):
+def test_set_wandb_credentials(credentials_to_load, temp_config, tmpdir):
     """
     GIVEN: A set of credentials as existing envs and a config json specifying creds
     WHEN: The configs are requested for wandb
@@ -124,10 +122,9 @@ def test_acquire_wandb_credentials(credentials_to_load, temp_config, tmpdir):
         os.environ[key] = value
 
     # compare the creds for expected results
-    _acquire_wandb_credentials()
+    _set_wandb_credentials()
     assert os.environ["WANDB_BASE_URL"] == config_json["wandb_config"]["wandb_base_url"]
     assert os.environ["WANDB_API_KEY"] == config_json["wandb_config"]["wandb_api_key"]
-    assert os.environ["WANDB_USER_EMAIL"] == config_json["wandb_config"]["wandb_user_email"]
 
 
 @pytest.mark.parametrize(

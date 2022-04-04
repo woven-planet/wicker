@@ -24,11 +24,11 @@ def version_dataset(
         dataset_backend: The backend where the dataset is stored, currently only supports s3
     """
     # needs to first acquire and set wandb creds
-    # WANDB_API_KEY, WANDB_BASE_URL, WANDB_USER_EMAIL
-    _acquire_wandb_credentials()
+    # WANDB_API_KEY, WANDB_BASE_URL
+    _set_wandb_credentials()
 
     # needs to init the wandb run, this is going to be a 'data' run
-    dataset_run = wandb.init(project=f"{dataset_name}_curation", name=dataset_name)
+    dataset_run = wandb.init(project=f"dataset_curation", name=f"{dataset_name}_{dataset_version}")
 
     # grab the uri of the dataset to be versioned
     dataset_uri = _identify_s3_url_for_dataset_version(dataset_name, dataset_version, dataset_backend)
@@ -47,7 +47,7 @@ def version_dataset(
     dataset_run.log_artifact(data_artifact)  # type: ignore
 
 
-def _acquire_wandb_credentials() -> None:
+def _set_wandb_credentials() -> None:
     """
     Acquire the weights and biases credentials and load them into the environment.
 
