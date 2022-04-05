@@ -56,5 +56,5 @@ def get_config() -> WickerConfig:
 
     wicker_config_path = os.getenv("WICKER_CONFIG_PATH", os.path.expanduser("~/wickerconfig.json"))
     with open(wicker_config_path, "r") as f:
-        _CONFIG = WickerConfig.from_json(json.load(f))
-    return _CONFIG
+        config = WickerConfig.from_json(json.load(f))
+    return config
