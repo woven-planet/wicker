@@ -6,7 +6,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 
 @dataclasses.dataclass(frozen=True)
@@ -51,20 +51,10 @@ class WickerConfig:
         )
 
 
-_CONFIG: Optional[WickerConfig] = None
-_PREV_WICKER_CONFIG_PATH: Optional[str] = None
-
-
 def get_config() -> WickerConfig:
     """Retrieves the Wicker config for the current process"""
-    global _CONFIG
-    global _PREV_WICKER_CONFIG_PATH
 
-    loc_wicker_config_path = os.getenv("WICKER_CONFIG_PATH", os.path.expanduser("~/wickerconfig.json"))
-    # Hack to get around having tests need to specify config hermetically
-    # ToDo: Abstract the config additionally to clean this up
-    if _CONFIG is None or loc_wicker_config_path != _PREV_WICKER_CONFIG_PATH:
-        _PREV_WICKER_CONFIG_PATH = loc_wicker_config_path
-        with open(loc_wicker_config_path, "r") as f:
-            _CONFIG = WickerConfig.from_json(json.load(f))
+    wicker_config_path = os.getenv("WICKER_CONFIG_PATH", os.path.expanduser("~/wickerconfig.json"))
+    with open(wicker_config_path, "r") as f:
+        _CONFIG = WickerConfig.from_json(json.load(f))
     return _CONFIG
