@@ -2,7 +2,6 @@ import os
 from typing import Any, Dict, Literal
 
 import wandb
-
 from wicker.core.config import get_config
 from wicker.core.definitions import DatasetID
 from wicker.core.storage import S3PathFactory
@@ -11,6 +10,7 @@ from wicker.core.storage import S3PathFactory
 def version_dataset(
     dataset_name: str,
     dataset_version: str,
+    entity: str,
     metadata: Dict[str, Any],
     dataset_backend: Literal["s3"] = "s3",
 ) -> None:
@@ -20,15 +20,16 @@ def version_dataset(
     Args:
         dataset_name: The name of the dataset to be versioned
         dataset_version: The version of the dataset to be versioned
+        entity: Who the run will belong to
         metadata: The metadata to be logged as an artifact, enforces dataclass for metadata documentation
         dataset_backend: The backend where the dataset is stored, currently only supports s3
     """
     # needs to first acquire and set wandb creds
     # WANDB_API_KEY, WANDB_BASE_URL
-    _set_wandb_credentials()
+    # _set_wandb_credentials()
 
     # needs to init the wandb run, this is going to be a 'data' run
-    dataset_run = wandb.init(project="dataset_curation", name=f"{dataset_name}_{dataset_version}")
+    dataset_run = wandb.init(project="dataset_curation", name=f"{dataset_name}_{dataset_version}", entity=entity)
 
     # grab the uri of the dataset to be versioned
     dataset_uri = _identify_s3_url_for_dataset_version(dataset_name, dataset_version, dataset_backend)
@@ -45,6 +46,7 @@ def version_dataset(
 
     # save the artifact to the run
     dataset_run.log_artifact(data_artifact)  # type: ignore
+    dataset_run.finish()
 
 
 def _set_wandb_credentials() -> None:

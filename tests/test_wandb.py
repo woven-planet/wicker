@@ -32,26 +32,30 @@ def temp_config(request, tmpdir):
 
 
 @pytest.mark.parametrize(
-    "temp_config, dataset_name, dataset_version, dataset_metadata",
+    "temp_config, dataset_name, dataset_version, dataset_metadata, entity",
     [
         (
             {
                 "config_json": {
-                    "aws_s3_config": {"s3_datasets_path": "s3://test_path_to_nowhere/", "region": "us-west-2"},
+                    "aws_s3_config": {
+                        "s3_datasets_path": "s3://test_path/to_nowhere/",
+                        "region": "us-west-2",
+                    },
                     "wandb_config": {
-                        "wandb_api_key": "test_api_key",
-                        "wandb_base_url": "test_base_url",
+                        "wandb_api_key": "test_key",
+                        "wandb_base_url": "test_url",
                     },
                 }
             },
-            "test_dataset",
+            "test_data",
             "0.0.1",
             {"test_key": "test_value"},
+            "test_entity",
         )
     ],
     indirect=["temp_config"],
 )
-def test_version_dataset(temp_config, dataset_name, dataset_version, dataset_metadata):
+def test_version_dataset(temp_config, dataset_name, dataset_version, dataset_metadata, entity):
     """
     GIVEN: A mocked dataset folder to track, a dataset version to track, metadata to track, and a backend to use
     WHEN: This dataset is registered or versioned on W&B
@@ -62,7 +66,7 @@ def test_version_dataset(temp_config, dataset_name, dataset_version, dataset_met
     with patch("wicker.plugins.wandb.wandb.init") as patched_wandb_init:
         with patch("wicker.plugins.wandb.wandb.Artifact") as patched_artifact:
             # version the dataset with the patched functions/classes
-            version_dataset(dataset_name, dataset_version, dataset_metadata)
+            version_dataset(dataset_name, dataset_version, entity, dataset_metadata)
 
             # establish the expected calls
             expected_artifact_calls = [
@@ -80,7 +84,7 @@ def test_version_dataset(temp_config, dataset_name, dataset_version, dataset_met
                 expected_artifact_calls.append(call().metadata.__setitem__(key, value))
 
             expected_run_calls = [
-                call(project="dataset_curation", name=f"{dataset_name}_{dataset_version}"),
+                call(project="dataset_curation", name=f"{dataset_name}_{dataset_version}", entity=entity),
                 call().log_artifact(patched_artifact()),
             ]
 
