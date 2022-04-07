@@ -167,7 +167,9 @@ class S3PathFactory:
                 - part-1-attempt-2345.parquet
     """
 
-    def __init__(self, s3_root_path: str = get_config().aws_s3_config.s3_datasets_path) -> None:
+    def __init__(self, s3_root_path: str = None) -> None:
+        if s3_root_path is None:
+            s3_root_path = get_config().aws_s3_config.s3_datasets_path
         self.root_path = s3_root_path
 
     def __eq__(self, other: Any) -> bool:

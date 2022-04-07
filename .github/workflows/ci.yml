@@ -19,8 +19,9 @@ jobs:
     runs-on: ubuntu-latest
 
     # Set environment variables
+    # ToDo: remove this and make the config hermetic and tunable so each test can run without this file overhead
     env:
-      WICKER_CONFIG_PATH: tests/.wickerconfig.test.json
+      WICKER_CONFIG_PATH: ${{ github.workspace }}/tests/.wickerconfig.test.json
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
