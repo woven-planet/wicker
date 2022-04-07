@@ -47,7 +47,7 @@ def version_dataset(
 
     # save the artifact to the run
     dataset_run.log_artifact(data_artifact)  # type: ignore
-    dataset_run.finish()
+    dataset_run.finish()  # type: ignore
 
 
 def _set_wandb_credentials() -> None:
