@@ -11,7 +11,7 @@ from pyspark.sql import SparkSession
 from wicker import schema
 from wicker.core.config import get_config
 from wicker.core.errors import WickerDatastoreException
-from wicker.plugins.spark import persist_wicker_dataset
+from wicker.plugins.spark import SparkPersistor
 from wicker.testing.storage import FakeS3DataStorage
 
 DATASET_NAME = "dataset"
@@ -71,12 +71,12 @@ class LocalWritingTestCase(unittest.TestCase):
             spark = spark_session.getOrCreate()
             sc = spark.sparkContext
             rdd = sc.parallelize(copy.deepcopy(EXAMPLES), 100)
-            persist_wicker_dataset(
+            persistor = SparkPersistor(s3_storage=fake_storage)
+            persistor.persist_wicker_dataset(
                 DATASET_NAME,
                 DATASET_VERSION,
                 SCHEMA,
                 rdd,
-                s3_storage=fake_storage,
             )
             self.assert_written_correctness(tmpdir)
 
@@ -88,12 +88,12 @@ class LocalWritingTestCase(unittest.TestCase):
                 spark = spark_session.getOrCreate()
                 sc = spark.sparkContext
                 rdd = sc.parallelize(copy.deepcopy(EXAMPLES_DUPES), 100)
-                persist_wicker_dataset(
+                persistor = SparkPersistor(s3_storage=fake_storage)
+                persistor.persist_wicker_dataset(
                     DATASET_NAME,
                     DATASET_VERSION,
                     SCHEMA,
                     rdd,
-                    s3_storage=fake_storage,
                 )
 
             self.assertIn(
