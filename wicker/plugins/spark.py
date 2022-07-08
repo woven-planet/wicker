@@ -7,7 +7,7 @@ for large datasets.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, Tuple
+from typing import Any, Dict, Iterable, Optional, Tuple
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -26,6 +26,7 @@ from wicker import schema
 from wicker.core.column_files import ColumnBytesFileWriter
 from wicker.core.definitions import DatasetID
 from wicker.core.errors import WickerDatastoreException
+from wicker.core.persistance import AbstractDataPersistor
 from wicker.core.shuffle import save_index
 from wicker.core.storage import S3DataStorage, S3PathFactory
 from wicker.schema import dataparsing, serialization
@@ -38,14 +39,15 @@ ParsedExample = Dict[str, Any]
 PointerParsedExample = Dict[str, Any]
 
 
-class SparkPersistor:
+class SparkPersistor(AbstractDataPersistor):
     def __init__(
         self,
         s3_storage: S3DataStorage = S3DataStorage(),
         s3_path_factory: S3PathFactory = S3PathFactory(),
-        current_schema: schema.DatasetSchema = schema.DatasetSchema([], [], True),
-        current_dataset_name: str = "unassigned",
-        current_dataset_version: str = "unassigned",
+        current_schema: Optional[schema.DatasetSchema] = None,
+        current_dataset_name: Optional[str] = None,
+        current_dataset_version: Optional[str] = None,
+        current_rdd: Optional[pyspark.rdd.RDD[Tuple[str, UnparsedExample]]] = None,
     ) -> None:
         """
         Init a SparkPersistor
@@ -56,18 +58,15 @@ class SparkPersistor:
                                 based on dataset name and version
         :type s3_path_factory: S3PathFactory
         """
-        self.s3_storage = s3_storage
-        self.s3_path_factory = s3_path_factory
-        self._current_schema = current_schema
-        self._current_dataset_name = current_dataset_name
-        self._current_dataset_version = current_dataset_version
+        super().__init__(s3_storage, s3_path_factory, current_schema, current_dataset_name, current_dataset_version)
+        self._current_rdd = current_rdd
 
     def persist_wicker_dataset(
         self,
-        dataset_name,
-        dataset_version,
+        dataset_name: str,
+        dataset_version: str,
         dataset_schema: schema.DatasetSchema,
-        rdd: pyspark.rdd.RDD[Tuple[str, UnparsedExample]],
+        dataset: pyspark.rdd.RDD[Tuple[str, UnparsedExample]],
     ) -> Dict[str, int]:
         """Persists a Spark RDD as a Wicker dataset. RDD must be provided as an RDD of Tuples of (partition, UnparsedExample),
         where `partition` is a string representing the dataset partition (e.g. train/test/eval) for that given row,
@@ -87,13 +86,25 @@ class SparkPersistor:
         self._current_schema = dataset_schema
         self._current_dataset_name = dataset_name
         self._current_dataset_version = dataset_version
+        self._current_rdd = dataset
+
+        return self.persist_current_wicker_dataset()
+
+    def persist_current_wicker_dataset(
+        self,
+    ) -> Dict[str, int]:
+        """
+        Persist the current rdd dataset defined by name, version, schema, and data.
+        """
+        self.__validate_current_dataset_variables()
         schema_path = self.s3_path_factory.get_dataset_schema_path(
-            DatasetID(name=dataset_name, version=dataset_version)
+            DatasetID(name=self._current_dataset_name, version=self._current_dataset_version)
         )
         self.s3_storage.put_object_s3(serialization.dumps(self._current_schema).encode("utf-8"), schema_path)
 
         # parse the rows and ensure validation passes, ie: rows actual data matches expected types
-        rdd0 = rdd.mapValues(self._parse_row)
+        # ignore type since this is already validated above
+        rdd0 = self._current_rdd.mapValues(self._parse_row)  # type: ignore
 
         # Make sure to cache the RDD to ease future computations, since it seems that sortBy and zipWithIndex
         # trigger actions and we want to avoid recomputing the source RDD at all costs
@@ -256,3 +267,14 @@ class SparkPersistor:
             s3_path_factory=self.s3_path_factory,
         )
         return (partition, pa_tbl.num_rows)
+
+    def __validate_current_dataset_variables(self):
+        cur_dataset_type_tuples = (
+            ("_current_dataset_name", str),
+            ("_current_dataset_version", str),
+            ("_current_schema", schema.DatasetSchema),
+            ("_current_rdd", pyspark.rdd.RDD[Tuple[str, UnparsedExample]]),
+        )
+        for cur_var_name, cur_var_expc_type in cur_dataset_type_tuples:
+            if not isinstance(self.__getattribute__(cur_var_name), cur_var_expc_type):
+                raise ValueError(f"{cur_var_name} must be of type {cur_var_expc_type}.")
