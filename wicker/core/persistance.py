@@ -4,7 +4,8 @@ from typing import Any, Dict, Optional
 
 from wicker import schema
 from wicker.core.storage import S3DataStorage, S3PathFactory
-from wicker.plugins.spark import UnparsedExample
+
+UnparsedExample = Dict[str, Any]
 
 
 class AbstractDataPersistor(abc.ABC):
