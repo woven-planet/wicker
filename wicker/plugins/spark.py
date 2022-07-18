@@ -104,10 +104,8 @@ class SparkPersistor(AbstractDataPersistor):
 
         # parse the rows and ensure validation passes, ie: rows actual data matches expected types
         # ignore type since this is already validated above
-        print(self._current_rdd)
         rdd0 = self._current_rdd.mapValues(self._parse_row)  # type: ignore
-        print(rdd0)
-
+        '''
         # Make sure to cache the RDD to ease future computations, since it seems that sortBy and zipWithIndex
         # trigger actions and we want to avoid recomputing the source RDD at all costs
         rdd0 = rdd0.cache()
@@ -180,7 +178,7 @@ class SparkPersistor(AbstractDataPersistor):
         rdd7 = rdd6.map(self._save_partition_tbl)
         written = rdd7.collect()
 
-        return {partition: size for partition, size in written}
+        return {partition: size for partition, size in written}'''
 
     def _persist_spark_partition_wicker(
         self,
