@@ -79,7 +79,7 @@ class SparkPersistor(AbstractDataPersistor):
         :param dataset_name: name of the dataset
         :param dataset_version: version of the dataset
         :param dataset_schema: schema of the dataset
-        :param rdd: RDD of data to be persisted as a Wicker dataset
+        :param dataset: RDD of data to be persisted as a Wicker dataset
         :return: A dictionary of partition name to size
         """
         # Write schema to S3
@@ -104,7 +104,9 @@ class SparkPersistor(AbstractDataPersistor):
 
         # parse the rows and ensure validation passes, ie: rows actual data matches expected types
         # ignore type since this is already validated above
+        print(self._current_rdd)
         rdd0 = self._current_rdd.mapValues(self._parse_row)  # type: ignore
+        print(rdd0)
 
         # Make sure to cache the RDD to ease future computations, since it seems that sortBy and zipWithIndex
         # trigger actions and we want to avoid recomputing the source RDD at all costs
