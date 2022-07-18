@@ -273,7 +273,7 @@ class SparkPersistor(AbstractDataPersistor):
             ("_current_dataset_name", str),
             ("_current_dataset_version", str),
             ("_current_schema", schema.DatasetSchema),
-            ("_current_rdd", pyspark.rdd.RDD[Tuple[str, UnparsedExample]]),
+            ("_current_rdd", pyspark.rdd.RDD),
         )
         for cur_var_name, cur_var_expc_type in cur_dataset_type_tuples:
             if not isinstance(self.__getattribute__(cur_var_name), cur_var_expc_type):
