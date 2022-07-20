@@ -11,7 +11,7 @@ from pyspark.sql import SparkSession
 from wicker import schema
 from wicker.core.config import get_config
 from wicker.core.errors import WickerDatastoreException
-from wicker.plugins.spark import SparkPersistor
+from wicker.plugins.spark import persist_wicker_dataset
 from wicker.testing.storage import FakeS3DataStorage
 
 DATASET_NAME = "dataset"
@@ -71,13 +71,7 @@ class LocalWritingTestCase(unittest.TestCase):
             spark = spark_session.getOrCreate()
             sc = spark.sparkContext
             rdd = sc.parallelize(copy.deepcopy(EXAMPLES), 100)
-            persistor = SparkPersistor(s3_storage=fake_storage)
-            persistor.persist_wicker_dataset(
-                DATASET_NAME,
-                DATASET_VERSION,
-                SCHEMA,
-                rdd,
-            )
+            persist_wicker_dataset(DATASET_NAME, DATASET_VERSION, SCHEMA, rdd, fake_storage)
             self.assert_written_correctness(tmpdir)
 
     def test_dupe_primary_keys_raises_exception(self) -> None:
@@ -88,13 +82,7 @@ class LocalWritingTestCase(unittest.TestCase):
                 spark = spark_session.getOrCreate()
                 sc = spark.sparkContext
                 rdd = sc.parallelize(copy.deepcopy(EXAMPLES_DUPES), 100)
-                persistor = SparkPersistor(s3_storage=fake_storage)
-                persistor.persist_wicker_dataset(
-                    DATASET_NAME,
-                    DATASET_VERSION,
-                    SCHEMA,
-                    rdd,
-                )
+                persist_wicker_dataset(DATASET_NAME, DATASET_VERSION, SCHEMA, rdd, fake_storage)
 
             self.assertIn(
                 "Error: dataset examples do not have unique primary key tuples",

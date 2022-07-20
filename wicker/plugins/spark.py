@@ -40,6 +40,35 @@ ParsedExample = Dict[str, Any]
 PointerParsedExample = Dict[str, Any]
 
 
+# public facing api consistency function
+def persist_wicker_dataset(
+    dataset_name: str,
+    dataset_version: str,
+    dataset_schema: schema.DatasetSchema,
+    rdd: pyspark.rdd.RDD[Tuple[str, UnparsedExample]],
+    s3_storage: S3DataStorage = S3DataStorage(),
+    s3_path_factory: S3PathFactory = S3PathFactory(),
+) -> Optional[Dict[str, int]]:
+    """
+    Persist wicker dataset public facing api function, for api consistency.
+    :param dataset_name: name of dataset persisted
+    :type dataset_name: str
+    :param dataset_version: version of dataset persisted
+    :type dataset_version: str
+    :param dataset_schema: schema of dataset to be persisted
+    :type dataset_schema: DatasetSchema
+    :param rdd: rdd of data to persist
+    :type rdd: RDD
+    :param s3_storage: s3 storage abstraction
+    :type s3_storage: S3DataStorage
+    :param s3_path_factory: s3 path abstraction
+    :type s3_path_factory: S3PathFactory
+    """
+    return SparkPersistor(s3_storage, s3_path_factory).persist_wicker_dataset(
+        dataset_name, dataset_version, dataset_schema, rdd
+    )
+
+
 class SparkPersistor(AbstractDataPersistor):
     def __init__(
         self,
