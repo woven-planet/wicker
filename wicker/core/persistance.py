@@ -1,11 +1,12 @@
 import abc
-import warnings
 from typing import Any, Dict, Optional
 
 from wicker import schema
 from wicker.core.storage import S3DataStorage, S3PathFactory
+from wicker.schema import dataparsing
 
 UnparsedExample = Dict[str, Any]
+ParsedExample = Dict[str, Any]
 
 
 class AbstractDataPersistor(abc.ABC):
@@ -46,7 +47,7 @@ class AbstractDataPersistor(abc.ABC):
         self.s3_storage = s3_storage
         self.s3_path_factory = s3_path_factory
         self._current_schema = current_schema
-        self._current_dataset_name = (current_dataset_name,)
+        self._current_dataset_name = current_dataset_name
         self._current_dataset_version = current_dataset_version
 
     @abc.abstractmethod
@@ -56,7 +57,7 @@ class AbstractDataPersistor(abc.ABC):
         dataset_version: str,
         dataset_schema: schema.DatasetSchema,
         dataset: Any,
-    ) -> Dict[str, int]:
+    ) -> Optional[Dict[str, int]]:
         """
         Persist a user specified dataset defined by name, version, schema, and data.
 
@@ -74,7 +75,7 @@ class AbstractDataPersistor(abc.ABC):
     @abc.abstractmethod
     def persist_current_wicker_dataset(
         self,
-    ) -> Dict[str, int]:
+    ) -> Optional[Dict[str, int]]:
         """
         Persist the current dataset defined by name, version, schema, and data.
         """
@@ -82,7 +83,8 @@ class AbstractDataPersistor(abc.ABC):
             "Method, persist_current_wicker_dataset, needs" "to be implemented in inheritance class"
         )
 
-    def _parse_row(self, data_row: UnparsedExample):
+    @staticmethod
+    def parse_row(data_row: UnparsedExample, schema: schema.DatasetSchema) -> ParsedExample:
         """
         Parse a row to test for validation errors.
 
@@ -91,6 +93,4 @@ class AbstractDataPersistor(abc.ABC):
         :return: parsed row containing the correct types associated with schema
         :rtype: ParsedExample
         """
-        if self._current_schema is not None:
-            return schema.dataparsing.parse_example(data_row, self._current_schema)
-        warnings.warn("_current_schema not set, could not parse")
+        return dataparsing.parse_example(data_row, schema)
