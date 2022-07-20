@@ -21,9 +21,9 @@ class AbstractDataPersistor(abc.ABC):
         self,
         s3_storage: S3DataStorage = S3DataStorage(),
         s3_path_factory: S3PathFactory = S3PathFactory(),
-        current_schema: Optional[schema.DatasetSchema] = None,
-        current_dataset_name: Optional[str] = None,
-        current_dataset_version: Optional[str] = None,
+        schema: Optional[schema.DatasetSchema] = None,
+        dataset_name: Optional[str] = None,
+        dataset_version: Optional[str] = None,
     ) -> None:
         """
         Init a Persister
@@ -33,22 +33,22 @@ class AbstractDataPersistor(abc.ABC):
         :param s3_path_factory: The path factory for generating s3 paths
                                 based on dataset name and version
         :type s3_path_factory: S3PathFactory
-        :param current_schema: Dataschema to be set initially, no setting makes
+        :param schema: Dataschema to be set initially, no setting makes
             empty schema
-        :type current_schema: wicker.schema.schema.DatasetSchema
-        :param current_dataset_name: Name of the dataset to be set initially
+        :type schema: wicker.schema.schema.DatasetSchema or none
+        :param dataset_name: Name of the dataset to be set initially
             empty sets to unassigned
-        :type current_dataset_name: str
-        :param current_dataset_version: Version of the dataset to be set intitially
+        :type dataset_name: str or none
+        :param dataset_version: Version of the dataset to be set intitially
             empty sets to unassigned
-        :type current_dataset_version: str
+        :type current_dataset_version: str or none
         """
         super().__init__()
         self.s3_storage = s3_storage
         self.s3_path_factory = s3_path_factory
-        self._current_schema = current_schema
-        self._current_dataset_name = current_dataset_name
-        self._current_dataset_version = current_dataset_version
+        self._current_schema = schema
+        self._current_dataset_name = dataset_name
+        self._current_dataset_version = dataset_version
 
     @abc.abstractmethod
     def persist_wicker_dataset(

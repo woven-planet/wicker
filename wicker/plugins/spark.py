@@ -45,10 +45,10 @@ class SparkPersistor(AbstractDataPersistor):
         self,
         s3_storage: S3DataStorage = S3DataStorage(),
         s3_path_factory: S3PathFactory = S3PathFactory(),
-        current_schema: Optional[schema.DatasetSchema] = None,
-        current_dataset_name: Optional[str] = None,
-        current_dataset_version: Optional[str] = None,
-        current_rdd: Optional[pyspark.rdd.RDD[Tuple[str, UnparsedExample]]] = None,
+        schema: Optional[schema.DatasetSchema] = None,
+        dataset_name: Optional[str] = None,
+        dataset_version: Optional[str] = None,
+        rdd: Optional[pyspark.rdd.RDD[Tuple[str, UnparsedExample]]] = None,
     ) -> None:
         """
         Init a SparkPersistor
@@ -58,9 +58,17 @@ class SparkPersistor(AbstractDataPersistor):
         :param s3_path_factory: The path factory for generating s3 paths
                                 based on dataset name and version
         :type s3_path_factory: S3PathFactory
+        :param schema: Schema of the data
+        :type schema: Dataset schema or none
+        :param dataset_name: Optionally start with name of dataset
+        :type dataset_name: Str or none
+        :param dataset_version: Optionally start with version of dataset
+        :type dataset_version: Str or none
+        :param rdd: Rdd containing the data
+        :type rdd: RDD
         """
-        super().__init__(s3_storage, s3_path_factory, current_schema, current_dataset_name, current_dataset_version)
-        self._current_rdd = current_rdd
+        super().__init__(s3_storage, s3_path_factory, schema, dataset_name, dataset_version)
+        self._current_rdd = rdd
 
     def persist_wicker_dataset(
         self,
@@ -108,6 +116,7 @@ class SparkPersistor(AbstractDataPersistor):
             return None
 
         # define locally for passing to spark rdd ops, breaks if relying on self
+        # since it passes to spark engine and we lose self context
         current_schema: schema.DatasetSchema = self._current_schema
         s3_storage = self.s3_storage
         s3_path_factory = self.s3_path_factory
@@ -119,6 +128,7 @@ class SparkPersistor(AbstractDataPersistor):
         persist_spark_partition_wicker = self.persist_spark_partition_wicker
         save_partition_tbl = self.save_partition_tbl
 
+        # put the schema up on to s3
         schema_path = s3_path_factory.get_dataset_schema_path(
             DatasetID(name=current_dataset_name, version=current_dataset_version)
         )
@@ -188,7 +198,7 @@ class SparkPersistor(AbstractDataPersistor):
                 ]
             ),
         )
-
+        # create the partition tables
         rdd6 = rdd5.mapValues(
             lambda pa_tbl: pc.take(
                 pa_tbl,
@@ -262,8 +272,8 @@ class SparkPersistor(AbstractDataPersistor):
         for partition in column_bytes_file_writers:
             column_bytes_file_writers[partition].close()
 
-    @staticmethod
     # sort the indices of the primary keys in ascending order
+    @staticmethod
     def save_partition_tbl(
         partition_table_tuple: Tuple[str, pa.Table],
         current_dataset_name: str,
