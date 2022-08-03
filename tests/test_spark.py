@@ -71,13 +71,7 @@ class LocalWritingTestCase(unittest.TestCase):
             spark = spark_session.getOrCreate()
             sc = spark.sparkContext
             rdd = sc.parallelize(copy.deepcopy(EXAMPLES), 100)
-            persist_wicker_dataset(
-                DATASET_NAME,
-                DATASET_VERSION,
-                SCHEMA,
-                rdd,
-                s3_storage=fake_storage,
-            )
+            persist_wicker_dataset(DATASET_NAME, DATASET_VERSION, SCHEMA, rdd, fake_storage)
             self.assert_written_correctness(tmpdir)
 
     def test_dupe_primary_keys_raises_exception(self) -> None:
@@ -88,13 +82,7 @@ class LocalWritingTestCase(unittest.TestCase):
                 spark = spark_session.getOrCreate()
                 sc = spark.sparkContext
                 rdd = sc.parallelize(copy.deepcopy(EXAMPLES_DUPES), 100)
-                persist_wicker_dataset(
-                    DATASET_NAME,
-                    DATASET_VERSION,
-                    SCHEMA,
-                    rdd,
-                    s3_storage=fake_storage,
-                )
+                persist_wicker_dataset(DATASET_NAME, DATASET_VERSION, SCHEMA, rdd, fake_storage)
 
             self.assertIn(
                 "Error: dataset examples do not have unique primary key tuples",

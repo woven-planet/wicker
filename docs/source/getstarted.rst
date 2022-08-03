@@ -83,7 +83,7 @@ Spark is a common data engine and Wicker provides integrations to write datasets
 
 .. code-block:: python3
 
-    from wicker.plugins.spark import persist_wicker_dataset
+    from wicker.plugins.spark import SparkPersistor
 
     examples = [
         (
@@ -96,7 +96,8 @@ Spark is a common data engine and Wicker provides integrations to write datasets
     ]
 
     rdd = spark_context.parallelize(examples)
-    persist_wicker_dataset(
+    persistor = SparkPersistor()
+    persistor.persist_wicker_dataset(
         "my_dataset_name",
         "0.0.1",
         MY_SCHEMA,
