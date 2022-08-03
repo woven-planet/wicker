@@ -3,8 +3,6 @@
 This plugin does an expensive global sorting step using Spark, which could be prohibitive
 for large datasets.
 """
-
-
 from __future__ import annotations
 
 from typing import Any, Dict, Iterable, Optional, Tuple
@@ -32,6 +30,7 @@ from wicker.core.storage import S3DataStorage, S3PathFactory
 from wicker.schema import serialization
 
 SPARK_PARTITION_SIZE = 256
+MAX_COL_FILE_NUMROW = 50  # TODO(isaak-willett): Magic number, we should derive this based on row size
 
 PrimaryKeyTuple = Tuple[Any, ...]
 UnparsedExample = Dict[str, Any]
@@ -155,8 +154,7 @@ class SparkPersistor(AbstractDataPersistor):
                 schema,
                 s3_storage,
                 s3_path_factory,
-                # TODO(jchia): Magic number, we should derive this based on row size
-                target_max_column_file_numrows=50,
+                target_max_column_file_numrows=MAX_COL_FILE_NUMROW,
             )
         )
 
