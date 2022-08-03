@@ -14,7 +14,7 @@ class AbstractDataPersistor(abc.ABC):
     Abstract class for persisting data onto a user defined cloud or local instance.
 
     Only s3 is supported right now but plan to support other data stores
-    (BigQuery, Whatever the hell Azure is called, Postgres)
+    (BigQuery, Azure, Postgres)
     """
 
     def __init__(
