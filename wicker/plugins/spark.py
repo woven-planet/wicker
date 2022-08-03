@@ -7,7 +7,6 @@ for large datasets.
 
 from __future__ import annotations
 
-import logging
 from typing import Any, Dict, Iterable, Optional, Tuple
 
 import pyarrow as pa
@@ -102,8 +101,7 @@ class SparkPersistor(AbstractDataPersistor):
             or not isinstance(schema, schema_module.DatasetSchema)
             or not isinstance(rdd, pyspark.rdd.RDD)
         ):
-            logging.warning("Current dataset variables not all set, set all to proper not None values")
-            return None
+            raise ValueError("Current dataset variables not all set, set all to proper not None values")
 
         # define locally for passing to spark rdd ops, breaks if relying on self
         # since it passes to spark engine and we lose self context
@@ -140,7 +138,7 @@ class SparkPersistor(AbstractDataPersistor):
             yield len(key_set)
 
         # the number of unique keys in rdd partitions
-        # this is softer check than collecting all the keys in all partitions to check uniqueness9
+        # this is softer check than collecting all the keys in all partitions to check uniqueness
         rdd_key_count: int = rdd2.map(lambda x: x[0]).mapPartitions(set_partition).reduce(add)
         num_unique_keys = rdd_key_count
         if dataset_size != num_unique_keys:
