@@ -23,7 +23,7 @@ except ImportError:
 
 from operator import add
 
-from wicker import schema
+from wicker import schema as schema_module
 from wicker.core.column_files import ColumnBytesFileWriter
 from wicker.core.definitions import DatasetID
 from wicker.core.errors import WickerDatastoreException
@@ -40,11 +40,10 @@ ParsedExample = Dict[str, Any]
 PointerParsedExample = Dict[str, Any]
 
 
-# public facing api consistency function
 def persist_wicker_dataset(
     dataset_name: str,
     dataset_version: str,
-    dataset_schema: schema.DatasetSchema,
+    dataset_schema: schema_module.DatasetSchema,
     rdd: pyspark.rdd.RDD[Tuple[str, UnparsedExample]],
     s3_storage: S3DataStorage = S3DataStorage(),
     s3_path_factory: S3PathFactory = S3PathFactory(),
@@ -74,10 +73,6 @@ class SparkPersistor(AbstractDataPersistor):
         self,
         s3_storage: S3DataStorage = S3DataStorage(),
         s3_path_factory: S3PathFactory = S3PathFactory(),
-        schema: Optional[schema.DatasetSchema] = None,
-        dataset_name: Optional[str] = None,
-        dataset_version: Optional[str] = None,
-        rdd: Optional[pyspark.rdd.RDD[Tuple[str, UnparsedExample]]] = None,
     ) -> None:
         """
         Init a SparkPersistor
@@ -87,91 +82,51 @@ class SparkPersistor(AbstractDataPersistor):
         :param s3_path_factory: The path factory for generating s3 paths
                                 based on dataset name and version
         :type s3_path_factory: S3PathFactory
-        :param schema: Schema of the data
-        :type schema: Dataset schema or none
-        :param dataset_name: Optionally start with name of dataset
-        :type dataset_name: Str or none
-        :param dataset_version: Optionally start with version of dataset
-        :type dataset_version: Str or none
-        :param rdd: Rdd containing the data
-        :type rdd: RDD
         """
-        super().__init__(s3_storage, s3_path_factory, schema, dataset_name, dataset_version)
-        self._current_rdd = rdd
+        super().__init__(s3_storage, s3_path_factory)
 
     def persist_wicker_dataset(
         self,
         dataset_name: str,
         dataset_version: str,
-        dataset_schema: schema.DatasetSchema,
-        dataset: pyspark.rdd.RDD[Tuple[str, UnparsedExample]],
-    ) -> Optional[Dict[str, int]]:
-        """Persists a Spark RDD as a Wicker dataset. RDD must be provided as an RDD of Tuples of (partition, UnparsedExample),
-        where `partition` is a string representing the dataset partition (e.g. train/test/eval) for that given row,
-        and `UnparsedExample` is a Python Dict[str, Any] of the (non-validated) data to be written into the dataset.
-
-        This function will perform validations, do a global sort based on primary keys,
-        serialize the examples into bytes, save the data in S3 and persist the written data
-        into the configured Wicker S3 bucket.
-
-        :param dataset_name: name of the dataset
-        :param dataset_version: version of the dataset
-        :param dataset_schema: schema of the dataset
-        :param dataset: RDD of data to be persisted as a Wicker dataset
-        :return: A dictionary of partition name to size
-        """
-        # Write schema to S3
-        self._current_dataset_name = dataset_name
-        self._current_dataset_version = dataset_version
-        self._current_schema = dataset_schema
-        self._current_rdd = dataset
-
-        return self.persist_current_wicker_dataset()
-
-    def persist_current_wicker_dataset(
-        self,
+        schema: schema_module.DatasetSchema,
+        rdd: pyspark.rdd.RDD[Tuple[str, UnparsedExample]],
     ) -> Optional[Dict[str, int]]:
         """
         Persist the current rdd dataset defined by name, version, schema, and data.
         """
         # check if variables have been set ie: not None
         if (
-            not isinstance(self._current_dataset_name, str)
-            or not isinstance(self._current_dataset_version, str)
-            or not isinstance(self._current_schema, schema.DatasetSchema)
-            or not isinstance(self._current_rdd, pyspark.rdd.RDD)
+            not isinstance(dataset_name, str)
+            or not isinstance(dataset_version, str)
+            or not isinstance(schema, schema_module.DatasetSchema)
+            or not isinstance(rdd, pyspark.rdd.RDD)
         ):
             logging.warning("Current dataset variables not all set, set all to proper not None values")
             return None
 
         # define locally for passing to spark rdd ops, breaks if relying on self
         # since it passes to spark engine and we lose self context
-        current_schema: schema.DatasetSchema = self._current_schema
         s3_storage = self.s3_storage
         s3_path_factory = self.s3_path_factory
-        current_dataset_name = self._current_dataset_name
-        current_dataset_version = self._current_dataset_version
-        current_rdd = self._current_rdd
         parse_row = self.parse_row
         get_row_keys = self.get_row_keys
         persist_spark_partition_wicker = self.persist_spark_partition_wicker
         save_partition_tbl = self.save_partition_tbl
 
         # put the schema up on to s3
-        schema_path = s3_path_factory.get_dataset_schema_path(
-            DatasetID(name=current_dataset_name, version=current_dataset_version)
-        )
-        s3_storage.put_object_s3(serialization.dumps(current_schema).encode("utf-8"), schema_path)
+        schema_path = s3_path_factory.get_dataset_schema_path(DatasetID(name=dataset_name, version=dataset_version))
+        s3_storage.put_object_s3(serialization.dumps(schema).encode("utf-8"), schema_path)
 
         # parse the rows and ensure validation passes, ie: rows actual data matches expected types
-        rdd0 = current_rdd.mapValues(lambda row: parse_row(row, current_schema))  # type: ignore
+        rdd0 = rdd.mapValues(lambda row: parse_row(row, schema))  # type: ignore
 
         # Make sure to cache the RDD to ease future computations, since it seems that sortBy and zipWithIndex
         # trigger actions and we want to avoid recomputing the source RDD at all costs
         rdd0 = rdd0.cache()
         dataset_size = rdd0.count()
 
-        rdd1 = rdd0.keyBy(lambda row: get_row_keys(row, current_schema))
+        rdd1 = rdd0.keyBy(lambda row: get_row_keys(row, schema))
 
         # Sort RDD by keys
         rdd2: pyspark.rdd.RDD[Tuple[Tuple[Any, ...], Tuple[str, ParsedExample]]] = rdd1.sortByKey(
@@ -199,7 +154,7 @@ class SparkPersistor(AbstractDataPersistor):
         rdd4 = rdd3.mapPartitions(
             lambda spark_iterator: persist_spark_partition_wicker(
                 spark_iterator,
-                current_schema,
+                schema,
                 s3_storage,
                 s3_path_factory,
                 # TODO(jchia): Magic number, we should derive this based on row size
@@ -210,14 +165,12 @@ class SparkPersistor(AbstractDataPersistor):
         # combine the rdd by the keys in the pyarrow table
         rdd5 = rdd4.combineByKey(
             createCombiner=lambda data: pa.Table.from_pydict(
-                {col: [data[col]] for col in current_schema.get_all_column_names()}
+                {col: [data[col]] for col in schema.get_all_column_names()}
             ),
             mergeValue=lambda tbl, data: pa.Table.from_batches(
                 [
                     *tbl.to_batches(),  # type: ignore
-                    *pa.Table.from_pydict(
-                        {col: [data[col]] for col in current_schema.get_all_column_names()}
-                    ).to_batches(),
+                    *pa.Table.from_pydict({col: [data[col]] for col in schema.get_all_column_names()}).to_batches(),
                 ]
             ),
             mergeCombiners=lambda tbl1, tbl2: pa.Table.from_batches(
@@ -233,14 +186,14 @@ class SparkPersistor(AbstractDataPersistor):
                 pa_tbl,
                 pc.sort_indices(
                     pa_tbl,
-                    sort_keys=[(pk, "ascending") for pk in current_schema.primary_keys],
+                    sort_keys=[(pk, "ascending") for pk in schema.primary_keys],
                 ),
             )
         )
         # save the parition table to s3
         rdd7 = rdd6.map(
             lambda partition_table: save_partition_tbl(
-                partition_table, current_dataset_name, current_dataset_version, s3_storage, s3_path_factory
+                partition_table, dataset_name, dataset_version, s3_storage, s3_path_factory
             )
         )
         written = rdd7.collect()
@@ -248,7 +201,9 @@ class SparkPersistor(AbstractDataPersistor):
         return {partition: size for partition, size in written}
 
     @staticmethod
-    def get_row_keys(partition_data_tup: Tuple[str, ParsedExample], schema: schema.DatasetSchema) -> PrimaryKeyTuple:
+    def get_row_keys(
+        partition_data_tup: Tuple[str, ParsedExample], schema: schema_module.DatasetSchema
+    ) -> PrimaryKeyTuple:
         """
         Get the keys of a row based on the parition tuple and the data schema.
 
@@ -264,7 +219,7 @@ class SparkPersistor(AbstractDataPersistor):
     @staticmethod
     def persist_spark_partition_wicker(
         spark_partition_iter: Iterable[Tuple[str, ParsedExample]],
-        schema: schema.DatasetSchema,
+        schema: schema_module.DatasetSchema,
         s3_storage: S3DataStorage,
         s3_path_factory: S3PathFactory,
         target_max_column_file_numrows: int = 50,
@@ -305,8 +260,8 @@ class SparkPersistor(AbstractDataPersistor):
     @staticmethod
     def save_partition_tbl(
         partition_table_tuple: Tuple[str, pa.Table],
-        current_dataset_name: str,
-        current_dataset_version: str,
+        dataset_name: str,
+        dataset_version: str,
         s3_storage: S3DataStorage,
         s3_path_factory: S3PathFactory,
     ) -> Tuple[str, int]:
@@ -320,8 +275,8 @@ class SparkPersistor(AbstractDataPersistor):
         """
         partition, pa_tbl = partition_table_tuple
         save_index(
-            current_dataset_name,
-            current_dataset_version,
+            dataset_name,
+            dataset_version,
             {partition: pa_tbl},
             s3_storage=s3_storage,
             s3_path_factory=s3_path_factory,

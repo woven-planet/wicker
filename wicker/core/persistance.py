@@ -21,9 +21,6 @@ class AbstractDataPersistor(abc.ABC):
         self,
         s3_storage: S3DataStorage = S3DataStorage(),
         s3_path_factory: S3PathFactory = S3PathFactory(),
-        schema: Optional[schema.DatasetSchema] = None,
-        dataset_name: Optional[str] = None,
-        dataset_version: Optional[str] = None,
     ) -> None:
         """
         Init a Persister
@@ -33,22 +30,10 @@ class AbstractDataPersistor(abc.ABC):
         :param s3_path_factory: The path factory for generating s3 paths
                                 based on dataset name and version
         :type s3_path_factory: S3PathFactory
-        :param schema: Dataschema to be set initially, no setting makes
-            empty schema
-        :type schema: wicker.schema.schema.DatasetSchema or none
-        :param dataset_name: Name of the dataset to be set initially
-            empty sets to unassigned
-        :type dataset_name: str or none
-        :param dataset_version: Version of the dataset to be set intitially
-            empty sets to unassigned
-        :type current_dataset_version: str or none
         """
         super().__init__()
         self.s3_storage = s3_storage
         self.s3_path_factory = s3_path_factory
-        self._current_schema = schema
-        self._current_dataset_name = dataset_name
-        self._current_dataset_version = dataset_version
 
     @abc.abstractmethod
     def persist_wicker_dataset(
@@ -70,18 +55,7 @@ class AbstractDataPersistor(abc.ABC):
         :param dataset: Data of the dataset
         :type dataset: User defined
         """
-        raise NotImplementedError("Method, persist_wicker_dataset, needs to" "be implemented in inhertiance class.")
-
-    @abc.abstractmethod
-    def persist_current_wicker_dataset(
-        self,
-    ) -> Optional[Dict[str, int]]:
-        """
-        Persist the current dataset defined by name, version, schema, and data.
-        """
-        raise NotImplementedError(
-            "Method, persist_current_wicker_dataset, needs" "to be implemented in inheritance class"
-        )
+        raise NotImplementedError("Method, persist_wicker_dataset, needs to be implemented in inhertiance class.")
 
     @staticmethod
     def parse_row(data_row: UnparsedExample, schema: schema.DatasetSchema) -> ParsedExample:
