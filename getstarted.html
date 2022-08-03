@@ -98,7 +98,7 @@ users may optionally add these options as extra install arguments:</p>
 <section id="using-spark">
 <h3>Using Spark<a class="headerlink" href="#using-spark" title="Permalink to this headline">¶</a></h3>
 <p>Spark is a common data engine and Wicker provides integrations to write datasets from Spark.</p>
-<div class="highlight-python3 notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">wicker.plugins.spark</span> <span class="kn">import</span> <span class="n">persist_wicker_dataset</span>
+<div class="highlight-python3 notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">wicker.plugins.spark</span> <span class="kn">import</span> <span class="n">SparkPersistor</span>
 
 <span class="n">examples</span> <span class="o">=</span> <span class="p">[</span>
     <span class="p">(</span>
@@ -111,7 +111,8 @@ users may optionally add these options as extra install arguments:</p>
 <span class="p">]</span>
 
 <span class="n">rdd</span> <span class="o">=</span> <span class="n">spark_context</span><span class="o">.</span><span class="n">parallelize</span><span class="p">(</span><span class="n">examples</span><span class="p">)</span>
-<span class="n">persist_wicker_dataset</span><span class="p">(</span>
+<span class="n">persistor</span> <span class="o">=</span> <span class="n">SparkPersistor</span><span class="p">()</span>
+<span class="n">persistor</span><span class="o">.</span><span class="n">persist_wicker_dataset</span><span class="p">(</span>
     <span class="s2">&quot;my_dataset_name&quot;</span><span class="p">,</span>
     <span class="s2">&quot;0.0.1&quot;</span><span class="p">,</span>
     <span class="n">MY_SCHEMA</span><span class="p">,</span>
