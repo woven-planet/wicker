@@ -2,6 +2,7 @@ import copy
 import os
 import random
 import uuid
+from typing import Any, Dict, List, Tuple
 
 import pyarrow.parquet as papq
 import pytest
@@ -10,6 +11,7 @@ from wicker import schema
 from wicker.core.config import get_config
 from wicker.core.persistance import BasicPersistor
 from wicker.core.storage import S3PathFactory
+from wicker.schema.schema import DatasetSchema
 from wicker.testing.storage import FakeS3DataStorage
 
 DATASET_NAME = "dataset"
@@ -38,7 +40,7 @@ EXAMPLES_DUPES = copy.deepcopy(EXAMPLES)
 
 
 @pytest.fixture
-def mock_basic_persistor(request, tmpdir):
+def mock_basic_persistor(request, tmpdir) -> Tuple[BasicPersistor, str]:
     storage = request.param.get("storage", FakeS3DataStorage(tmpdir=tmpdir))
     path_factory = request.param.get("path_factory", S3PathFactory())
     return BasicPersistor(storage, path_factory), tmpdir
@@ -72,7 +74,13 @@ def assert_written_correctness(tmpdir: str) -> None:
     [({}, DATASET_NAME, DATASET_VERSION, SCHEMA, copy.deepcopy(EXAMPLES_DUPES))],
     indirect=["mock_basic_persistor"],
 )
-def test_basic_persistor(mock_basic_persistor: BasicPersistor, dataset_name, dataset_version, dataset_schema, dataset):
-    mock_basic_persistor, tempdir = mock_basic_persistor
-    mock_basic_persistor.persist_wicker_dataset(dataset_name, dataset_version, dataset_schema, dataset)
+def test_basic_persistor(
+    mock_basic_persistor: Tuple[BasicPersistor, str],
+    dataset_name: str,
+    dataset_version: str,
+    dataset_schema: DatasetSchema,
+    dataset: List[Tuple[str, Dict[str, Any]]],
+):
+    mock_basic_persistor_obj, tempdir = mock_basic_persistor
+    mock_basic_persistor_obj.persist_wicker_dataset(dataset_name, dataset_version, dataset_schema, dataset)
     assert_written_correctness(tempdir)

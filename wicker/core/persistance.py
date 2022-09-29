@@ -1,5 +1,5 @@
 import abc
-from typing import Any, Dict, Iterable, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -245,9 +245,9 @@ class BasicPersistor(AbstractDataPersistor):
             list(iterator)
 
         # 6. Create the parition table, need to combine keys in a way we can form table
-        merged_dicts = {}
+        merged_dicts: Dict[str, Dict[str, List[Any]]] = {}
         for partition_key, row in sorted_dataset_0:
-            current_dict = merged_dicts.get(partition_key, {})
+            current_dict: Dict[str, List[Any]] = merged_dicts.get(partition_key, {})
             for col in row.keys():
                 if col in current_dict:
                     current_dict[col].append(row[col])
