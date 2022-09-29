@@ -81,6 +81,15 @@ def test_basic_persistor(
     dataset_schema: DatasetSchema,
     dataset: List[Tuple[str, Dict[str, Any]]],
 ):
+    """
+    Test if the basic persistor can persist data in the format we have established.
+
+    Ensure we read the right file locations, the right amount of bytes,
+    and the ordering is correct.
+    """
+    # create the mock basic persistor
     mock_basic_persistor_obj, tempdir = mock_basic_persistor
+    # persist the dataset
     mock_basic_persistor_obj.persist_wicker_dataset(dataset_name, dataset_version, dataset_schema, dataset)
+    # assert the dataset is correctly written
     assert_written_correctness(tempdir)

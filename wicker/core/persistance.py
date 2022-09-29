@@ -213,19 +213,19 @@ class BasicPersistor(AbstractDataPersistor):
         ):
             raise ValueError("Current dataset variables not all set, set all to proper not None values")
 
-        # 6. Put the schema up on
+        # 2. Put the schema up on s3
         schema_path = self.s3_path_factory.get_dataset_schema_path(
             DatasetID(name=dataset_name, version=dataset_version)
         )
         self.s3_storage.put_object_s3(serialization.dumps(dataset_schema).encode("utf-8"), schema_path)
 
-        # 2. Validate the rows and ensure data is well formed, sort while doing
+        # 3. Validate the rows and ensure data is well formed, sort while doing
         dataset_0 = [(row[0], self.parse_row(row[1], dataset_schema)) for row in dataset]
 
-        # 3. Sort the dataset if not sorted
+        # 4. Sort the dataset if not sorted
         sorted_dataset_0 = sorted(dataset_0, key=lambda tup: tup[0])
 
-        # 4. Partition the dataset into K partitions
+        # 5. Partition the dataset into K partitions
         num_paritions = len(sorted_dataset_0) // PARTITION_SIZE
         partitions = []
 
@@ -236,15 +236,18 @@ class BasicPersistor(AbstractDataPersistor):
 
         divide_chunks(sorted_dataset_0, num_paritions)
 
-        # 5. Persist the partitions to S3
+        # 6. Persist the partitions to S3
         for partition in partitions:
+            # build a persistence iterator for each parition
             iterator = self.persist_wicker_partition(
                 partition, dataset_schema, self.s3_storage, self.s3_path_factory, MAX_COL_FILE_NUMROW
             )
             # make sure all yields get called
             list(iterator)
 
-        # 6. Create the parition table, need to combine keys in a way we can form table
+        # 7. Create the parition table, need to combine keys in a way we can form table
+        # split into k dicts where k is partition number and the data is a list of values
+        # for each key for all the dicts in the partition
         merged_dicts: Dict[str, Dict[str, List[Any]]] = {}
         for partition_key, row in sorted_dataset_0:
             current_dict: Dict[str, List[Any]] = merged_dicts.get(partition_key, {})
@@ -254,6 +257,8 @@ class BasicPersistor(AbstractDataPersistor):
                 else:
                     current_dict[col] = [row[col]]
             merged_dicts[partition_key] = current_dict
+        # convert each of the dicts to a pyarrow table in the same way SparkPersistor
+        # converts, needed to ensure parity between the two
         arrow_dict = {}
         for partition_key, data_dict in merged_dicts.items():
             data_table = pa.Table.from_pydict(data_dict)
@@ -262,7 +267,7 @@ class BasicPersistor(AbstractDataPersistor):
                 pc.sort_indices(data_table, sort_keys=[(pk, "ascending") for pk in dataset_schema.primary_keys]),
             )
 
-        # 7. Persist the partition table to s3
+        # 8. Persist the partition table to s3
         written_dict = {}
         for partition_key, pa_table in arrow_dict.items():
             self.save_partition_tbl(
