@@ -226,15 +226,14 @@ class BasicPersistor(AbstractDataPersistor):
         sorted_dataset_0 = sorted(dataset_0, key=lambda tup: tup[0])
 
         # 5. Partition the dataset into K partitions
-        num_paritions = len(sorted_dataset_0) // PARTITION_SIZE
         partitions = []
 
-        def divide_chunks(list_to_divide, num_chunks):
+        def divide_chunks(list_to_divide):
             # looping till length l
-            for i in range(0, len(list_to_divide), num_chunks):
-                partitions.append(list_to_divide[i : i + num_chunks])
+            for i in range(0, len(list_to_divide), PARTITION_SIZE):
+                partitions.append(list_to_divide[i : i + PARTITION_SIZE])
 
-        divide_chunks(sorted_dataset_0, num_paritions)
+        divide_chunks(sorted_dataset_0)
 
         # 6. Persist the partitions to S3
         for partition in partitions:
