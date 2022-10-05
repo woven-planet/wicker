@@ -1,4 +1,5 @@
 import abc
+import random
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import pyarrow as pa
@@ -155,6 +156,7 @@ def persist_wicker_dataset(
     dataset: Any,
     s3_storage: S3DataStorage = S3DataStorage(),
     s3_path_factory: S3PathFactory = S3PathFactory(),
+    shuffle: bool = False,
 ) -> Optional[Dict[str, int]]:
     """
     Persist wicker dataset public facing api function, for api consistency.
@@ -170,9 +172,15 @@ def persist_wicker_dataset(
     :type s3_storage: S3DataStorage
     :param s3_path_factory: s3 path abstraction
     :type s3_path_factory: S3PathFactory
+    :param shuffle: to shuffle or not, is this a question?
+    :type shuffle: str
     """
     return BasicPersistor(s3_storage, s3_path_factory).persist_wicker_dataset(
-        dataset_name, dataset_version, dataset_schema, dataset
+        dataset_name,
+        dataset_version,
+        dataset_schema,
+        dataset,
+        shuffle,
     )
 
 
@@ -189,7 +197,12 @@ class BasicPersistor(AbstractDataPersistor):
         super().__init__(s3_storage, s3_path_factory)
 
     def persist_wicker_dataset(
-        self, dataset_name: str, dataset_version: str, dataset_schema: schema_module.DatasetSchema, dataset: Any
+        self,
+        dataset_name: str,
+        dataset_version: str,
+        dataset_schema: schema_module.DatasetSchema,
+        dataset: Any,
+        shuffle: bool = False,
     ) -> Optional[Dict[str, int]]:
         """
         Persist a user defined dataset, pushing data to s3 in a basic manner
@@ -202,6 +215,8 @@ class BasicPersistor(AbstractDataPersistor):
         :type dataset_schema: wicker.schema.schema.DatasetSchema
         :param dataset: Data of the dataset
         :type dataset: User defined
+        :param shuffle: to shuffle or not, is this a question?
+        :type shuffle: str
         """
         # what needs to be done within this function
         # 1. Check if the variables are set
@@ -223,20 +238,25 @@ class BasicPersistor(AbstractDataPersistor):
         dataset_0 = [(row[0], self.parse_row(row[1], dataset_schema)) for row in dataset]
 
         # 4. Sort the dataset if not sorted
-        sorted_dataset_0 = sorted(dataset_0, key=lambda tup: tup[0])
+        dataset_1 = sorted(dataset_0, key=lambda tup: tup[0])
 
-        # 5. Partition the dataset into K partitions
-        num_paritions = len(sorted_dataset_0) // PARTITION_SIZE
+        # 5. if we have shuffling, shuffle the dataset before partition
+        # ensures proper and random shuffling
+        if shuffle:
+            random.shuffle(dataset_1)
+
+        # 6. Partition the dataset into K partitions
         partitions = []
+        num_partitions = (len(dataset_1) // PARTITION_SIZE) + 1
 
         def divide_chunks(list_to_divide, num_chunks):
             # looping till length l
-            for i in range(0, len(list_to_divide), num_chunks):
-                partitions.append(list_to_divide[i : i + num_chunks])
+            for i in range(0, len(list_to_divide), PARTITION_SIZE):
+                partitions.append(list_to_divide[i : i + PARTITION_SIZE])
 
-        divide_chunks(sorted_dataset_0, num_paritions)
+        divide_chunks(dataset_1, num_partitions)
 
-        # 6. Persist the partitions to S3
+        # 7. Persist the partitions to S3
         for partition in partitions:
             # build a persistence iterator for each parition
             iterator = self.persist_wicker_partition(
@@ -245,11 +265,11 @@ class BasicPersistor(AbstractDataPersistor):
             # make sure all yields get called
             list(iterator)
 
-        # 7. Create the parition table, need to combine keys in a way we can form table
+        # 8. Create the parition table, need to combine keys in a way we can form table
         # split into k dicts where k is partition number and the data is a list of values
         # for each key for all the dicts in the partition
         merged_dicts: Dict[str, Dict[str, List[Any]]] = {}
-        for partition_key, row in sorted_dataset_0:
+        for partition_key, row in dataset_1:
             current_dict: Dict[str, List[Any]] = merged_dicts.get(partition_key, {})
             for col in row.keys():
                 if col in current_dict:
@@ -267,7 +287,7 @@ class BasicPersistor(AbstractDataPersistor):
                 pc.sort_indices(data_table, sort_keys=[(pk, "ascending") for pk in dataset_schema.primary_keys]),
             )
 
-        # 8. Persist the partition table to s3
+        # 9. Persist the partition table to s3
         written_dict = {}
         for partition_key, pa_table in arrow_dict.items():
             self.save_partition_tbl(
