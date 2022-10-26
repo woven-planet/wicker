@@ -21,11 +21,9 @@ except ImportError:
 from operator import add
 
 from wicker import schema as schema_module
-from wicker.core.column_files import ColumnBytesFileWriter
 from wicker.core.definitions import DatasetID
 from wicker.core.errors import WickerDatastoreException
 from wicker.core.persistance import AbstractDataPersistor
-from wicker.core.shuffle import save_index
 from wicker.core.storage import S3DataStorage, S3PathFactory
 from wicker.schema import serialization
 
@@ -108,7 +106,7 @@ class SparkPersistor(AbstractDataPersistor):
         s3_path_factory = self.s3_path_factory
         parse_row = self.parse_row
         get_row_keys = self.get_row_keys
-        persist_spark_partition_wicker = self.persist_spark_partition_wicker
+        persist_wicker_partition = self.persist_wicker_partition
         save_partition_tbl = self.save_partition_tbl
 
         # put the schema up on to s3
@@ -148,8 +146,9 @@ class SparkPersistor(AbstractDataPersistor):
 
         # persist the spark partition to S3Storage
         rdd3 = rdd2.values()
+
         rdd4 = rdd3.mapPartitions(
-            lambda spark_iterator: persist_spark_partition_wicker(
+            lambda spark_iterator: persist_wicker_partition(
                 spark_iterator,
                 schema,
                 s3_storage,
@@ -176,6 +175,7 @@ class SparkPersistor(AbstractDataPersistor):
                 ]
             ),
         )
+
         # create the partition tables
         rdd6 = rdd5.mapValues(
             lambda pa_tbl: pc.take(
@@ -186,6 +186,7 @@ class SparkPersistor(AbstractDataPersistor):
                 ),
             )
         )
+
         # save the parition table to s3
         rdd7 = rdd6.map(
             lambda partition_table: save_partition_tbl(
@@ -210,71 +211,3 @@ class SparkPersistor(AbstractDataPersistor):
         """
         partition, data = partition_data_tup
         return (partition,) + tuple(data[pk] for pk in schema.primary_keys)
-
-    # Write data to Column Byte Files
-    @staticmethod
-    def persist_spark_partition_wicker(
-        spark_partition_iter: Iterable[Tuple[str, ParsedExample]],
-        schema: schema_module.DatasetSchema,
-        s3_storage: S3DataStorage,
-        s3_path_factory: S3PathFactory,
-        target_max_column_file_numrows: int = 50,
-    ) -> Iterable[Tuple[str, PointerParsedExample]]:
-        """Persists a Spark partition of examples with parsed bytes into S3Storage as ColumnBytesFiles,
-        returning a new Spark partition of examples with heavy-pointers and metadata only.
-        :param spark_partition_iter: Spark partition of `(partition_str, example)`, where `example`
-            is a dictionary of parsed bytes that needs to be uploaded to S3
-        :param target_max_column_file_numrows: Maximum number of rows in column files. Defaults to 50.
-        :return: a Generator of `(partition_str, example)`, where `example` is a dictionary with heavy-pointers
-            that point to ColumnBytesFiles in S3 in place of the parsed bytes
-        """
-        column_bytes_file_writers: Dict[str, ColumnBytesFileWriter] = {}
-        heavy_pointer_columns = schema.get_pointer_columns()
-        metadata_columns = schema.get_non_pointer_columns()
-
-        for partition, example in spark_partition_iter:
-            # Create ColumnBytesFileWriter lazily as required, for each partition
-            if partition not in column_bytes_file_writers:
-                column_bytes_file_writers[partition] = ColumnBytesFileWriter(
-                    s3_storage,
-                    s3_path_factory,
-                    target_file_rowgroup_size=target_max_column_file_numrows,
-                )
-
-            # Write to ColumnBytesFileWriter and return only metadata + heavy-pointers
-            parquet_metadata: Dict[str, Any] = {col: example[col] for col in metadata_columns}
-            for col in heavy_pointer_columns:
-                loc = column_bytes_file_writers[partition].add(col, example[col])
-                parquet_metadata[col] = loc.to_bytes()
-            yield partition, parquet_metadata
-
-        # Flush all writers when finished
-        for partition in column_bytes_file_writers:
-            column_bytes_file_writers[partition].close()
-
-    # sort the indices of the primary keys in ascending order
-    @staticmethod
-    def save_partition_tbl(
-        partition_table_tuple: Tuple[str, pa.Table],
-        dataset_name: str,
-        dataset_version: str,
-        s3_storage: S3DataStorage,
-        s3_path_factory: S3PathFactory,
-    ) -> Tuple[str, int]:
-        """
-        Save a partition table to s3 under the dataset name and version.
-
-        :param partition_table_tuple: Tuple of partition id and pyarrow table to save
-        :type partition_table_tuple: Tuple[str, pyarrow.Table]
-        :return: A tuple containing the paritiion id and the num of saved rows
-        :rtype: Tuple[str, int]
-        """
-        partition, pa_tbl = partition_table_tuple
-        save_index(
-            dataset_name,
-            dataset_version,
-            {partition: pa_tbl},
-            s3_storage=s3_storage,
-            s3_path_factory=s3_path_factory,
-        )
-        return (partition, pa_tbl.num_rows)
