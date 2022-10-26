@@ -1,8 +1,5 @@
 import abc
-<<<<<<< HEAD
 import random
-=======
->>>>>>> main
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import pyarrow as pa
