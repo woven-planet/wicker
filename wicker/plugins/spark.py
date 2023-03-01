@@ -126,7 +126,7 @@ class SparkPersistor(AbstractDataPersistor):
         # Sort RDD by keys
         rdd2: pyspark.rdd.RDD[Tuple[Tuple[Any, ...], Tuple[str, ParsedExample]]] = rdd1.sortByKey(
             # TODO(jchia): Magic number, we should derive this based on row size
-            numPartitions=dataset_size // SPARK_PARTITION_SIZE,
+            numPartitions=max(1, dataset_size // SPARK_PARTITION_SIZE),
             ascending=True,
         )
 
