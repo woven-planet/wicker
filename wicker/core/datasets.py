@@ -92,9 +92,10 @@ class S3Dataset(AbstractDataset):
         self._partition = DatasetPartition(dataset_id=self._dataset_id, partition=dataset_partition_name)
         self._dataset_definition = DatasetDefinition(
             self._dataset_id,
-            schema=self.schema(),
+            schema=self.schema,
         )
 
+    @property
     def schema(self) -> DatasetSchema:
         if self._schema is None:
             schema_path = self._s3_path_factory.get_dataset_schema_path(self._dataset_id)
@@ -107,20 +108,24 @@ class S3Dataset(AbstractDataset):
                 )
         return self._schema
 
+    @property
     def arrow_table(self) -> pyarrow.Table:
-        path = self._s3_path_factory.get_dataset_partition_path(self._partition, s3_prefix=False)
         if not self._arrow_table:
+            path = self._s3_path_factory.get_dataset_partition_path(self._partition, s3_prefix=False)
             self._arrow_table = papq.read_table(path, filesystem=self._pa_filesystem)
         return self._arrow_table
 
     def __len__(self) -> int:
-        return len(self.arrow_table())
+        return len(self.arrow_table)
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
-        tbl = self.arrow_table()
+        return dataloading.load_example(
+            self._column_bytes_file_cache.resolve_pointers(self._get_row_pq_table(idx), self.schema),
+            self.schema,
+        )
+
+    def _get_row_pq_table(self, idx: int):
+        tbl = self.arrow_table
         columns = self._columns_to_load if self._columns_to_load is not None else tbl.column_names
         row = {col: tbl[col][idx].as_py() for col in columns}
-        return dataloading.load_example(
-            self._column_bytes_file_cache.resolve_pointers(row, self.schema()),
-            self.schema(),
-        )
+        return row
