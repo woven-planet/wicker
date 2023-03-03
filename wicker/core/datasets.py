@@ -1,14 +1,18 @@
 import abc
 import os
-from typing import Any, Dict, List, Optional
+from functools import cached_property
+from multiprocessing.pool import ThreadPool
+from typing import Any, Dict, List, Optional, Tuple
 
+import boto3
 import pyarrow  # type: ignore
 import pyarrow.fs as pafs  # type: ignore
 import pyarrow.parquet as papq  # type: ignore
 
-from wicker.core.column_files import ColumnBytesFileCache
+from wicker.core.column_files import ColumnBytesFileCache, ColumnBytesFileLocationV1
 from wicker.core.config import get_config  # type: ignore
 from wicker.core.definitions import DatasetDefinition, DatasetID, DatasetPartition
+from wicker.core.shuffle import ShuffleWorker
 from wicker.core.storage import S3DataStorage, S3PathFactory
 from wicker.schema import dataloading, serialization
 from wicker.schema.schema import DatasetSchema
@@ -124,3 +128,74 @@ class S3Dataset(AbstractDataset):
             self._column_bytes_file_cache.resolve_pointers(row, self.schema()),
             self.schema(),
         )
+
+    def _get_parquet_dir_size(self) -> int:
+        """Get the arrow path and find all the files within, count their bytes
+
+        Returns:
+            int: bytes in parquet directory
+        """
+        # bytes size of arrow table not bytes in arrow table
+        arrow_path = self._s3_path_factory.get_dataset_partition_path(self._partition, s3_prefix=False)
+        bucket, key = arrow_path.replace("s3://", "").split("/", 1)
+
+        def get_folder_size(bucket, prefix):
+            total_size = 0
+            for obj in boto3.resource("s3").Bucket(bucket).objects.filter(Prefix=prefix):
+                total_size += obj.size
+            return total_size
+
+        return get_folder_size(bucket, key)
+
+    def _get_dataset_size(self):
+        """Gets total size of the dataset in bits
+
+        Returns:
+            int: total dataset size in bits
+        """
+        # intialize with size of parquet dir
+        total_bytes = self._get_parquet_dir_size()
+
+        # need to know which columns are heavy pntr columns we go to for
+        # byte adding
+        schema = self.schema()
+        heavy_pointer_cols = []
+        for col_name in schema.get_all_column_names():
+            if schema.get_column(col_name).is_heavy_pointer:
+                heavy_pointer_cols.append(col_name)
+
+        # Each individual row only knows which column file it goes to, so we have to
+        # neccesarily parse all rows :( to get the column files. This should be cached
+        # as metadata but that would require re-curating the datasets.
+        buckets_keys = set()
+        worker = ShuffleWorker(storage=self._storage)
+        for heavy_pntr_col in heavy_pointer_cols:
+            for location_bytes in self.arrow_table()[heavy_pntr_col].to_pylist():
+                location = ColumnBytesFileLocationV1.from_bytes(location_bytes)
+                path = worker.s3_path_factory.get_column_concatenated_bytes_s3path_from_uuid(location.file_id.bytes)
+                bucket, key = path.replace("s3://", "").split("/", 1)
+                buckets_keys.add((bucket, key))
+
+        # we use existing shuffle worker here to grab the column file from
+        # know location.
+        def get_file_size_s3(bucket_key: Tuple[str, str]) -> int:
+            s3 = boto3.resource("s3")
+            bucket, key = bucket_key
+            bucket, key = path.replace("s3://", "").split("/", 1)
+            byte_length = s3.Object(bucket, key).content_length
+            return byte_length
+
+        with ThreadPool() as pool:
+            for result in pool.map(get_file_size_s3, buckets_keys):
+                total_bytes += result
+
+        return total_bytes
+
+    @cached_property
+    def dataset_size(self) -> int:
+        """Total dataset size in bits
+
+        Returns:
+            int: total dataset size in bits
+        """
+        return self._get_dataset_size()
