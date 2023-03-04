@@ -8,6 +8,7 @@ import boto3
 import pyarrow  # type: ignore
 import pyarrow.fs as pafs  # type: ignore
 import pyarrow.parquet as papq  # type: ignore
+import tqdm  # type: ignore
 
 from wicker.core.column_files import ColumnBytesFileCache, ColumnBytesFileLocationV1
 from wicker.core.config import get_config  # type: ignore
@@ -154,7 +155,7 @@ class S3Dataset(AbstractDataset):
             int: total dataset size in bits
         """
         # intialize with size of parquet dir
-        total_bytes = self._get_parquet_dir_size()
+        par_dir_bytes = self._get_parquet_dir_size()
 
         # need to know which columns are heavy pntr columns we go to for
         # byte adding
@@ -167,10 +168,15 @@ class S3Dataset(AbstractDataset):
         # Each individual row only knows which column file it goes to, so we have to
         # neccesarily parse all rows :( to get the column files. This should be cached
         # as metadata but that would require re-curating the datasets.
+        print("Creating arrow table")
+        arrow_table = self.arrow_table()
+
         buckets_keys = set()
         worker = ShuffleWorker(storage=self._storage)
+        print("Processing through heavy pointers")
         for heavy_pntr_col in heavy_pointer_cols:
-            for location_bytes in self.arrow_table()[heavy_pntr_col].to_pylist():
+            print(f"Evaulating {heavy_pntr_col} for column file locations")
+            for location_bytes in tqdm.tqdm(arrow_table[heavy_pntr_col].to_pylist()):
                 location = ColumnBytesFileLocationV1.from_bytes(location_bytes)
                 path = worker.s3_path_factory.get_column_concatenated_bytes_s3path_from_uuid(location.file_id.bytes)
                 bucket, key = path.replace("s3://", "").split("/", 1)
@@ -185,11 +191,10 @@ class S3Dataset(AbstractDataset):
             byte_length = s3.Object(bucket, key).content_length
             return byte_length
 
+        print("Grabbing file information from s3 heads")
         with ThreadPool() as pool:
-            for result in pool.map(get_file_size_s3, buckets_keys):
-                total_bytes += result
-
-        return total_bytes
+            results = list(tqdm.tqdm(pool.imap(get_file_size_s3, buckets_keys), total=len(buckets_keys)))
+        return sum(results) + par_dir_bytes
 
     @cached_property
     def dataset_size(self) -> int:
