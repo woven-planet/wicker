@@ -51,6 +51,9 @@ class ColumnBytesFileLocationV1:
     @classmethod
     def from_bytes(cls, b: bytes) -> ColumnBytesFileLocationV1:
         protocol_version = int.from_bytes(b[0:1], "little")
+        # non 1 version does not gurantee parsability in struct unpack
+        if protocol_version != 1:
+            raise ValueError(f"Unable to parse ColumnBytesFileLocation with protocol_version={protocol_version}")
         _, file_id, byte_offset, data_size = struct.unpack(ColumnBytesFileLocationV1.STRUCT_PACK_FMT, b)
         return cls(
             file_id=uuid.UUID(bytes=file_id),
