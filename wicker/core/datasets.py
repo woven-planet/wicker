@@ -137,6 +137,8 @@ class S3Dataset(AbstractDataset):
             int: bytes in parquet directory
         """
         # bytes size of arrow table not bytes in arrow table
+        # bytes in arrow table is a method of arrow table but it doesn't
+        # reflect the size of the file sizes stored on s3 just the loaded data
         arrow_path = self._s3_path_factory.get_dataset_partition_path(self._partition, s3_prefix=False)
         bucket, key = arrow_path.replace("s3://", "").split("/", 1)
 
