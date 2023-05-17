@@ -43,6 +43,7 @@ def persist_wicker_dataset(
     rdd: pyspark.rdd.RDD[Tuple[str, UnparsedExample]],
     s3_storage: S3DataStorage = S3DataStorage(),
     s3_path_factory: S3PathFactory = S3PathFactory(),
+    collect_output: bool = True,
 ) -> Optional[Dict[str, int]]:
     """
     Persist wicker dataset public facing api function, for api consistency.
@@ -58,9 +59,11 @@ def persist_wicker_dataset(
     :type s3_storage: S3DataStorage
     :param s3_path_factory: s3 path abstraction
     :type s3_path_factory: S3PathFactory
+    :param collect_output: if true, return a dict with sample counts for each dataset split
+    :type collect_output: bool
     """
     return SparkPersistor(s3_storage, s3_path_factory).persist_wicker_dataset(
-        dataset_name, dataset_version, dataset_schema, rdd
+        dataset_name, dataset_version, dataset_schema, rdd, collect_output=collect_output
     )
 
 
@@ -87,6 +90,7 @@ class SparkPersistor(AbstractDataPersistor):
         dataset_version: str,
         schema: schema_module.DatasetSchema,
         rdd: pyspark.rdd.RDD[Tuple[str, UnparsedExample]],
+        collect_output: bool = True,
     ) -> Optional[Dict[str, int]]:
         """
         Persist the current rdd dataset defined by name, version, schema, and data.
@@ -193,9 +197,15 @@ class SparkPersistor(AbstractDataPersistor):
                 partition_table, dataset_name, dataset_version, s3_storage, s3_path_factory
             )
         )
-        written = rdd7.collect()
 
-        return {partition: size for partition, size in written}
+        if collect_output:
+            written = rdd7.collect()
+            result = {partition: size for partition, size in written}
+        else:
+            written = rdd7.count()
+            result = {'result':written}
+
+        return result
 
     @staticmethod
     def get_row_keys(
