@@ -74,6 +74,17 @@ class LocalWritingTestCase(unittest.TestCase):
             rdd = sc.parallelize(copy.deepcopy(EXAMPLES), 100)
             persist_wicker_dataset(DATASET_NAME, DATASET_VERSION, SCHEMA, rdd, fake_storage)
             self.assert_written_correctness(tmpdir)
+    
+    def test_simple_schema_local_writing_no_collect(self) -> None:
+        """Test that executing with collect_output set to non default value works"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_storage = FakeS3DataStorage(tmpdir=tmpdir)
+            spark_session = SparkSession.builder.appName("test").master("local[*]")
+            spark = spark_session.getOrCreate()
+            sc = spark.sparkContext
+            rdd = sc.parallelize(copy.deepcopy(EXAMPLES), 100)
+            persist_wicker_dataset(DATASET_NAME, DATASET_VERSION, SCHEMA, rdd, fake_storage, collect_output= False)
+            self.assert_written_correctness(tmpdir)
 
     def test_dupe_primary_keys_raises_exception(self) -> None:
         with self.assertRaises(WickerDatastoreException) as e:
