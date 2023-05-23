@@ -7,7 +7,6 @@ import uuid
 
 import pyarrow.parquet as papq
 from pyspark.sql import SparkSession
-
 from wicker import schema
 from wicker.core.config import get_config
 from wicker.core.errors import WickerDatastoreException
@@ -66,37 +65,67 @@ class LocalWritingTestCase(unittest.TestCase):
             self.assertEqual(foobar, sorted(foobar))
 
     def test_simple_schema_local_writing(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            fake_storage = FakeS3DataStorage(tmpdir=tmpdir)
-            spark_session = SparkSession.builder.appName("test").master("local[*]")
-            spark = spark_session.getOrCreate()
-            sc = spark.sparkContext
-            rdd = sc.parallelize(copy.deepcopy(EXAMPLES), 100)
-            persist_wicker_dataset(DATASET_NAME, DATASET_VERSION, SCHEMA, rdd, fake_storage)
-            self.assert_written_correctness(tmpdir)
+        for local_reduction in (True, False):
+            for sort in (True, False):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    fake_storage = FakeS3DataStorage(tmpdir=tmpdir)
+                    spark_session = SparkSession.builder.appName("test").master("local[*]")
+                    spark = spark_session.getOrCreate()
+                    sc = spark.sparkContext
+                    rdd = sc.parallelize(copy.deepcopy(EXAMPLES), 100)
+                    persist_wicker_dataset(
+                        DATASET_NAME,
+                        DATASET_VERSION,
+                        SCHEMA,
+                        rdd,
+                        fake_storage,
+                        local_reduction=local_reduction,
+                        sort=sort,
+                    )
+                    self.assert_written_correctness(tmpdir)
 
     def test_dupe_primary_keys_raises_exception(self) -> None:
-        with self.assertRaises(WickerDatastoreException) as e:
-            with tempfile.TemporaryDirectory() as tmpdir:
-                fake_storage = FakeS3DataStorage(tmpdir=tmpdir)
-                spark_session = SparkSession.builder.appName("test").master("local[*]")
-                spark = spark_session.getOrCreate()
-                sc = spark.sparkContext
-                rdd = sc.parallelize(copy.deepcopy(EXAMPLES_DUPES), 100)
-                persist_wicker_dataset(DATASET_NAME, DATASET_VERSION, SCHEMA, rdd, fake_storage)
+        for local_reduction in (True, False):
+            for sort in (True, False):
+                with self.assertRaises(WickerDatastoreException) as e:
+                    with tempfile.TemporaryDirectory() as tmpdir:
+                        fake_storage = FakeS3DataStorage(tmpdir=tmpdir)
+                        spark_session = SparkSession.builder.appName("test").master("local[*]")
+                        spark = spark_session.getOrCreate()
+                        sc = spark.sparkContext
+                        rdd = sc.parallelize(copy.deepcopy(EXAMPLES_DUPES), 100)
+                        persist_wicker_dataset(
+                            DATASET_NAME,
+                            DATASET_VERSION,
+                            SCHEMA,
+                            rdd,
+                            fake_storage,
+                            local_reduction=local_reduction,
+                            sort=sort,
+                        )
 
-            self.assertIn(
-                "Error: dataset examples do not have unique primary key tuples",
-                str(e.exception),
-            )
+                    self.assertIn(
+                        "Error: dataset examples do not have unique primary key tuples",
+                        str(e.exception),
+                    )
 
     def test_simple_schema_local_writing_4_row_dataset(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            small_row_cnt = 4
-            fake_storage = FakeS3DataStorage(tmpdir=tmpdir)
-            spark_session = SparkSession.builder.appName("test").master("local[*]")
-            spark = spark_session.getOrCreate()
-            sc = spark.sparkContext
-            rdd = sc.parallelize(copy.deepcopy(EXAMPLES)[:small_row_cnt], 1)
-            persist_wicker_dataset(DATASET_NAME, DATASET_VERSION, SCHEMA, rdd, fake_storage)
-            self.assert_written_correctness(tmpdir, small_row_cnt)
+        for local_reduction in (True, False):
+            for sort in (True, False):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    small_row_cnt = 4
+                    fake_storage = FakeS3DataStorage(tmpdir=tmpdir)
+                    spark_session = SparkSession.builder.appName("test").master("local[*]")
+                    spark = spark_session.getOrCreate()
+                    sc = spark.sparkContext
+                    rdd = sc.parallelize(copy.deepcopy(EXAMPLES)[:small_row_cnt], 1)
+                    persist_wicker_dataset(
+                        DATASET_NAME,
+                        DATASET_VERSION,
+                        SCHEMA,
+                        rdd,
+                        fake_storage,
+                        local_reduction=local_reduction,
+                        sort=sort,
+                    )
+                    self.assert_written_correctness(tmpdir, small_row_cnt)

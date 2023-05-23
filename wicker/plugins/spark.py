@@ -5,7 +5,7 @@ for large datasets.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, Optional, Tuple
+from typing import Any, Dict, Iterable, Optional, Tuple, List
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -43,6 +43,8 @@ def persist_wicker_dataset(
     rdd: pyspark.rdd.RDD[Tuple[str, UnparsedExample]],
     s3_storage: S3DataStorage = S3DataStorage(),
     s3_path_factory: S3PathFactory = S3PathFactory(),
+    local_reduction: bool = False,
+    sort: bool = True,
 ) -> Optional[Dict[str, int]]:
     """
     Persist wicker dataset public facing api function, for api consistency.
@@ -58,9 +60,19 @@ def persist_wicker_dataset(
     :type s3_storage: S3DataStorage
     :param s3_path_factory: s3 path abstraction
     :type s3_path_factory: S3PathFactory
+    :param local_reduction: if true, reduce tables on main instance (no spark). This is useful if the spark reduction
+        is not feasible for a large dataste.
+    :type local_reduction: bool
+    :param sort: if true, sort the resulting table by primary keys
+    :type sort: bool
     """
     return SparkPersistor(s3_storage, s3_path_factory).persist_wicker_dataset(
-        dataset_name, dataset_version, dataset_schema, rdd
+        dataset_name,
+        dataset_version,
+        dataset_schema,
+        rdd,
+        local_reduction=local_reduction,
+        sort=sort,
     )
 
 
@@ -87,6 +99,8 @@ class SparkPersistor(AbstractDataPersistor):
         dataset_version: str,
         schema: schema_module.DatasetSchema,
         rdd: pyspark.rdd.RDD[Tuple[str, UnparsedExample]],
+        local_reduction: bool = False,
+        sort: bool = True,
     ) -> Optional[Dict[str, int]]:
         """
         Persist the current rdd dataset defined by name, version, schema, and data.
@@ -157,43 +171,88 @@ class SparkPersistor(AbstractDataPersistor):
             )
         )
 
-        # combine the rdd by the keys in the pyarrow table
-        rdd5 = rdd4.combineByKey(
-            createCombiner=lambda data: pa.Table.from_pydict(
-                {col: [data[col]] for col in schema.get_all_column_names()}
-            ),
-            mergeValue=lambda tbl, data: pa.Table.from_batches(
-                [
-                    *tbl.to_batches(),  # type: ignore
-                    *pa.Table.from_pydict({col: [data[col]] for col in schema.get_all_column_names()}).to_batches(),
-                ]
-            ),
-            mergeCombiners=lambda tbl1, tbl2: pa.Table.from_batches(
-                [
-                    *tbl1.to_batches(),  # type: ignore
-                    *tbl2.to_batches(),  # type: ignore
-                ]
-            ),
-        )
-
-        # create the partition tables
-        rdd6 = rdd5.mapValues(
-            lambda pa_tbl: pc.take(
-                pa_tbl,
-                pc.sort_indices(
-                    pa_tbl,
-                    sort_keys=[(pk, "ascending") for pk in schema.primary_keys],
+        if not local_reduction:
+            # combine the rdd by the keys in the pyarrow table
+            rdd5 = rdd4.combineByKey(
+                createCombiner=lambda data: pa.Table.from_pydict(
+                    {col: [data[col]] for col in schema.get_all_column_names()}
+                ),
+                mergeValue=lambda tbl, data: pa.Table.from_batches(
+                    [
+                        *tbl.to_batches(),  # type: ignore
+                        *pa.Table.from_pydict({col: [data[col]] for col in schema.get_all_column_names()}).to_batches(),
+                    ]
+                ),
+                mergeCombiners=lambda tbl1, tbl2: pa.Table.from_batches(
+                    [
+                        *tbl1.to_batches(),  # type: ignore
+                        *tbl2.to_batches(),  # type: ignore
+                    ]
                 ),
             )
-        )
 
-        # save the parition table to s3
-        rdd7 = rdd6.map(
-            lambda partition_table: save_partition_tbl(
-                partition_table, dataset_name, dataset_version, s3_storage, s3_path_factory
+            # create the partition tables
+            if sort:
+                rdd6 = rdd5.mapValues(
+                    lambda pa_tbl: pc.take(
+                        pa_tbl,
+                        pc.sort_indices(
+                            pa_tbl,
+                            sort_keys=[(pk, "ascending") for pk in schema.primary_keys],
+                        ),
+                    )
+                )
+            else:
+                rdd6 = rdd5
+
+            # save the parition table to s3
+            rdd7 = rdd6.map(
+                lambda partition_table: save_partition_tbl(
+                    partition_table, dataset_name, dataset_version, s3_storage, s3_path_factory
+                )
             )
-        )
-        written = rdd7.collect()
+            written = rdd7.collect()
+        else:
+            # In normal operation, rdd5 may have thousands of partitions at the start of operation,
+            # however because there are typically only at most three dataset splits (train,test,val),
+            # the output of rdd5 has only three partitions with any data. Empriically this has lead to
+            # issues related to driver memory. As a work around, we can instead perform this reduction
+            # manually outside of the JVM without much of a performance penalty since spark's parallelism
+            # was not being taken advantage of anyway.
+
+            # We are going to iterate over each partition, grab its pyarrow table, and merge them.
+            # to avoid localIterator from running rdd4 sequentially, we first cache it and trigger an action.
+            rdd4 = rdd4.cache()
+            _ = rdd4.count()
+
+            # the rest of this is adapted from the map task persist
+            merged_dicts: Dict[str, Dict[str, List[Any]]] = {}
+            for partition_key, row in rdd4.toLocalIterator():
+                current_dict: Dict[str, List[Any]] = merged_dicts.get(partition_key, {})
+                for col in row.keys():
+                    if col in current_dict:
+                        current_dict[col].append(row[col])
+                    else:
+                        current_dict[col] = [row[col]]
+                merged_dicts[partition_key] = current_dict
+
+            arrow_dict = {}
+            for partition_key, data_dict in merged_dicts.items():
+                data_table = pa.Table.from_pydict(data_dict)
+                if sort:
+                    arrow_dict[partition_key] = pc.take(
+                        pa.Table.from_pydict(data_dict),
+                        pc.sort_indices(data_table, sort_keys=[(pk, "ascending") for pk in schema.primary_keys]),
+                    )
+                else:
+                    arrow_dict[partition_key] = data_table
+
+            written = {}
+            for partition_key, pa_table in arrow_dict.items():
+                self.save_partition_tbl(
+                    (partition_key, pa_table), dataset_name, dataset_version, self.s3_storage, self.s3_path_factory
+                )
+                written[partition_key] = pa_table.num_rows
 
         return {partition: size for partition, size in written}
 
