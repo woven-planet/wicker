@@ -1,6 +1,9 @@
 import os
 import shutil
+from pathlib import Path
 from typing import Any, Dict
+
+import pyarrow.fs as pafs
 
 from wicker.core.storage import S3DataStorage
 
@@ -48,3 +51,50 @@ class FakeS3DataStorage(S3DataStorage):
         full_tmp_path = self._get_local_path(s3_path)
         os.makedirs(os.path.dirname(full_tmp_path), exist_ok=True)
         shutil.copy2(local_path, full_tmp_path)
+
+
+class LocalDataStorage(S3DataStorage):
+    def __init__(self, root_path: str):
+        super().__init__()
+        self._root_path = Path(root_path)
+        self._fs = pafs.LocalFileSystem()
+
+    @property
+    def filesystem(self) -> pafs.FileSystem:
+        return self._fs
+
+    def _create_path(self, path: str) -> None:
+        """Ensures the given path exists."""
+        self._fs.create_dir(path, recursive=True)
+
+    # Override.
+    def check_exists_s3(self, input_path: str) -> bool:
+        file_info = self._fs.get_file_info(input_path)
+        return file_info.type != pafs.FileType.NotFound
+
+    # Override.
+    def fetch_file_s3(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
+        # This raises if the input path is not relative to the root.
+        relative_input_path = Path(input_path).relative_to(self._root_path)
+
+        target_path = os.path.join(local_prefix, str(relative_input_path))
+        self._create_path(os.path.dirname(target_path))
+        self._fs.copy_file(input_path, target_path)
+        return target_path
+
+    # Override.
+    def fetch_partial_file_s3(
+        self, input_path: str, local_prefix: str, offset: int, size: int, timeout_seconds: int = 120
+    ) -> str:
+        raise NotImplementedError("fetch_partial_file_s3")
+
+    # Override.
+    def put_object_s3(self, object_bytes: bytes, s3_path: str) -> None:
+        self._create_path(os.path.dirname(s3_path))
+        with self._fs.open_output_stream(s3_path) as ostream:
+            ostream.write(object_bytes)
+
+    # Override.
+    def put_file_s3(self, local_path: str, s3_path: str) -> None:
+        self._create_path(os.path.dirname(s3_path))
+        self._fs.copy_file(local_path, s3_path)
