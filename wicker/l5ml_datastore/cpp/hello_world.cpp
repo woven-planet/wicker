@@ -9,7 +9,7 @@ namespace l5ml_datastore {
 
 void some_function()
 {
-    std::cout << "Hello, World!" << std::endl;
+    std::cout << "Hello, World is !" << std::endl;
 }
 
 }
