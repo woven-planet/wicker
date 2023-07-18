@@ -32,8 +32,6 @@ ext_modules = [
             "wicker/l5ml_datastore/cpp/cpp_extensions.cpp",
             "wicker/l5ml_datastore/cpp/sampling.cpp",
             "wicker/l5ml_datastore/cpp/temporal_windowing.cpp",
-            "wicker/l5ml_datastore/cpp/hello_world.cpp"
-
         ],
         cxx_std=17,
         include_dirs=[pyarrow_include_dir],

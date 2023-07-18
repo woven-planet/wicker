@@ -7,10 +7,10 @@ import pyarrow  # type: ignore
 import pyarrow.compute  # type: ignore
 
 from wicker.l5ml_datastore import cpp_extensions
-from wicker.l5ml_datastore.dataset_loader import AbstractDataset
-from wicker.l5ml_datastore.definitions import Example
-from wicker.l5ml_datastore.errors import L5MLDatastoreException, L5MLSchemaException
-from wicker.l5ml_datastore.schema.schema import ArrayField, DatasetSchema
+from wicker.core.datasets import AbstractDataset
+from wicker.core.definitions import Example
+from wicker.core.errors import WickerDatastoreException, WickerSchemaException
+from wicker.schema.schema import ArrayField, DatasetSchema
 
 CellSpecification = cpp_extensions.CellSpecification
 ColumnHistorySpecification = cpp_extensions.ColumnHistorySpecification
@@ -27,7 +27,7 @@ def _assert_not_none(x: Optional[T]) -> T:
 def merge_schemas(
     left: DatasetSchema, right: DatasetSchema, left_required: bool = True, right_required: bool = True
 ) -> DatasetSchema:
-    """Create a new schema by combining left and right schemas. Raises L5MLSchemaException if the two
+    """Create a new schema by combining left and right schemas. Raises WickerSchemaException if the two
     schemas are incompatible.
     The left_required and right_required flags control which fields are required in the merged schema.
     :param left: One of the schemas to merge.
@@ -39,7 +39,7 @@ def merge_schemas(
     :return: A new schema with fields from both left and right.
     """
     if left.primary_keys != right.primary_keys:
-        raise L5MLSchemaException(
+        raise WickerSchemaException(
             "The schemas have different primary keys: Got " f"{left.primary_keys} and  {right.primary_keys}"
         )
     # Make deep copies of the schemas so that we can change the "required" status.
@@ -53,7 +53,7 @@ def merge_schemas(
     for name, field in right._columns.items():
         if name in new_fields:
             if not new_fields[name].is_compatible(field):
-                raise L5MLSchemaException(
+                raise WickerSchemaException(
                     f"Can not merge schemas. Field '{name}' seen with two different types. "
                     f"{type(new_fields[name])}  {type(field)}"
                 )
@@ -84,7 +84,7 @@ def join_datasets(
     # Better to use the left side's timestamp as reference and merge right side rows that are within an
     # error threshold.
     if not left.is_compatible(right):
-        raise L5MLDatastoreException(
+        raise WickerDatastoreException(
             "Dataset a and b are not compatible. Datasets must be of the same type "
             "and have the same backing infrastructure."
         )
@@ -100,7 +100,7 @@ def join_datasets(
     elif how == "outer":
         pass
     else:
-        raise L5MLDatastoreException(f"Unsupported join type {how}.")
+        raise WickerDatastoreException(f"Unsupported join type {how}.")
     dst_schema = merge_schemas(left.schema, right.schema, left_required, right_required)
 
     dst_df = left.arrow_table.to_pandas().merge(right.arrow_table.to_pandas(), how=how, on=left.schema.primary_keys)
@@ -179,17 +179,17 @@ def _get_range_and_hash_keys(dataset: AbstractDataset[Example]) -> Tuple[str, st
     expected to be of type string and int64 respectively.
     """
     if len(dataset.schema.primary_keys) < 2:
-        raise L5MLDatastoreException("This function expects 2 primary keys of type string and int64 respectively.")
+        raise WickerDatastoreException("This function expects 2 primary keys of type string and int64 respectively.")
     hash_key = dataset.schema.primary_keys[0]
     range_key = dataset.schema.primary_keys[1]
     hash_key_type = dataset.arrow_table.field(hash_key).type
     range_key_type = dataset.arrow_table.field(range_key).type
     if hash_key_type != pyarrow.string():
-        raise L5MLDatastoreException(
+        raise WickerDatastoreException(
             "The first primary key (hash_key) is expected to be of string type. " f"Found {hash_key_type}"
         )
     if range_key_type != pyarrow.int64():
-        raise L5MLDatastoreException(
+        raise WickerDatastoreException(
             "The second primary key (range_key) is expected to be of int64 type. " f"Found {range_key_type}"
         )
     return hash_key, range_key

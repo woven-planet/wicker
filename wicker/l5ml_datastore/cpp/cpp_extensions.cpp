@@ -2,7 +2,6 @@
 #include <pybind11/stl.h>
 #include "sampling.h"
 #include "temporal_windowing.h"
-#include "hello_world.h"
 
 namespace py = pybind11;
 
@@ -48,8 +47,6 @@ PYBIND11_MODULE(cpp_extensions, m) {
       py::doc(apply_temporal_window_specification_doc));
 
   m.def("sample_by_range_key", &sampleByRangeKey, py::doc(sample_by_range_key_doc));
-
-  m.def("some_function", &some_function, py::doc(some_function_key_doc));
 
 }
 
