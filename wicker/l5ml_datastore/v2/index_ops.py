@@ -1,13 +1,12 @@
 """Collection of functions to manipulate datasets.
 """
-import copy
 from typing import Optional, Tuple, TypeVar
 
 import pyarrow  # type: ignore
 import pyarrow.compute  # type: ignore
 
-from wicker.core.datasets import AbstractDataset, S3Dataset
-from wicker.core.errors import WickerDatastoreException, WickerSchemaException
+from wicker.core.datasets import S3Dataset
+from wicker.core.errors import WickerDatastoreException
 from wicker.l5ml_datastore import cpp_extensions
 from wicker.schema.schema import ArrayField, DatasetSchema
 
