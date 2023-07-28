@@ -57,10 +57,17 @@ setup(
     version="1.1.1",
     install_requires=[
         "boto3",
+        "numpy",
+        "pyarrow",
+        "boto3",
+        "tqdm"
     ],
     extras_require={
         "spark": ["pyspark"],
-        "pyarrow": ["pyarrow==3.0.0"],
+        "pyarrow": ["pyarrow==5.0.0"],
+        "flyte": ["flytekit"],
+        "dynamodb" : ["pynamodb"],
+        "wandb" : ["wandb"]
     },
     dependency_links=[
         "https://artifactory.pdx.l5.woven-planet.tech/repository/pypi-internal/simple"
