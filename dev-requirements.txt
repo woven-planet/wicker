@@ -29,7 +29,7 @@ pluggy==1.0.0
 py==1.10.0
 py4j==0.10.9.2
 pybind11==2.8.0
-pyarrow==3.0.0
+pyarrow==5.0.0
 pycodestyle==2.8.0
 pyflakes==2.4.0
 Pygments==2.10.0
@@ -59,4 +59,3 @@ typing-extensions==3.10.0.2
 urllib3==1.26.7
 wandb==0.12.21
 tqdm
-#pyarrow==3.0.0+avthirdparty.1388

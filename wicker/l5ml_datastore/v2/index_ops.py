@@ -7,7 +7,6 @@ import pyarrow  # type: ignore
 import pyarrow.compute  # type: ignore
 
 from wicker.core.datasets import AbstractDataset
-from wicker.core.definitions import Example
 from wicker.core.errors import WickerDatastoreException, WickerSchemaException
 from wicker.l5ml_datastore import cpp_extensions
 from wicker.schema.schema import ArrayField, DatasetSchema

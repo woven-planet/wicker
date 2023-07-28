@@ -1,6 +1,6 @@
-import os
 
-from setuptools import find_packages, setup
+import os
+from setuptools import setup, find_packages
 
 # There is a two step process here. We need to run setup.py to know that we need to install pybind and pyarrow
 # (setup_requires)
@@ -8,23 +8,21 @@ from setuptools import find_packages, setup
 # pyarrow, then restarts and goes through the try statement successfully, and can build the cpp extensions properly.
 # try:
 
-# try:
-#     import pyarrow
-#     from pybind11.setup_helpers import Pybind11Extension
-#     pyarrow_location = os.path.dirname(pyarrow.__file__)
-#     # For now, assume that we build against bundled pyarrow releases.
-#     pyarrow_include_dir = os.path.join(pyarrow_location, 'include')
-#     print(pyarrow_location)
-#     print(pyarrow_include_dir)
-# except ImportError as e:
-#     print(e)
-#     from setuptools import Extension as Pybind11Extension
-#     pyarrow_location = ""
-#     pyarrow_include_dir = ""
+try:
+    import pyarrow
+    from pybind11.setup_helpers import Pybind11Extension
+    pyarrow_location = os.path.dirname(pyarrow.__file__)
+    # For now, assume that we build against bundled pyarrow releases.
+    pyarrow_include_dir = os.path.join(pyarrow_location, 'include')
+    print(pyarrow_location)
+    print(pyarrow_include_dir)
+except ImportError as e:
+    print(e)
+    from setuptools import Extension as Pybind11Extension
+    pyarrow_location = ""
+    pyarrow_include_dir = ""
 
 from pybind11.setup_helpers import Pybind11Extension
-pyarrow_location='/home/ubuntu/wicker/jadoocli-dev/lib/python3.8/site-packages/pyarrow'
-pyarrow_include_dir='/home/ubuntu/wicker/jadoocli-dev/lib/python3.8/site-packages/pyarrow/include'
 
 ext_modules = [
     Pybind11Extension(
@@ -34,7 +32,6 @@ ext_modules = [
             "wicker/l5ml_datastore/cpp/cpp_extensions.cpp",
             "wicker/l5ml_datastore/cpp/sampling.cpp",
             "wicker/l5ml_datastore/cpp/temporal_windowing.cpp",
-
         ],
         cxx_std=17,
         include_dirs=[pyarrow_include_dir, pyarrow_location],
@@ -45,11 +42,10 @@ ext_modules = [
             "-Werror",
             "-Wno-unused-parameter",
             "-Wnon-virtual-dtor",
-            "-I /home/ubuntu/wicker/jadoocli-dev/lib/python3.8/site-packages/pybind11/include" 
-            "-I /dymmy"
+            "-I $pyarrow_include_dir/include" 
         ],
         library_dirs=[pyarrow_location, pyarrow_include_dir],
-        libraries=[":libarrow.so.300", ":libarrow_python.so.300"],
+        libraries=[":libarrow.so.500", ":libarrow_python.so.500"],
         extra_link_args=["-Wl,-rpath,$ORIGIN", "-Wl,-rpath,$ORIGIN/pyarrow"],
     ),
 ]
