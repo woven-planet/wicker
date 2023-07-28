@@ -6,7 +6,7 @@ from typing import Optional, Tuple, TypeVar
 import pyarrow  # type: ignore
 import pyarrow.compute  # type: ignore
 
-from wicker.core.datasets import AbstractDataset
+from wicker.core.datasets import AbstractDataset, S3Dataset
 from wicker.core.errors import WickerDatastoreException, WickerSchemaException
 from wicker.l5ml_datastore import cpp_extensions
 from wicker.schema.schema import ArrayField, DatasetSchema
@@ -21,89 +21,6 @@ T = TypeVar("T")
 def _assert_not_none(x: Optional[T]) -> T:
     assert x is not None
     return x
-
-
-def merge_schemas(
-    left: DatasetSchema, right: DatasetSchema, left_required: bool = True, right_required: bool = True
-) -> DatasetSchema:
-    """Create a new schema by combining left and right schemas. Raises WickerSchemaException if the two
-    schemas are incompatible.
-    The left_required and right_required flags control which fields are required in the merged schema.
-    :param left: One of the schemas to merge.
-    :param right: The other schema to merge.
-    :param left_required: If a field comes from the left schema, it is required in the final schema iff it is required
-      in the left schema and left_required is set.
-    :param right_required: If a field comes from the right schema, it is required in the final schema iff it is required
-      in the right schema and right_required is set.
-    :return: A new schema with fields from both left and right.
-    """
-    if left.primary_keys != right.primary_keys:
-        raise WickerSchemaException(
-            "The schemas have different primary keys: Got " f"{left.primary_keys} and  {right.primary_keys}"
-        )
-    # Make deep copies of the schemas so that we can change the "required" status.
-    left = copy.deepcopy(left)
-    right = copy.deepcopy(right)
-
-    new_fields = left._columns
-    if not left_required:
-        for name, field in new_fields.items():
-            field.required = name in left.primary_keys
-    for name, field in right._columns.items():
-        if name in new_fields:
-            if not new_fields[name].is_compatible(field):
-                raise WickerSchemaException(
-                    f"Can not merge schemas. Field '{name}' seen with two different types. "
-                    f"{type(new_fields[name])}  {type(field)}"
-                )
-            if right_required and field.required:
-                new_fields[name].required = True
-        else:
-            field.required = field.required and right_required
-            new_fields[name] = field
-    return DatasetSchema(fields=list(new_fields.values()), primary_keys=left.primary_keys)
-
-
-def join_datasets(left: AbstractDataset, right: AbstractDataset, how: str = "outer") -> AbstractDataset:
-    """Join two datasets (that have the same primary keys) on their primary keys.
-    :param left: First dataset to merge.
-    :param right: Second dataset to merge.
-    :param how: Type of merge to apply. The possible values follow the options for pandas.Dataframe.merge:
-      "left": use only keys from left frame, similar to a SQL left outer join
-      "right": use only keys from right frame, similar to a SQL right outer join
-      "outer": use union of keys from both frames, similar to a SQL full outer join
-      "inner": use intersection of keys from both frames, similar to a SQL inner join
-    :return: A new dataset resulting from the merge of "left" and "right".
-    """
-    # Note, this function does a very simple merge based on equality of keys.
-    # Maybe we should have a function for resolving approximate timestamps.
-    # We could truncate the precision of timestamps, but that's not a very good solution.
-    # Better to use the left side's timestamp as reference and merge right side rows that are within an
-    # error threshold.
-    if not left.is_compatible(right):
-        raise WickerDatastoreException(
-            "Dataset a and b are not compatible. Datasets must be of the same type "
-            "and have the same backing infrastructure."
-        )
-    left_required = False
-    right_required = False
-    if how == "inner":
-        left_required = True
-        right_required = True
-    elif how == "left":
-        left_required = True
-    elif how == "right":
-        right_required = True
-    elif how == "outer":
-        pass
-    else:
-        raise WickerDatastoreException(f"Unsupported join type {how}.")
-    dst_schema = merge_schemas(left.schema, right.schema, left_required, right_required)
-
-    dst_df = left.arrow_table.to_pandas().merge(right.arrow_table.to_pandas(), how=how, on=left.schema.primary_keys)
-    dst_df.sort_index(inplace=True)
-
-    return left.create_compatible_anonymous_dataset(pyarrow.Table.from_pandas(dst_df), dst_schema)
 
 
 class ColumnWindowBuilder:
@@ -158,7 +75,7 @@ class ColumnWindowBuilder:
         return ColumnHistorySpecification(column_name, spec=[cell_spec])
 
 
-def sample_by_range_key(dataset: AbstractDataset, min_interval: int) -> AbstractDataset:
+def sample_by_range_key(dataset: S3Dataset, min_interval: int) -> S3Dataset:
     """Sample a dataset and return a new dataset where two consecutive samples have at least a difference of
     "min_interval" in their range keys.
     :param dataset: Input dataset to resample.
@@ -167,20 +84,24 @@ def sample_by_range_key(dataset: AbstractDataset, min_interval: int) -> Abstract
     """
     hash_key, range_key = _get_range_and_hash_keys(dataset)
     dst_table = cpp_extensions.sample_by_range_key(dataset.arrow_table, hash_key, range_key, min_interval)
-    return dataset.create_compatible_anonymous_dataset(dst_table, dataset.schema)
+    dataset._arrow_table = dst_table
+    return dataset
 
 
-def _get_range_and_hash_keys(dataset: AbstractDataset) -> Tuple[str, str]:
+def _get_range_and_hash_keys(dataset: S3Dataset) -> Tuple[str, str]:
     """Find the name of the hash key and range_key in the dataset.
     In the current implementation this will be the name of the first and second primary keys. These keys are
     expected to be of type string and int64 respectively.
     """
-    if len(dataset.schema.primary_keys) < 2:
+    ds_schema = dataset.schema()
+    primary_keys = ds_schema.primary_keys
+
+    if len(primary_keys) < 2:
         raise WickerDatastoreException("This function expects 2 primary keys of type string and int64 respectively.")
-    hash_key = dataset.schema.primary_keys[0]
-    range_key = dataset.schema.primary_keys[1]
-    hash_key_type = dataset.arrow_table.field(hash_key).type
-    range_key_type = dataset.arrow_table.field(range_key).type
+    hash_key = primary_keys[0]
+    range_key = primary_keys[1]
+    hash_key_type = dataset.arrow_table().field(hash_key)
+    range_key_type = dataset.arrow_table().field(range_key)
     if hash_key_type != pyarrow.string():
         raise WickerDatastoreException(
             "The first primary key (hash_key) is expected to be of string type. " f"Found {hash_key_type}"
@@ -192,7 +113,7 @@ def _get_range_and_hash_keys(dataset: AbstractDataset) -> Tuple[str, str]:
     return hash_key, range_key
 
 
-def apply_temporal_window_specification(dataset: AbstractDataset, spec: WindowSpecification) -> AbstractDataset:
+def apply_temporal_window_specification(dataset: S3Dataset, spec: WindowSpecification) -> S3Dataset:
     """Apply a windowing function to a dataset.
     :param dataset: Dataset to apply windowing operation to.
     :param spec: Specification of the operation to Apply.
@@ -231,8 +152,8 @@ def apply_temporal_window_specification(dataset: AbstractDataset, spec: WindowSp
     2   car2      1230200     [<img4>,<img5>,<img6>] <detection6>
     3   car2      1230300     [<img5>,<img6>,<img7>] <detection7>
     """
-    src_schema = dataset.schema
-    src_table = dataset.arrow_table
+    src_schema = dataset.schema()
+    src_table = dataset.arrow_table()
     hash_key, range_key = _get_range_and_hash_keys(dataset)
 
     fields = [_assert_not_none(src_schema.get_column(k)) for k in src_schema.primary_keys]
@@ -245,4 +166,6 @@ def apply_temporal_window_specification(dataset: AbstractDataset, spec: WindowSp
             fields.append(field)
     dst_schema = DatasetSchema(fields, primary_keys=src_schema.primary_keys)
     dst_table = cpp_extensions.apply_temporal_window_specification(src_table, spec, hash_key, range_key)
-    return dataset.create_compatible_anonymous_dataset(dst_table, dst_schema)
+    dataset._arrow_table = dst_table
+    dataset._schema = dst_schema
+    return dataset
