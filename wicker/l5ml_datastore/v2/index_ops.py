@@ -6,10 +6,10 @@ from typing import Optional, Tuple, TypeVar
 import pyarrow  # type: ignore
 import pyarrow.compute  # type: ignore
 
-from wicker.l5ml_datastore import cpp_extensions
 from wicker.core.datasets import AbstractDataset
 from wicker.core.definitions import Example
 from wicker.core.errors import WickerDatastoreException, WickerSchemaException
+from wicker.l5ml_datastore import cpp_extensions
 from wicker.schema.schema import ArrayField, DatasetSchema
 
 CellSpecification = cpp_extensions.CellSpecification
@@ -65,9 +65,7 @@ def merge_schemas(
     return DatasetSchema(fields=list(new_fields.values()), primary_keys=left.primary_keys)
 
 
-def join_datasets(
-    left: AbstractDataset[Example], right: AbstractDataset[Example], how: str = "outer"
-) -> AbstractDataset[Example]:
+def join_datasets(left: AbstractDataset, right: AbstractDataset, how: str = "outer") -> AbstractDataset:
     """Join two datasets (that have the same primary keys) on their primary keys.
     :param left: First dataset to merge.
     :param right: Second dataset to merge.
@@ -161,7 +159,7 @@ class ColumnWindowBuilder:
         return ColumnHistorySpecification(column_name, spec=[cell_spec])
 
 
-def sample_by_range_key(dataset: AbstractDataset[Example], min_interval: int) -> AbstractDataset[Example]:
+def sample_by_range_key(dataset: AbstractDataset, min_interval: int) -> AbstractDataset:
     """Sample a dataset and return a new dataset where two consecutive samples have at least a difference of
     "min_interval" in their range keys.
     :param dataset: Input dataset to resample.
@@ -173,7 +171,7 @@ def sample_by_range_key(dataset: AbstractDataset[Example], min_interval: int) ->
     return dataset.create_compatible_anonymous_dataset(dst_table, dataset.schema)
 
 
-def _get_range_and_hash_keys(dataset: AbstractDataset[Example]) -> Tuple[str, str]:
+def _get_range_and_hash_keys(dataset: AbstractDataset) -> Tuple[str, str]:
     """Find the name of the hash key and range_key in the dataset.
     In the current implementation this will be the name of the first and second primary keys. These keys are
     expected to be of type string and int64 respectively.
@@ -195,9 +193,7 @@ def _get_range_and_hash_keys(dataset: AbstractDataset[Example]) -> Tuple[str, st
     return hash_key, range_key
 
 
-def apply_temporal_window_specification(
-    dataset: AbstractDataset[Example], spec: WindowSpecification
-) -> AbstractDataset[Example]:
+def apply_temporal_window_specification(dataset: AbstractDataset, spec: WindowSpecification) -> AbstractDataset:
     """Apply a windowing function to a dataset.
     :param dataset: Dataset to apply windowing operation to.
     :param spec: Specification of the operation to Apply.
