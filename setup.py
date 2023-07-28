@@ -73,7 +73,6 @@ setup(
         "https://artifactory.pdx.l5.woven-planet.tech/repository/pypi-internal/simple"
     ],
     python_requires='>=3.8',
-    ext_modules=ext_modules,
     packages=find_packages(include=["*"]),
     package_data={
         '': [
