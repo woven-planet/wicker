@@ -28,7 +28,6 @@ platformdirs==2.4.0
 pluggy==1.0.0
 py==1.10.0
 py4j==0.10.9.2
-pybind11==2.8.0
 pyarrow==5.0.0
 pycodestyle==2.8.0
 pyflakes==2.4.0
