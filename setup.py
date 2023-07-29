@@ -54,7 +54,7 @@ ext_modules = [
 
 setup(
     name="wicker",
-    version="1.1.1",
+    version="0.1.1",
     install_requires=[
         "boto3",
         "numpy",
@@ -69,9 +69,6 @@ setup(
         "dynamodb" : ["pynamodb"],
         "wandb" : ["wandb"]
     },
-    dependency_links=[
-        "https://artifactory.pdx.l5.woven-planet.tech/repository/pypi-internal/simple"
-    ],
     python_requires='>=3.8',
     packages=find_packages(include=["*"]),
     package_data={
