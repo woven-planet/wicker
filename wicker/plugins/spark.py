@@ -5,7 +5,7 @@ for large datasets.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, Optional, Tuple, List
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import pyarrow as pa
 import pyarrow.compute as pc

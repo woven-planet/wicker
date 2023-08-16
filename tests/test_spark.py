@@ -7,6 +7,7 @@ import uuid
 
 import pyarrow.parquet as papq
 from pyspark.sql import SparkSession
+
 from wicker import schema
 from wicker.core.config import get_config
 from wicker.core.errors import WickerDatastoreException
