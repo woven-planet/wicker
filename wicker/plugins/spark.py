@@ -212,6 +212,7 @@ class SparkPersistor(AbstractDataPersistor):
                 )
             )
             written = rdd7.collect()
+            written = {partition: size for partition, size in written}
         else:
             # In normal operation, rdd5 may have thousands of partitions at the start of operation,
             # however because there are typically only at most three dataset splits (train,test,val),
@@ -254,7 +255,7 @@ class SparkPersistor(AbstractDataPersistor):
                 )
                 written[partition_key] = pa_table.num_rows
 
-        return {partition: size for partition, size in written}
+        return written
 
     @staticmethod
     def get_row_keys(
