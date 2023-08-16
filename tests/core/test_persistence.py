@@ -4,15 +4,16 @@ import random
 import uuid
 from typing import Any, Dict, List, Tuple
 
+import pyarrow.fs as pafs
 import pyarrow.parquet as papq
 import pytest
 
 from wicker import schema
-from wicker.core.config import get_config
+from wicker.core.datasets import S3Dataset
 from wicker.core.persistance import BasicPersistor
 from wicker.core.storage import S3PathFactory
 from wicker.schema.schema import DatasetSchema
-from wicker.testing.storage import FakeS3DataStorage
+from wicker.testing.storage import LocalDataStorage
 
 DATASET_NAME = "dataset"
 DATASET_VERSION = "0.0.1"
@@ -41,15 +42,15 @@ EXAMPLES_DUPES = copy.deepcopy(EXAMPLES)
 
 @pytest.fixture
 def mock_basic_persistor(request, tmpdir) -> Tuple[BasicPersistor, str]:
-    storage = request.param.get("storage", FakeS3DataStorage(tmpdir=tmpdir))
-    path_factory = request.param.get("path_factory", S3PathFactory())
+    storage = request.param.get("storage", LocalDataStorage(root_path=tmpdir))
+    path_factory = request.param.get("path_factory", S3PathFactory(s3_root_path=os.path.join(tmpdir, "datasets")))
     return BasicPersistor(storage, path_factory), tmpdir
 
 
-def assert_written_correctness(tmpdir: str) -> None:
+def assert_written_correctness(persistor: BasicPersistor, data: List[Tuple[str, Dict[str, Any]]], tmpdir: str) -> None:
     """Asserts that all files are written as expected by the L5MLDatastore"""
     # Check that files are correctly written locally by Spark/Parquet with a _SUCCESS marker file
-    prefix = get_config().aws_s3_config.s3_datasets_path.replace("s3://", "")
+    prefix = persistor.s3_path_factory.root_path
     assert DATASET_NAME in os.listdir(os.path.join(tmpdir, prefix))
     assert DATASET_VERSION in os.listdir(os.path.join(tmpdir, prefix, DATASET_NAME))
     for partition in ["train", "test"]:
@@ -67,6 +68,22 @@ def assert_written_correctness(tmpdir: str) -> None:
         tbl = papq.read_table(os.path.join(tmpdir, prefix, DATASET_NAME, DATASET_VERSION, f"{partition}.parquet"))
         foobar = [(barval.as_py(), fooval.as_py()) for fooval, barval in zip(tbl["foo"], tbl["bar"])]
         assert foobar == sorted(foobar)
+
+        # Also load the data from the dataset and check it.
+        ds = S3Dataset(
+            DATASET_NAME,
+            DATASET_VERSION,
+            partition,
+            local_cache_path_prefix=tmpdir,
+            storage=persistor.s3_storage,
+            s3_path_factory=persistor.s3_path_factory,
+            pa_filesystem=pafs.LocalFileSystem(),
+        )
+
+        ds_values = [ds[idx] for idx in range(len(ds))]
+        # Sort the expected values by the primary keys.
+        expected_values = sorted([value for p, value in data if p == partition], key=lambda v: (v["bar"], v["foo"]))
+        assert ds_values == expected_values
 
 
 @pytest.mark.parametrize(
@@ -92,4 +109,4 @@ def test_basic_persistor(
     # persist the dataset
     mock_basic_persistor_obj.persist_wicker_dataset(dataset_name, dataset_version, dataset_schema, dataset)
     # assert the dataset is correctly written
-    assert_written_correctness(tempdir)
+    assert_written_correctness(persistor=mock_basic_persistor_obj, data=dataset, tmpdir=tempdir)

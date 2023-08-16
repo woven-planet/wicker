@@ -11,7 +11,6 @@ from wicker.core.shuffle import save_index
 from wicker.core.storage import S3DataStorage, S3PathFactory
 from wicker.schema import dataparsing, serialization
 
-PARTITION_SIZE = 256
 MAX_COL_FILE_NUMROW = 50  # TODO(isaak-willett): Magic number, we should derive this based on row size
 
 UnparsedExample = Dict[str, Any]
@@ -225,30 +224,16 @@ class BasicPersistor(AbstractDataPersistor):
         # 4. Sort the dataset if not sorted
         sorted_dataset_0 = sorted(dataset_0, key=lambda tup: tup[0])
 
-        # 5. Partition the dataset into K partitions
-        partitions = []
-
-        def divide_chunks(list_to_divide):
-            # looping till length l
-            for i in range(0, len(list_to_divide), PARTITION_SIZE):
-                partitions.append(list_to_divide[i : i + PARTITION_SIZE])
-
-        divide_chunks(sorted_dataset_0)
-
         # 6. Persist the partitions to S3
-        for partition in partitions:
-            # build a persistence iterator for each parition
-            iterator = self.persist_wicker_partition(
-                partition, dataset_schema, self.s3_storage, self.s3_path_factory, MAX_COL_FILE_NUMROW
-            )
-            # make sure all yields get called
-            list(iterator)
+        metadata_iterator = self.persist_wicker_partition(
+            sorted_dataset_0, dataset_schema, self.s3_storage, self.s3_path_factory, MAX_COL_FILE_NUMROW
+        )
 
         # 7. Create the parition table, need to combine keys in a way we can form table
         # split into k dicts where k is partition number and the data is a list of values
         # for each key for all the dicts in the partition
         merged_dicts: Dict[str, Dict[str, List[Any]]] = {}
-        for partition_key, row in sorted_dataset_0:
+        for partition_key, row in metadata_iterator:
             current_dict: Dict[str, List[Any]] = merged_dicts.get(partition_key, {})
             for col in row.keys():
                 if col in current_dict:
