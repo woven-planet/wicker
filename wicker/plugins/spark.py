@@ -211,8 +211,8 @@ class SparkPersistor(AbstractDataPersistor):
                     partition_table, dataset_name, dataset_version, s3_storage, s3_path_factory
                 )
             )
-            written = rdd7.collect()
-            written = {partition: size for partition, size in written}
+            rdd_list = rdd7.collect()
+            written = {partition: size for partition, size in rdd_list}
         else:
             # In normal operation, rdd5 may have thousands of partitions at the start of operation,
             # however because there are typically only at most three dataset splits (train,test,val),
