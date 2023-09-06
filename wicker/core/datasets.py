@@ -88,6 +88,7 @@ class S3Dataset(AbstractDataset):
             filelock_timeout_seconds=filelock_timeout_seconds,
             path_factory=self._s3_path_factory,
             storage=self._storage,
+            dataset_name=dataset_name,
         )
         self._pa_filesystem = (
             pafs.S3FileSystem(region=get_config().aws_s3_config.region) if pa_filesystem is None else pa_filesystem
@@ -180,7 +181,9 @@ class S3Dataset(AbstractDataset):
             print(f"Evaulating {heavy_pntr_col} for column file locations")
             for location_bytes in tqdm.tqdm(arrow_table[heavy_pntr_col].to_pylist()):
                 location = ColumnBytesFileLocationV1.from_bytes(location_bytes)
-                path = worker.s3_path_factory.get_column_concatenated_bytes_s3path_from_uuid(location.file_id.bytes)
+                path = worker.s3_path_factory.get_column_concatenated_bytes_s3path_from_uuid(
+                    location.file_id.bytes, dataset_name=self._dataset_id.name
+                )
                 bucket, key = path.replace("s3://", "").split("/", 1)
                 buckets_keys.add((bucket, key))
 

@@ -82,6 +82,7 @@ class AbstractDataPersistor(abc.ABC):
 
     @staticmethod
     def persist_wicker_partition(
+        dataset_name: str,
         spark_partition_iter: Iterable[Tuple[str, ParsedExample]],
         schema: schema_module.DatasetSchema,
         s3_storage: S3DataStorage,
@@ -90,6 +91,7 @@ class AbstractDataPersistor(abc.ABC):
     ) -> Iterable[Tuple[str, PointerParsedExample]]:
         """Persists a Spark partition of examples with parsed bytes into S3Storage as ColumnBytesFiles,
         returning a new Spark partition of examples with heavy-pointers and metadata only.
+        :param dataset_name: dataset name
         :param spark_partition_iter: Spark partition of `(partition_str, example)`, where `example`
             is a dictionary of parsed bytes that needs to be uploaded to S3
         :param target_max_column_file_numrows: Maximum number of rows in column files. Defaults to 50.
@@ -107,6 +109,7 @@ class AbstractDataPersistor(abc.ABC):
                     s3_storage,
                     s3_path_factory,
                     target_file_rowgroup_size=target_max_column_file_numrows,
+                    dataset_name=dataset_name,
                 )
 
             # Write to ColumnBytesFileWriter and return only metadata + heavy-pointers
@@ -226,7 +229,12 @@ class BasicPersistor(AbstractDataPersistor):
 
         # 6. Persist the partitions to S3
         metadata_iterator = self.persist_wicker_partition(
-            sorted_dataset_0, dataset_schema, self.s3_storage, self.s3_path_factory, MAX_COL_FILE_NUMROW
+            dataset_name,
+            sorted_dataset_0,
+            dataset_schema,
+            self.s3_storage,
+            self.s3_path_factory,
+            MAX_COL_FILE_NUMROW,
         )
 
         # 7. Create the parition table, need to combine keys in a way we can form table

@@ -27,12 +27,14 @@ class WickerWandBConfig:
 class WickerAwsS3Config:
     s3_datasets_path: str
     region: str
+    store_concatenated_bytes_files_in_dataset: bool = False
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> WickerAwsS3Config:
         return cls(
             s3_datasets_path=data["s3_datasets_path"],
             region=data["region"],
+            store_concatenated_bytes_files_in_dataset=data.get("store_concatenated_bytes_files_in_dataset", False),
         )
 
 

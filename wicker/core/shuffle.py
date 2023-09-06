@@ -189,6 +189,7 @@ class ShuffleWorker:
             self.storage,
             self.s3_path_factory,
             target_file_rowgroup_size=target_file_rowgroup_size,
+            dataset_name=job.dataset_partition.dataset_id.name,
         ) as writer:
             for data in self._download_files(job):
                 for col in metadata_columns:

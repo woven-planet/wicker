@@ -1,11 +1,13 @@
 import os
 import tempfile
+from typing import Any, Dict
 from unittest import TestCase, mock
 
 from botocore.exceptions import ClientError  # type: ignore
 from botocore.stub import Stubber  # type: ignore
 
-from wicker.core.storage import S3DataStorage
+from wicker.core.config import WickerConfig
+from wicker.core.storage import S3DataStorage, S3PathFactory
 
 
 class TestS3DataStorage(TestCase):
@@ -133,3 +135,38 @@ class TestS3DataStorage(TestCase):
 
         with self.assertRaises(ClientError):
             data_storage.fetch_file_s3(input_path, local_prefix)
+
+
+class TestS3PathFactory(TestCase):
+    @mock.patch("wicker.core.storage.get_config")
+    def test_get_column_concatenated_bytes_files_path(self, mock_get_config: mock.Mock) -> None:
+        """Unit test for the S3PathFactory get_column_concatenated_bytes_files_path
+        function"""
+        # If store_concatenated_bytes_files_in_dataset is False, return the default path
+        dummy_config: Dict[str, Any] = {
+            "aws_s3_config": {
+                "s3_datasets_path": "s3://dummy_bucket/wicker/",
+                "region": "us-east-1",
+            }
+        }
+        mock_get_config.return_value = WickerConfig.from_json(dummy_config)
+
+        path_factory = S3PathFactory()
+        self.assertEqual(
+            path_factory.get_column_concatenated_bytes_files_path(),
+            "s3://dummy_bucket/wicker/__COLUMN_CONCATENATED_FILES__",
+        )
+
+        # If store_concatenated_bytes_files_in_dataset is True, return the dataset-specific path
+        dummy_config["aws_s3_config"]["store_concatenated_bytes_files_in_dataset"] = True
+        mock_get_config.return_value = WickerConfig.from_json(dummy_config)
+        dataset_name = "dummy_dataset"
+        self.assertEqual(
+            S3PathFactory().get_column_concatenated_bytes_files_path(dataset_name=dataset_name),
+            f"s3://dummy_bucket/wicker/{dataset_name}/__COLUMN_CONCATENATED_FILES__",
+        )
+
+        # If the store_concatenated_bytes_files_in_dataset option is True but no
+        # dataset_name, raise ValueError
+        with self.assertRaises(ValueError):
+            S3PathFactory().get_column_concatenated_bytes_files_path()
