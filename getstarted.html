@@ -51,12 +51,13 @@ users may optionally add these options as extra install arguments:</p>
 </section>
 <section id="configuration">
 <h2>Configuration<a class="headerlink" href="#configuration" title="Permalink to this headline">¶</a></h2>
-<p>By default, Wicker searches for a configurations file at <code class="docutils literal notranslate"><span class="pre">~/.wickerconfig.json</span></code>. Users may also change this path by setting the
+<p>By default, Wicker searches for a configurations file at <code class="docutils literal notranslate"><span class="pre">~/wickerconfig.json</span></code>. Users may also change this path by setting the
 <code class="docutils literal notranslate"><span class="pre">WICKER_CONFIG_PATH</span></code> variable to point to their configuration JSON file.</p>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span>{
     &quot;aws_s3_config&quot;: {
         &quot;s3_datasets_path&quot;: &quot;s3://my-bucket/somepath&quot;,  // Path to the AWS bucket + prefix to use
-        &quot;region&quot;: &quot;us-west-2&quot;  // Region of your bucket
+        &quot;region&quot;: &quot;us-west-2&quot;,  // Region of your bucket
+        &quot;store_concatenated_bytes_files_in_dataset&quot;: true // (Optional) Whether to store concatenated bytes files in the dataset
     }
 }
 </pre></div>
