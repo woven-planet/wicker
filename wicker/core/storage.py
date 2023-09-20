@@ -99,10 +99,19 @@ class S3DataStorage:
                     # Long term, we would also add a size check or md5sum comparison against the object in S3.
                     filedir = os.path.split(local_path)[0]
                     os.makedirs(filedir, exist_ok=True)
+                    logging.info(f"Trying to download {bucket} {key}")
                     self.client.download_file(bucket, key, local_path)
+                    logging.info(local_path)
+                    logging.info("Completed download of file")
 
                     with open(success_marker, "w"):
+                        logging.info("Opened the success marker path")
                         pass
+                    logging.info("Closed the success marker path")
+            logging.info("Exited the file lock successfully")
+
+        logging.info("Completed the download entirely and release the lock and found the success marker")
+        logging.info("")
 
         return local_path
 
