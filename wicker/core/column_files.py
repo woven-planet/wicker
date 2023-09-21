@@ -213,7 +213,7 @@ class ColumnBytesFileCache:
         local_path = self._s3_storage.fetch_file_s3(
             column_concatenated_bytes_file_path,
             self._root_path,
-            timeout_seconds=self._filelock_timeout_seconds,
+            timeout_seconds=80,
         )
 
         with open(local_path, "rb") as f:
