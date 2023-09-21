@@ -103,8 +103,10 @@ class S3DataStorage:
                         os.makedirs(filedir, exist_ok=True)
                         logging.info(f"Trying to download {bucket} {key}")
                         self.client.download_file(bucket, key, local_path)
-                        logging.info(local_path)
                         logging.info("Completed download of file")
+                        with open(os.environ["DUMPFILE"], "a") as open_file:
+                            logging.info("Writing out")
+                            open_file.write(f"Accessed File: {bucket}\{key}\n")
 
                         with open(success_marker, "w"):
                             logging.info("Opened the success marker path")
@@ -112,10 +114,11 @@ class S3DataStorage:
                         logging.info("Closed the success marker path")
                 logging.info("Exited the file lock successfully")
                 tries += 1
-            except TimeoutError as timed_out_err:
+            except Exception as timed_out_err:
                 logging.info(f"time out on the s3 download: {timed_out_err}, retrying")
                 tries += 1
-        if tries == 3 and not os.path.isfile(success_marker):
+        if tries >= 3 and not os.path.isfile(success_marker):
+            logging.info("Failed on the file download and retries")
             raise TimeoutError("File didn't download")
 
         logging.info("Completed the download entirely and release the lock and found the success marker")
