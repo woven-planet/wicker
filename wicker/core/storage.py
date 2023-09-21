@@ -115,6 +115,8 @@ class S3DataStorage:
             except TimeoutError as timed_out_err:
                 logging.info(f"time out on the s3 download: {timed_out_err}, retrying")
                 tries += 1
+        if tries == 3 and not os.path.isfile(success_marker):
+            raise TimeoutError("File didn't download")
 
         logging.info("Completed the download entirely and release the lock and found the success marker")
         logging.info("")
