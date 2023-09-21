@@ -92,7 +92,7 @@ class S3DataStorage:
 
     @retry(Exception, tries=3, backoff=2, delay=4, jitter=(0, 2), logger=logger)
     def temp_download_with_log(self, bucket:str, key: str, local_path: str,s3_input_path: str):
-        with time_limit(480):
+        with time_limit(80):
             logging.info(f"Trying to download {bucket} {key}")
             logging.info(f"Client services availaible: {self.session.get_available_services()}")                    
             logging.info('Checking if file can be accessed in s3')
@@ -125,7 +125,7 @@ class S3DataStorage:
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
 
         while not os.path.isfile(success_marker):
-            with SimpleUnixFileLock(lock_path, timeout_seconds=1000):
+            with SimpleUnixFileLock(lock_path, timeout_seconds=timeout_seconds):
                 if not os.path.isfile(success_marker):
 
                     # For now, we will only download the file if it has not already been downloaded already.
