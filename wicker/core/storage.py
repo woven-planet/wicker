@@ -125,7 +125,7 @@ class S3DataStorage:
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
 
         while not os.path.isfile(success_marker):
-            with SimpleUnixFileLock(lock_path, timeout_seconds=timeout_seconds):
+            with SimpleUnixFileLock(lock_path, timeout_seconds=1000):
                 if not os.path.isfile(success_marker):
 
                     # For now, we will only download the file if it has not already been downloaded already.
