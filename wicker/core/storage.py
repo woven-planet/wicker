@@ -54,6 +54,7 @@ class S3DataStorage:
         might also find it convenient to mock or patch member functions on instances of this class.
         """
         client_config = botocore.config.Config(
+            max_pool_connections=25,
             read_timeout = 90,
             connect_timeout=90, 
         )
