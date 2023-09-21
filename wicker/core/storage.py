@@ -54,12 +54,11 @@ class S3DataStorage:
         might also find it convenient to mock or patch member functions on instances of this class.
         """
         client_config = botocore.config.Config(
-            max_pool_connections=25,
-            read_timeout = 120,
-            connect_timeout=120
+            read_timeout = 90,
+            connect_timeout=90, 
         )
-        self.session = boto3.session.Session(config=client_config) if session is None else session
-        self.client = self.session.client("s3")
+        self.session = boto3.session.Session() if session is None else session
+        self.client = self.session.client("s3", config=client_config)
 
     def __getstate__(self) -> Dict[Any, Any]:
         return {}
@@ -98,7 +97,7 @@ class S3DataStorage:
 
     @retry(Exception, tries=3, backoff=2, delay=4, jitter=(0, 2), logger=logger)
     def temp_download_with_log(self, bucket:str, key: str, local_path: str,s3_input_path: str):
-        with time_limit(80):
+        with time_limit(100):
             logging.info(f"Trying to download {bucket} {key}")
             logging.info(f"Client services availaible: {self.session.get_available_services()}")                    
             logging.info('Checking if file can be accessed in s3')
@@ -131,7 +130,7 @@ class S3DataStorage:
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
 
         while not os.path.isfile(success_marker):
-            with SimpleUnixFileLock(lock_path, timeout_seconds=timeout_seconds):
+            with SimpleUnixFileLock(lock_path, timeout_seconds=300):
                 if not os.path.isfile(success_marker):
 
                     # For now, we will only download the file if it has not already been downloaded already.
