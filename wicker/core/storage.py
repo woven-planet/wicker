@@ -91,24 +91,30 @@ class S3DataStorage:
         success_marker = local_path + ".success"
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
 
-        while not os.path.isfile(success_marker):
-            with SimpleUnixFileLock(lock_path, timeout_seconds=timeout_seconds):
-                if not os.path.isfile(success_marker):
+        tries = 0
+        while not os.path.isfile(success_marker) and tries < 3:
+            try:
+                with SimpleUnixFileLock(lock_path, timeout_seconds=timeout_seconds):
+                    if not os.path.isfile(success_marker):
 
-                    # For now, we will only download the file if it has not already been downloaded already.
-                    # Long term, we would also add a size check or md5sum comparison against the object in S3.
-                    filedir = os.path.split(local_path)[0]
-                    os.makedirs(filedir, exist_ok=True)
-                    logging.info(f"Trying to download {bucket} {key}")
-                    self.client.download_file(bucket, key, local_path)
-                    logging.info(local_path)
-                    logging.info("Completed download of file")
+                        # For now, we will only download the file if it has not already been downloaded already.
+                        # Long term, we would also add a size check or md5sum comparison against the object in S3.
+                        filedir = os.path.split(local_path)[0]
+                        os.makedirs(filedir, exist_ok=True)
+                        logging.info(f"Trying to download {bucket} {key}")
+                        self.client.download_file(bucket, key, local_path)
+                        logging.info(local_path)
+                        logging.info("Completed download of file")
 
-                    with open(success_marker, "w"):
-                        logging.info("Opened the success marker path")
-                        pass
-                    logging.info("Closed the success marker path")
-            logging.info("Exited the file lock successfully")
+                        with open(success_marker, "w"):
+                            logging.info("Opened the success marker path")
+                            pass
+                        logging.info("Closed the success marker path")
+                logging.info("Exited the file lock successfully")
+                tries += 1
+            except TimeoutError as timed_out_err:
+                logging.info(f"time out on the s3 download: {timed_out_err}, retrying")
+                tries += 1
 
         logging.info("Completed the download entirely and release the lock and found the success marker")
         logging.info("")
