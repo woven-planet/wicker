@@ -53,12 +53,8 @@ class S3DataStorage:
         unit tests to easily mock / patch the S3 client or to utilize the S3 Stubber. Unit tests
         might also find it convenient to mock or patch member functions on instances of this class.
         """
-        client_config = botocore.config.Config(
-            read_timeout = 140,
-            connect_timeout=140, 
-        )
         self.session = boto3.session.Session() if session is None else session
-        self.client = self.session.client("s3", config=client_config)
+        self.client = self.session.client("s3")
 
     def __getstate__(self) -> Dict[Any, Any]:
         return {}
@@ -95,10 +91,10 @@ class S3DataStorage:
         except ClientError:
             return False
 
-    @retry(Exception, tries=2, backoff=2, delay=4, jitter=(0, 2), logger=logging)
+    @retry(Exception, tries=4, backoff=5, delay=4, logger=logging)
     def temp_download_with_log(self, bucket:str, key: str, local_path: str,s3_input_path: str):
         try:
-            with time_limit(150):
+            with time_limit(80):
                 logging.info(f"Trying to download {bucket} {key}")
                 logging.info(f"Client services availaible: {self.session.get_available_services()}")                    
                 logging.info('Checking if file can be accessed in s3')
