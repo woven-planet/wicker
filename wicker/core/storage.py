@@ -12,21 +12,20 @@ import os
 import uuid
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
-from retry import retry
 
 import boto3
 import boto3.session
 import botocore
 from botocore.exceptions import ClientError  # type: ignore
+from retry import retry
 
 from wicker.core.config import get_config
 from wicker.core.definitions import DatasetID, DatasetPartition
 from wicker.core.filelock import SimpleUnixFileLock
 from wicker.core.utils import time_limit
 
-
 logger = logging.getLogger(__name__)
-retries = 2
+
 
 class S3DataStorage:
     """Storage routines for reading and writing objects in S3"""
@@ -39,14 +38,14 @@ class S3DataStorage:
         might also find it convenient to mock or patch member functions on instances of this class.
         """
         boto_config = get_config().aws_s3_config.boto_config
-        boto_client_config= botocore.config.Config(
+        boto_client_config = botocore.config.Config(
             max_pool_connections=boto_config.max_pool_connections,
             read_timeout=boto_config.read_timeout,
             connect_timeout=boto_config.connect_timeout,
         )
         self.session = boto3.session.Session() if session is None else session
         self.client = self.session.client("s3", config=boto_client_config)
-        self.read_timeout= get_config().s3_storage_config.timeout
+        self.read_timeout = get_config().s3_storage_config.timeout
 
     def __getstate__(self) -> Dict[Any, Any]:
         return {}
@@ -84,16 +83,15 @@ class S3DataStorage:
             return False
 
     @retry(Exception, tries=get_config().s3_storage_config.retries, backoff=5, delay=4, logger=logging)
-    def download_with_retries(self, bucket:str, key: str, local_path: str,s3_input_path: str):
+    def download_with_retries(self, bucket: str, key: str, local_path: str, s3_input_path: str):
         try:
             with time_limit(self.read_timeout):
-                logging.info(f"Trying to download {bucket} {key}")             
+                logging.info(f"Trying to download {bucket} {key}")
                 self.client.download_file(bucket, key, local_path)
                 logging.info(f"Downloaded {s3_input_path} on to {local_path}")
         except Exception as e:
-            logging.error(f'Failed to download s3 path:{s3_input_path}')
+            logging.error(f"Failed to download s3 path:{s3_input_path}")
             raise e
-        
 
     def fetch_file_s3(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
         """Fetches a file from S3 to the local machine and skips it if it already exists. This function

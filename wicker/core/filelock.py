@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
+import logging
 import os
 import signal
-import logging
 from typing import Any, Iterator, Optional
 
 logger = logging.getLogger(__name__)

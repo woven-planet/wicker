@@ -22,6 +22,7 @@ class WickerWandBConfig:
             wandb_base_url=data.get("wandb_base_url", None),
         )
 
+
 @dataclasses.dataclass(frozen=True)
 class BotoS3Config:
     max_pool_connections: int
@@ -36,6 +37,7 @@ class BotoS3Config:
             connect_timeout=data.get("connect_timeout"),
         )
 
+
 @dataclasses.dataclass(frozen=True)
 class WickerAwsS3Config:
     s3_datasets_path: str
@@ -48,9 +50,10 @@ class WickerAwsS3Config:
         return cls(
             s3_datasets_path=data["s3_datasets_path"],
             region=data["region"],
-            boto_config = BotoS3Config.from_json(data["boto_config"]),
+            boto_config=BotoS3Config.from_json(data["boto_config"]),
             store_concatenated_bytes_files_in_dataset=data.get("store_concatenated_bytes_files_in_dataset", False),
         )
+
 
 @dataclasses.dataclass(frozen=True)
 class S3StorageConfig:
@@ -63,6 +66,7 @@ class S3StorageConfig:
             retries=data["retries"],
             timeout=data["timeout"],
         )
+
 
 @dataclasses.dataclass(frozen=True)
 class WickerConfig:
@@ -77,7 +81,7 @@ class WickerConfig:
             raw=data,
             aws_s3_config=WickerAwsS3Config.from_json(data["aws_s3_config"]),
             wandb_config=WickerWandBConfig.from_json(data.get("wandb_config", {})),
-            s3_storage_config = S3StorageConfig.from_json(data.get("s3_storage_config"))
+            s3_storage_config=S3StorageConfig.from_json(data.get("s3_storage_config")),
         )
 
 

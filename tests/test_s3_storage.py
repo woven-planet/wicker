@@ -147,7 +147,10 @@ class TestS3PathFactory(TestCase):
             "aws_s3_config": {
                 "s3_datasets_path": "s3://dummy_bucket/wicker/",
                 "region": "us-east-1",
-            }
+                "boto_config": {"max_pool_connections": 10, "read_timeout": 140, "connect_timeout": 140},
+            },
+            "dynamodb_config": {"table_name": "fake-table-name", "region": "us-west-2"},
+            "s3_storage_config": {"retries": 2, "timeout": 150},
         }
         mock_get_config.return_value = WickerConfig.from_json(dummy_config)
 
