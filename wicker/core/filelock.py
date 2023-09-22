@@ -4,7 +4,10 @@ import contextlib
 import fcntl
 import os
 import signal
+import logging
 from typing import Any, Iterator, Optional
+
+logger = logging.getLogger(__name__)
 
 
 @contextlib.contextmanager
@@ -28,6 +31,7 @@ def _timeout(seconds: int, lockfile: str) -> Iterator[None]:
             """Handles receiving a SIGALRM by throwing a TimeoutError with a useful
             error message
             """
+            logging.error("Found the timeout error")
             raise TimeoutError(f"{lockfile} could not be acquired after {seconds}s")
 
         # Register `timeout_handler` as the handler for any SIGALRMs that are raised
@@ -38,11 +42,13 @@ def _timeout(seconds: int, lockfile: str) -> Iterator[None]:
             # Raise a SIGALRM in `seconds` number of seconds, and then yield to code
             # in the context manager's code-block.
             signal.alarm(seconds)
+            logging.debug("Was not able to find an error on the file yet")
             yield
         # Make sure to always restore the original SIGALRM handler
         finally:
             signal.alarm(0)
             signal.signal(signal.SIGALRM, original_handler)
+            logging.debug("Exiting the timeout handler with successful messaging")
 
 
 class SimpleUnixFileLock:
@@ -72,11 +78,15 @@ class SimpleUnixFileLock:
         fd = os.open(self._lock_file, open_mode)
         try:
             with _timeout(self.timeout_seconds, self._lock_file):
+                logging.debug("Inside the locking mechanism")
                 fcntl.lockf(fd, fcntl.LOCK_EX)
-        except (IOError, OSError, TimeoutError):
+                logging.debug("Acquired the lock on the file, waiting for s3 to finish download")
+        except (IOError, OSError, TimeoutError) as error:
+            logging.debug(f"Encountered error within lock {error}")
             os.close(fd)
             raise
         else:
+            logging.debug("Releasing lock as the enter clause has ended")
             self._lock_file_fd = fd
         return self
 

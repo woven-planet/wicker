@@ -1,10 +1,19 @@
 {
     "aws_s3_config": {
       "s3_datasets_path": "s3://SOME_FAKE_PATH",
-      "region": "us-west-2"
+      "region": "us-west-2",
+      "boto_config": {
+        "max_pool_connections":10,
+        "read_timeout": 140,
+        "connect_timeout": 140
+      }
     },
     "dynamodb_config": {
       "table_name": "fake-table-name",
       "region": "us-west-2"
+    },
+    "s3_storage_config":{
+      "retries": 2,
+      "timeout": 150
     }
 }
