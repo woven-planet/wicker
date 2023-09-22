@@ -95,19 +95,24 @@ class S3DataStorage:
         except ClientError:
             return False
 
-    @retry(Exception, tries=2, backoff=2, delay=4, jitter=(0, 2), logger=logger)
+    @retry(Exception, tries=2, backoff=2, delay=4, jitter=(0, 2), logger=logging)
     def temp_download_with_log(self, bucket:str, key: str, local_path: str,s3_input_path: str):
-        with time_limit(150):
-            logging.info(f"Trying to download {bucket} {key}")
-            logging.info(f"Client services availaible: {self.session.get_available_services()}")                    
-            logging.info('Checking if file can be accessed in s3')
-            if self.check_exists_s3(s3_input_path):
-                logging.info(f"File:{s3_input_path} exists on s3")
-            else:
-                logging.error(f"File:{s3_input_path} does not exist on s3")
-                raise Exception(f"File:{s3_input_path} does not exist on s3")
-            self.client.download_file(bucket, key, local_path)
-            logging.info(local_path)
+        try:
+            with time_limit(150):
+                logging.info(f"Trying to download {bucket} {key}")
+                logging.info(f"Client services availaible: {self.session.get_available_services()}")                    
+                logging.info('Checking if file can be accessed in s3')
+                if self.check_exists_s3(s3_input_path):
+                    logging.info(f"File:{s3_input_path} exists on s3")
+                else:
+                    logging.error(f"File:{s3_input_path} does not exist on s3")
+                    raise Exception(f"File:{s3_input_path} does not exist on s3")
+                self.client.download_file(bucket, key, local_path)
+                logging.info(f"Downloaded {s3_input_path} on to {local_path}")
+        except Exception as e:
+            logging.error(f'Failed to download s3 path:{s3_input_path}')
+            logging.exception(f'Failed to download s3 path:{s3_input_path}')
+            raise e
         
 
     def fetch_file_s3(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
