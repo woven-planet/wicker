@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 
 import boto3
 import boto3.session
-import botocore
+import botocore  # type: ignore
 from botocore.exceptions import ClientError  # type: ignore
 from retry import retry
 
@@ -82,7 +82,7 @@ class S3DataStorage:
         except ClientError:
             return False
 
-    @retry(Exception, tries=get_config().s3_storage_config.retries, backoff=5, delay=4, logger=logging)
+    @retry(Exception, tries=get_config().s3_storage_config.retries, backoff=5, delay=4, logger=logger)
     def download_with_retries(self, bucket: str, key: str, local_path: str, s3_input_path: str):
         try:
             with time_limit(self.read_timeout):

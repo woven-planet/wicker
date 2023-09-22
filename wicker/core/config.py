@@ -30,11 +30,11 @@ class BotoS3Config:
     connect_timeout: int
 
     @classmethod
-    def from_json(cls, data: Dict[str, Any]) -> WickerAwsS3Config:
+    def from_json(cls, data: Dict[str, Any]) -> BotoS3Config:
         return cls(
             max_pool_connections=data["max_pool_connections"],
             read_timeout=data["read_timeout"],
-            connect_timeout=data.get("connect_timeout"),
+            connect_timeout=data["connect_timeout"],
         )
 
 
@@ -61,7 +61,7 @@ class S3StorageConfig:
     timeout: int
 
     @classmethod
-    def from_json(cls, data: Dict[str, Any]) -> WickerAwsS3Config:
+    def from_json(cls, data: Dict[str, Any]) -> S3StorageConfig:
         return cls(
             retries=data["retries"],
             timeout=data["timeout"],
@@ -81,7 +81,7 @@ class WickerConfig:
             raw=data,
             aws_s3_config=WickerAwsS3Config.from_json(data["aws_s3_config"]),
             wandb_config=WickerWandBConfig.from_json(data.get("wandb_config", {})),
-            s3_storage_config=S3StorageConfig.from_json(data.get("s3_storage_config")),
+            s3_storage_config=S3StorageConfig.from_json(data["s3_storage_config"]),
         )
 
 
