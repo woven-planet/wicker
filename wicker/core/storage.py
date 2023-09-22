@@ -12,16 +12,35 @@ import os
 import uuid
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
+from retry import retry
 
 import boto3
 import boto3.session
+import botocore
 from botocore.exceptions import ClientError  # type: ignore
 
 from wicker.core.config import get_config
 from wicker.core.definitions import DatasetID, DatasetPartition
 from wicker.core.filelock import SimpleUnixFileLock
+import contextlib
+import signal
+
 
 logger = logging.getLogger(__name__)
+logging.getLogger('botocore').setLevel(logging.DEBUG)
+
+class TimeoutException(Exception): pass
+
+@contextlib.contextmanager
+def time_limit(seconds):
+    def signal_handler(signum, frame):
+        raise TimeoutException("Timed out!")
+    signal.signal(signal.SIGALRM, signal_handler)
+    signal.alarm(seconds)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
 
 
 class S3DataStorage:
@@ -72,6 +91,26 @@ class S3DataStorage:
         except ClientError:
             return False
 
+    @retry(Exception, tries=4, backoff=5, delay=4, logger=logging)
+    def temp_download_with_log(self, bucket:str, key: str, local_path: str,s3_input_path: str):
+        try:
+            with time_limit(80):
+                logging.info(f"Trying to download {bucket} {key}")
+                logging.info(f"Client services availaible: {self.session.get_available_services()}")                    
+                logging.info('Checking if file can be accessed in s3')
+                if self.check_exists_s3(s3_input_path):
+                    logging.info(f"File:{s3_input_path} exists on s3")
+                else:
+                    logging.error(f"File:{s3_input_path} does not exist on s3")
+                    raise Exception(f"File:{s3_input_path} does not exist on s3")
+                self.client.download_file(bucket, key, local_path)
+                logging.info(f"Downloaded {s3_input_path} on to {local_path}")
+        except Exception as e:
+            logging.error(f'Failed to download s3 path:{s3_input_path}')
+            logging.exception(f'Failed to download s3 path:{s3_input_path}')
+            raise e
+        
+
     def fetch_file_s3(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
         """Fetches a file from S3 to the local machine and skips it if it already exists. This function
         is safe to call concurrently from multiple processes and utilizes a local filelock to block
@@ -92,17 +131,24 @@ class S3DataStorage:
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
 
         while not os.path.isfile(success_marker):
-            with SimpleUnixFileLock(lock_path, timeout_seconds=timeout_seconds):
+            with SimpleUnixFileLock(lock_path, timeout_seconds=300):
                 if not os.path.isfile(success_marker):
 
                     # For now, we will only download the file if it has not already been downloaded already.
                     # Long term, we would also add a size check or md5sum comparison against the object in S3.
                     filedir = os.path.split(local_path)[0]
                     os.makedirs(filedir, exist_ok=True)
-                    self.client.download_file(bucket, key, local_path)
+                    self.temp_download_with_log(bucket=bucket, key=key, local_path=local_path, s3_input_path=input_path)
+                    logging.info("Completed download of file")
 
                     with open(success_marker, "w"):
+                        logging.info("Opened the success marker path")
                         pass
+                    logging.info("Closed the success marker path")
+            logging.info("Exited the file lock successfully")
+
+        logging.info("Completed the download entirely and release the lock and found the success marker")
+        logging.info("")
 
         return local_path
 
