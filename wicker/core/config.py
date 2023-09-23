@@ -67,8 +67,8 @@ class StorageDownloadConfig:
         return cls(
             retries=data["retries"],
             timeout=data["timeout"],
-            retry_backoff = data["retry_backoff"],
-            retry_delay_s = data["retry_delay_s"],
+            retry_backoff=data["retry_backoff"],
+            retry_delay_s=data["retry_delay_s"],
         )
 
 

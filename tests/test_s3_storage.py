@@ -150,8 +150,9 @@ class TestS3PathFactory(TestCase):
                 "boto_config": {"max_pool_connections": 10, "read_timeout": 140, "connect_timeout": 140},
             },
             "dynamodb_config": {"table_name": "fake-table-name", "region": "us-west-2"},
-            "storage_download_config": {"retries": 2, "timeout": 150},      "retry_backoff":5,
-      "retry_delay_s": 4
+            "storage_download_config": {"retries": 2, "timeout": 150},
+            "retry_backoff": 5,
+            "retry_delay_s": 4,
         }
         mock_get_config.return_value = WickerConfig.from_json(dummy_config)
 
