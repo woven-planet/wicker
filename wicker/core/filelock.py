@@ -7,6 +7,7 @@ import os
 import signal
 from typing import Any, Iterator, Optional
 
+
 @contextlib.contextmanager
 def _timeout(seconds: int, lockfile: str) -> Iterator[None]:
     """Context manager for triggering a timeout via SIGALRM if a blocking call
