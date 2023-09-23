@@ -34,7 +34,7 @@ class BotoS3Config:
         return cls(
             max_pool_connections=data["max_pool_connections"],
             read_timeout_s=data["read_timeout_s"],
-            connect_timeout=data["connect_timeout_s"],
+            connect_timeout_s=data["connect_timeout_s"],
         )
 
 
