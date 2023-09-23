@@ -26,14 +26,14 @@ class WickerWandBConfig:
 @dataclasses.dataclass(frozen=True)
 class BotoS3Config:
     max_pool_connections: int
-    read_timeout: int
+    read_timeout_s: int
     connect_timeout: int
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> BotoS3Config:
         return cls(
             max_pool_connections=data["max_pool_connections"],
-            read_timeout=data["read_timeout"],
+            read_timeout_s=data["read_timeout_s"],
             connect_timeout=data["connect_timeout"],
         )
 
@@ -56,12 +56,12 @@ class WickerAwsS3Config:
 
 
 @dataclasses.dataclass(frozen=True)
-class S3StorageConfig:
+class StorageDownloadConfig:
     retries: int
     timeout: int
 
     @classmethod
-    def from_json(cls, data: Dict[str, Any]) -> S3StorageConfig:
+    def from_json(cls, data: Dict[str, Any]) -> StorageDownloadConfig:
         return cls(
             retries=data["retries"],
             timeout=data["timeout"],
@@ -73,7 +73,7 @@ class WickerConfig:
     raw: Dict[str, Any]
     aws_s3_config: WickerAwsS3Config
     wandb_config: WickerWandBConfig
-    s3_storage_config: S3StorageConfig
+    storage_download_config: StorageDownloadConfig
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> WickerConfig:
@@ -81,7 +81,7 @@ class WickerConfig:
             raw=data,
             aws_s3_config=WickerAwsS3Config.from_json(data["aws_s3_config"]),
             wandb_config=WickerWandBConfig.from_json(data.get("wandb_config", {})),
-            s3_storage_config=S3StorageConfig.from_json(data["s3_storage_config"]),
+            storage_download_config=StorageDownloadConfig.from_json(data["storage_download_config"]),
         )
 
 

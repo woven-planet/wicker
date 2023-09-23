@@ -3,9 +3,9 @@ import signal
 
 
 @contextlib.contextmanager
-def time_limit(seconds):
+def time_limit(seconds, error_message: str):
     def signal_handler(signum, frame):
-        raise TimeoutError("Timed out!")
+        raise TimeoutError(f"Timed out!. {error_message}")
 
     signal.signal(signal.SIGALRM, signal_handler)
     signal.alarm(seconds)

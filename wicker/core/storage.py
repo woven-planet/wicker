@@ -40,12 +40,12 @@ class S3DataStorage:
         boto_config = get_config().aws_s3_config.boto_config
         boto_client_config = botocore.config.Config(
             max_pool_connections=boto_config.max_pool_connections,
-            read_timeout=boto_config.read_timeout,
+            read_timeout=boto_config.read_timeout_s,
             connect_timeout=boto_config.connect_timeout,
         )
         self.session = boto3.session.Session() if session is None else session
         self.client = self.session.client("s3", config=boto_client_config)
-        self.read_timeout = get_config().s3_storage_config.timeout
+        self.read_timeout = get_config().storage_download_config.timeout
 
     def __getstate__(self) -> Dict[Any, Any]:
         return {}
@@ -82,15 +82,13 @@ class S3DataStorage:
         except ClientError:
             return False
 
-    @retry(Exception, tries=get_config().s3_storage_config.retries, backoff=5, delay=4, logger=logger)
+    @retry(Exception, tries=get_config().storage_download_config.retries, backoff=5, delay=4, logger=logger)
     def download_with_retries(self, bucket: str, key: str, local_path: str, s3_input_path: str):
         try:
-            with time_limit(self.read_timeout):
-                logging.info(f"Trying to download {bucket} {key}")
+            with time_limit(self.read_timeout, f"Timing out in trying to download object for bucket: {bucket}, key: {key}"):
                 self.client.download_file(bucket, key, local_path)
-                logging.info(f"Downloaded {s3_input_path} on to {local_path}")
         except Exception as e:
-            logging.error(f"Failed to download s3 path:{s3_input_path}")
+            logging.error(f"Failed to download s3 object in bucket: {bucket}, key: {key}")
             raise e
 
     def fetch_file_s3(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
@@ -123,7 +121,6 @@ class S3DataStorage:
                     self.download_with_retries(bucket=bucket, key=key, local_path=local_path, s3_input_path=input_path)
                     with open(success_marker, "w"):
                         pass
-            logging.debug("Exited the file lock successfully")
 
         return local_path
 
