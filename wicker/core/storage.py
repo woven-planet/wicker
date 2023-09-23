@@ -41,7 +41,7 @@ class S3DataStorage:
         boto_client_config = botocore.config.Config(
             max_pool_connections=boto_config.max_pool_connections,
             read_timeout=boto_config.read_timeout_s,
-            connect_timeout=boto_config.connect_timeout,
+            connect_timeout=boto_config.connect_timeout_s,
         )
         self.session = boto3.session.Session() if session is None else session
         self.client = self.session.client("s3", config=boto_client_config)

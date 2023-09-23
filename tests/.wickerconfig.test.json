@@ -5,11 +5,11 @@
     "boto_config": {
       "max_pool_connections":10,
       "read_timeout_s": 140,
-      "connect_timeout": 140
+      "connect_timeout_s": 140
     }
   },
   "dynamodb_config": {
-    "table_name": "l5ml-datastore",
+    "table_name": "fake_db",
     "region": "us-west-2"
   },
   "storage_download_config":{

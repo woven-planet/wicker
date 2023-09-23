@@ -27,14 +27,14 @@ class WickerWandBConfig:
 class BotoS3Config:
     max_pool_connections: int
     read_timeout_s: int
-    connect_timeout: int
+    connect_timeout_s: int
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> BotoS3Config:
         return cls(
             max_pool_connections=data["max_pool_connections"],
             read_timeout_s=data["read_timeout_s"],
-            connect_timeout=data["connect_timeout"],
+            connect_timeout=data["connect_timeout_s"],
         )
 
 
