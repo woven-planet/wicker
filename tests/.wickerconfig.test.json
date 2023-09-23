@@ -1,6 +1,6 @@
 {
   "aws_s3_config": {
-    "s3_datasets_path": "s3://lyft-av-prod-pdx-ml-data/l5ml_datasets",
+    "s3_datasets_path": "s3://fake_data/",
     "region": "us-west-2",
     "boto_config": {
       "max_pool_connections":10,

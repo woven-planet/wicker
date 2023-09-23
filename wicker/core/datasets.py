@@ -19,7 +19,7 @@ from wicker.schema import dataloading, serialization
 from wicker.schema.schema import DatasetSchema
 
 # How long to wait before timing out on filelocks in seconds
-FILE_LOCK_TIMEOUT_SECONDS = 240
+FILE_LOCK_TIMEOUT_SECONDS = 300
 
 
 class AbstractDataset(abc.ABC):
