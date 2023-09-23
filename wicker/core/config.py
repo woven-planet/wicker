@@ -24,9 +24,25 @@ class WickerWandBConfig:
 
 
 @dataclasses.dataclass(frozen=True)
+class BotoS3Config:
+    max_pool_connections: int
+    read_timeout_s: int
+    connect_timeout_s: int
+
+    @classmethod
+    def from_json(cls, data: Dict[str, Any]) -> BotoS3Config:
+        return cls(
+            max_pool_connections=data["max_pool_connections"],
+            read_timeout_s=data["read_timeout_s"],
+            connect_timeout_s=data["connect_timeout_s"],
+        )
+
+
+@dataclasses.dataclass(frozen=True)
 class WickerAwsS3Config:
     s3_datasets_path: str
     region: str
+    boto_config: BotoS3Config
     store_concatenated_bytes_files_in_dataset: bool = False
 
     @classmethod
@@ -34,7 +50,25 @@ class WickerAwsS3Config:
         return cls(
             s3_datasets_path=data["s3_datasets_path"],
             region=data["region"],
+            boto_config=BotoS3Config.from_json(data["boto_config"]),
             store_concatenated_bytes_files_in_dataset=data.get("store_concatenated_bytes_files_in_dataset", False),
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class StorageDownloadConfig:
+    retries: int
+    timeout: int
+    retry_backoff: int
+    retry_delay_s: int
+
+    @classmethod
+    def from_json(cls, data: Dict[str, Any]) -> StorageDownloadConfig:
+        return cls(
+            retries=data["retries"],
+            timeout=data["timeout"],
+            retry_backoff=data["retry_backoff"],
+            retry_delay_s=data["retry_delay_s"],
         )
 
 
@@ -43,6 +77,7 @@ class WickerConfig:
     raw: Dict[str, Any]
     aws_s3_config: WickerAwsS3Config
     wandb_config: WickerWandBConfig
+    storage_download_config: StorageDownloadConfig
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> WickerConfig:
@@ -50,6 +85,7 @@ class WickerConfig:
             raw=data,
             aws_s3_config=WickerAwsS3Config.from_json(data["aws_s3_config"]),
             wandb_config=WickerWandBConfig.from_json(data.get("wandb_config", {})),
+            storage_download_config=StorageDownloadConfig.from_json(data["storage_download_config"]),
         )
 
 
