@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
-import logging
 import os
 import signal
 from typing import Any, Iterator, Optional
@@ -74,7 +73,7 @@ class SimpleUnixFileLock:
         try:
             with _timeout(self.timeout_seconds, self._lock_file):
                 fcntl.lockf(fd, fcntl.LOCK_EX)
-        except (IOError, OSError, TimeoutError) as error:
+        except (IOError, OSError, TimeoutError):
             os.close(fd)
             raise
         else:
