@@ -82,7 +82,7 @@ class S3DataStorage:
         except ClientError:
             return False
 
-    @retry(Exception, tries=get_config().storage_download_config.retries, backoff=5, delay=4, logger=logger)
+    @retry(Exception, tries=get_config().storage_download_config.retries, backoff=get_config().storage_download_config.retry_backoff, delay=get_config().storage_download_config.retry_delay_s, logger=logger)
     def download_with_retries(self, bucket: str, key: str, local_path: str, s3_input_path: str):
         try:
             with time_limit(

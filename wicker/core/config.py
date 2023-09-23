@@ -59,12 +59,16 @@ class WickerAwsS3Config:
 class StorageDownloadConfig:
     retries: int
     timeout: int
+    retry_backoff: int
+    retry_delay_s: int
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> StorageDownloadConfig:
         return cls(
             retries=data["retries"],
             timeout=data["timeout"],
+            retry_backoff = data["retry_backoff"],
+            retry_delay_s = data["retry_delay_s"],
         )
 
 

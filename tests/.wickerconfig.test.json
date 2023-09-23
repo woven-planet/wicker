@@ -14,7 +14,9 @@
   },
   "storage_download_config":{
     "retries": 2,
-    "timeout": 150
+    "timeout": 150,
+    "retry_backoff":5,
+    "retry_delay_s": 4
   }
   
 }
