@@ -5,7 +5,8 @@
     "boto_config": {
       "max_pool_connections":10,
       "read_timeout_s": 140,
-      "connect_timeout_s": 140
+      "connect_timeout_s": 140,
+      "tcp_keepalive": true
     }
   },
   "dynamodb_config": {
