@@ -147,7 +147,7 @@ class TestS3PathFactory(TestCase):
             "aws_s3_config": {
                 "s3_datasets_path": "s3://dummy_bucket/wicker/",
                 "region": "us-east-1",
-                "boto_config": {"max_pool_connections": 10, "read_timeout_s": 140, "connect_timeout_s": 140, "tcp_keepalive": True},
+                "boto_config": {"max_pool_connections": 10, "read_timeout_s": 140, "connect_timeout_s": 140, "tcp_keepalive": False},
             },
             "dynamodb_config": {"table_name": "fake-table-name", "region": "us-west-2"},
             "storage_download_config": {
