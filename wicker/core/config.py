@@ -36,7 +36,7 @@ class BotoS3Config:
             max_pool_connections=data["max_pool_connections"],
             read_timeout_s=data["read_timeout_s"],
             connect_timeout_s=data["connect_timeout_s"],
-            tcp_keepalive=data["tcp_keepalive"]
+            tcp_keepalive=data["tcp_keepalive"],
         )
 
 
