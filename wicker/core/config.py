@@ -28,6 +28,7 @@ class BotoS3Config:
     max_pool_connections: int
     read_timeout_s: int
     connect_timeout_s: int
+    tcp_keepalive: bool
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> BotoS3Config:
@@ -35,6 +36,7 @@ class BotoS3Config:
             max_pool_connections=data["max_pool_connections"],
             read_timeout_s=data["read_timeout_s"],
             connect_timeout_s=data["connect_timeout_s"],
+            tcp_keepalive=data["tcp_keepalive"],
         )
 
 
