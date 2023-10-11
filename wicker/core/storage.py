@@ -53,6 +53,7 @@ class S3DataStorage:
     def __setstate__(self, state: Dict[Any, Any]) -> None:
         self.session = boto3.session.Session()
         self.client = self.session.client("s3")
+        self.read_timeout = get_config().storage_download_config.timeout
         return
 
     @staticmethod
