@@ -116,7 +116,7 @@ class S3Dataset(AbstractDataset):
     def arrow_table(self) -> pyarrow.Table:
         path = self._s3_path_factory.get_dataset_partition_path(self._partition, s3_prefix=False)
         if not self._arrow_table:
-            self._arrow_table = papq.read_table(path, filesystem=self._pa_filesystem)
+            self._arrow_table = papq.read_table(path, columns=self._columns_to_load, filesystem=self._pa_filesystem)
         return self._arrow_table
 
     def __len__(self) -> int:
