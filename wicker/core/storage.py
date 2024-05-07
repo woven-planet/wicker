@@ -9,10 +9,10 @@ Boto3 S3 documentation links:
 import io
 import logging
 import os
-import uuid
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
+import uuid
 import boto3
 import boto3.session
 from botocore.exceptions import ClientError  # type: ignore
@@ -143,12 +143,12 @@ class S3DataStorage:
         return super().__eq__(other) and type(self) == type(other)
 
 
-class S3PathFactory:
-    """Factory class for S3 paths
+class WickerPathFactory:
+    """Factory class for Wicker dataset paths
 
     Our bucket should look like::
 
-        s3://<root_path>
+        <dataset-root>
         /__COLUMN_CONCATENATED_FILES__
             - file1
             - file2
@@ -167,70 +167,92 @@ class S3PathFactory:
                 - part-1-attempt-2345.parquet
     """
 
-    def __init__(self, s3_root_path: str = None) -> None:
-        if s3_root_path is None:
-            s3_root_path = get_config().aws_s3_config.s3_datasets_path
-        self.root_path = s3_root_path
+    def __init__(self, store_concatenated_bytes_files_in_dataset: bool = False, root_path: Optional[str] = None) -> None:
+        self.root_path = root_path
+        self.store_concatenated_bytes_files_in_dataset = store_concatenated_bytes_files_in_dataset
 
     def __eq__(self, other: Any) -> bool:
         return super().__eq__(other) and type(self) == type(other) and self.root_path == other.root_path
 
-    def get_dataset_assets_path(self, dataset_id: DatasetID, s3_prefix: bool = True) -> str:
+    def _get_dataset_assets_path(self, dataset_id: DatasetID, prefix: Optional[str] = None) -> str:
         full_path = os.path.join(
             self.root_path,
             dataset_id.name,
             dataset_id.version,
             "assets",
         )
-        if not s3_prefix:
-            return full_path.replace("s3://", "")
+        if prefix:
+            return full_path.replace(prefix, "")
         return full_path
 
-    def get_dataset_partition_metadata_path(self, data_partition: DatasetPartition, s3_prefix: bool = True) -> str:
+    def get_dataset_assests_path(self, dataset_id: DatasetID, prefix: Optional[str] = None) -> str:
+        return self._get_dataset_assets_path(dataset_id=dataset_id, prefix=prefix)
+
+    def _get_dataset_partition_metadata_path(
+        self, data_partition: DatasetPartition, prefix: Optional[str] = None
+    ) -> str:
         full_path = os.path.join(
             self.get_dataset_partition_path(data_partition),
             "_l5ml_dataset_partition_metadata.json",
         )
-        if not s3_prefix:
-            return full_path.replace("s3://", "")
+        if prefix:
+            return full_path.replace(prefix, "")
         return full_path
 
-    def get_dataset_partition_path(self, data_partition: DatasetPartition, s3_prefix: bool = True) -> str:
+    def get_dataset_partition_metadata_path(
+        self, data_partition: DatasetPartition, prefix: Optional[str] = None
+    ) -> str:
+        return self._get_dataset_partition_metadata_path(data_partition=data_partition, prefix=prefix)
+
+    def _get_dataset_partition_path(self, data_partition: DatasetPartition, prefix: Optional[str] = None) -> str:
         full_path = os.path.join(
             self.root_path,
             data_partition.dataset_id.name,
             data_partition.dataset_id.version,
             f"{data_partition.partition}.parquet",
         )
-        if not s3_prefix:
-            return full_path.replace("s3://", "")
+
+        if prefix:
+            return full_path.replace(prefix, "")
         return full_path
 
-    def get_dataset_schema_path(self, dataset_id: DatasetID, s3_prefix: bool = True) -> str:
+    def get_dataset_partition_path(self, data_partition: DatasetPartition, prefix: Optional[str] = None) -> str:
+        return self._get_dataset_partition_path(self, data_partition=data_partition, prefix=prefix)
+
+    def _get_dataset_schema_path(self, dataset_id: DatasetID, prefix: Optional[str] = None) -> str:
         full_path = os.path.join(
             self.root_path,
             dataset_id.name,
             dataset_id.version,
             "avro_schema.json",
         )
-        if not s3_prefix:
-            return full_path.replace("s3://", "")
+        if prefix:
+            return full_path.replace(prefix, "")
         return full_path
 
-    def get_column_concatenated_bytes_files_path(self, s3_prefix: bool = True) -> str:
+    def get_dataset_schema_path(self, dataset_id: DatasetID, prefix: Optional[str] = None) -> str:
+        return self._get_dataset_schema_path(dataset_id=dataset_id, prefix=prefix)
+
+    def _get_column_concatenated_bytes_files_path(self, dataset_name: Optional[str] = None, prefix: Optional[str] = None) -> str:
         """Gets the path to the root of all column_concatenated_bytes files
 
-        :param s3_prefix: whether to return the s3:// prefix, defaults to True
+        :param dataset_name: if self.store_concatenated_bytes_files_in_dataset is True,
+            it requires dataset name, defaults to None
+        :param prefix: prefix to trim off path, if none skip
         :return: path to the column_concatenated_bytes file with the file_id
         """
-        full_path = os.path.join(self.root_path, "__COLUMN_CONCATENATED_FILES__")
-        if not s3_prefix:
-            return full_path.replace("s3://", "")
+        if self.store_concatenated_bytes_files_in_dataset:
+            if dataset_name is None:
+                raise ValueError("Must provide dataset_id if store_concatenated_bytes_files_in_dataset is True")
+            full_path = os.path.join(self.root_path, dataset_name, "__COLUMN_CONCATENATED_FILES__")
+        else:
+            full_path = os.path.join(self.root_path, "__COLUMN_CONCATENATED_FILES__")
+        if prefix:
+            return full_path.replace(prefix, "")
         return full_path
 
-    def get_column_concatenated_bytes_s3path_from_uuid(self, file_uuid: bytes) -> str:
-        columns_root_path = self.get_column_concatenated_bytes_files_path()
-        return os.path.join(columns_root_path, str(uuid.UUID(bytes=file_uuid)))
+    def get_column_concatenated_bytes_files_path(self, dataset_name: Optional[str] = None, prefix: Optional[str] = None) -> str:
+        return self._get_column_concatenated_bytes_files_path(dataset_name=dataset_name, prefix=prefix)
 
     def get_temporary_row_files_path(self, dataset_id: DatasetID) -> str:
         full_path = os.path.join(
@@ -240,3 +262,78 @@ class S3PathFactory:
             dataset_id.version,
         )
         return full_path
+
+
+class S3PathFactory(WickerPathFactory):
+    """Factory class for Wicker dataset paths
+
+    Our bucket should look like::
+
+        s3://<dataset-root>
+        /__COLUMN_CONCATENATED_FILES__
+            - file1
+            - file2
+        /dataset_name_1
+        /dataset_name_2
+            /0.0.1
+            /0.0.2
+            - avro_schema.json
+            / assets
+                - files added by users
+            / partition_1.parquet
+            / partition_2.parquet
+                - _l5ml_dataset_partition_metadata.json
+                - _SUCCESS
+                - part-0-attempt-1234.parquet
+                - part-1-attempt-2345.parquet
+    """
+
+    def __init__(self, s3_root_path: Optional[str] = None) -> None:
+        s3_config = get_config().aws_s3_config
+        print(s3_config)
+        store_concatenated_bytes_files_in_dataset = s3_config.store_concatenated_bytes_files_in_dataset
+        super().__init__(store_concatenated_bytes_files_in_dataset, s3_root_path)
+        if s3_root_path is None:
+            self.root_path = get_config().aws_s3_config.s3_datasets_path
+
+    def get_dataset_assets_path(self, dataset_id: DatasetID, s3_prefix: bool = True) -> str:
+        prefix = None
+        if not s3_prefix:
+            prefix = "s3://"
+        return self._get_dataset_assets_path(dataset_id=dataset_id, prefix=prefix)
+
+    def get_dataset_partition_metadata_path(self, data_partition: DatasetPartition, s3_prefix: bool = True) -> str:
+        prefix = None
+        if not s3_prefix:
+            prefix = "s3://"
+        return super().get_dataset_partition_metadata_path(data_partition, prefix)
+
+    def get_dataset_partition_path(self, data_partition: DatasetPartition, s3_prefix: bool = True) -> str:
+        prefix = None
+        if not s3_prefix:
+            prefix = "s3://"
+
+        return self._get_dataset_partition_path(data_partition=data_partition, prefix=prefix)
+
+    def get_dataset_schema_path(self, dataset_id: DatasetID, s3_prefix: bool = True) -> str:
+        prefix = None
+        if not s3_prefix:
+            prefix = "s3://"
+        return self._get_dataset_schema_path(dataset_id=dataset_id, prefix=prefix)
+
+    def get_column_concatenated_bytes_files_path(self, s3_prefix: bool = True, dataset_name: str = None) -> str:
+        """Gets the path to the root of all column_concatenated_bytes files
+
+        :param s3_prefix: whether to return the s3:// prefix, defaults to True
+        :param dataset_name: if self.store_concatenated_bytes_files_in_dataset is True,
+            it requires dataset name, defaults to None
+        :return: path to the column_concatenated_bytes file with the file_id
+        """
+        prefix = None
+        if not s3_prefix:
+            prefix = "s3://"
+        return self._get_column_concatenated_bytes_files_path(dataset_name=dataset_name, prefix=prefix)
+    
+    def get_column_concatenated_bytes_s3path_from_uuid(self, file_uuid: bytes, dataset_name: str = None) -> str:
+        columns_root_path = self.get_column_concatenated_bytes_files_path(dataset_name=dataset_name)
+        return os.path.join(columns_root_path, str(uuid.UUID(bytes=file_uuid)))
