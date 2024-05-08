@@ -52,8 +52,8 @@ def loads(schema_str: str, treat_objects_as_bytes: bool = False) -> schema.Datas
             primary_keys=json.loads(schema_dict.get(PRIMARY_KEYS_TAG, "[]")),
             allow_empty_primary_keys=True,  # For backward compatibility. Clean me AVSW-78939.
         )
-    except KeyError:
-        raise WickerSchemaException(f"Malformed serialization of DatasetSchema: {schema_str}")
+    except KeyError as err:
+        raise WickerSchemaException(f"Malformed serialization of DatasetSchema: {err}")
 
 
 def _loads(schema_dict: Dict[str, Any], treat_objects_as_bytes: bool) -> schema.SchemaField:
@@ -149,7 +149,32 @@ def _loads_base_types(
                 required=required,
                 is_heavy_pointer=schema_dict.get("_is_heavy_pointer", False),
             )
+        elif l5ml_metatype == "numpy":
+            return schema.NumpyField(
+                name=schema_dict["name"],
+                description=schema_dict["_description"],
+                is_heavy_pointer=schema_dict.get("_is_heavy_pointer", False),
+                required=required,
+                shape=schema_dict["_shape"],
+                dtype=schema_dict["_dtype"],
+            )
+        elif l5ml_metatype == "bytes":
+            return schema.BytesField(
+                name=schema_dict["name"],
+                description=schema_dict["_description"],
+                required=required,
+                is_heavy_pointer=schema_dict.get("_is_heavy_pointer", False),
+            )
         raise WickerSchemaException(f"Unhandled _l5ml_metatype for avro bytes type: {l5ml_metatype}")
+    elif type_ == "record":
+        schema_fields = []
+        for schema_field in schema_dict["fields"]:
+            loaded_field = _loads_base_types(schema_field["type"], True, schema_field)
+            schema_fields.append(loaded_field)
+        return schema.RecordField(
+            fields=schema_fields,
+            name=schema_dict["name"],
+        )
     raise WickerSchemaException(f"Unhandled type: {type_}")
 
 

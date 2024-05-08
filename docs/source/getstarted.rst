@@ -4,11 +4,11 @@ Getting Started
 Wicker is an open source framework for Machine Learning dataset storage and serving developed at Woven Planet L5.
 
 Wicker leverages other open source technologies such as Apache Arrow and Apache Parquet to store and serve data. Operating
-Wicker mainly requires users to provide an object store (currently Wicker is only compatible with AWS S3, but integrations with 
+Wicker mainly requires users to provide an object store (currently Wicker is only compatible with AWS S3, but integrations with
 other cloud object stores are a work-in-progress).
 
 Out of the box, Wicker provides integrations with several widely used technologies such as Spark, Flyte and DynamoDB to allow users
-to write Wicker datasets from these data infrastructures. However, Wicker was built with a high degree of extensibility in mind, and 
+to write Wicker datasets from these data infrastructures. However, Wicker was built with a high degree of extensibility in mind, and
 allows users to build and use their own implementations to easily integrate with their own infrastructure.
 
 Installation
@@ -24,7 +24,7 @@ users may optionally add these options as extra install arguments:
 Configuration
 -------------
 
-By default, Wicker searches for a configurations file at ``~/.wickerconfig.json``. Users may also change this path by setting the 
+By default, Wicker searches for a configurations file at ``~/wickerconfig.json``. Users may also change this path by setting the
 ``WICKER_CONFIG_PATH`` variable to point to their configuration JSON file.
 
 .. code-block:: json
@@ -32,7 +32,8 @@ By default, Wicker searches for a configurations file at ``~/.wickerconfig.json`
     {
         "aws_s3_config": {
             "s3_datasets_path": "s3://my-bucket/somepath",  // Path to the AWS bucket + prefix to use
-            "region": "us-west-2"  // Region of your bucket
+            "region": "us-west-2",  // Region of your bucket
+            "store_concatenated_bytes_files_in_dataset": true // (Optional) Whether to store concatenated bytes files in the dataset
         }
     }
 
@@ -115,11 +116,11 @@ examples from any environment.
 
 To make this work, Wicker needs an intermediate ``MetadataDatabase`` to store and index information about each row before
 it commits the dataset. We provide a default integration with DynamoDB, but users can implement their own integrations easily
-by implementing the abstract interface ``wicker.core.writer.AbstractDatasetWriterMetadataDatabase``, and use their own 
+by implementing the abstract interface ``wicker.core.writer.AbstractDatasetWriterMetadataDatabase``, and use their own
 MetadataDatabases as intermediate storage for persisting their data. Integrations with other databases as to use as a Wicker-compatible
 MetadataDatabase is a work-in-progress.
 
-Below, we provide an example of how we can use `Flyte <https://flyte.org/>`_ to commit our datasets, using DynamoDB as our 
+Below, we provide an example of how we can use `Flyte <https://flyte.org/>`_ to commit our datasets, using DynamoDB as our
 MetadataDatabase. More plugins are being written for other commonly used cloud infrastructure such as AWS Batch, Kubernetes etc.
 
 .. code-block:: python3
@@ -141,7 +142,7 @@ MetadataDatabase. More plugins are being written for other commonly used cloud i
 
     # (1): Add examples to your dataset
     #
-    # Note that this can be called from anywhere asynchronously, e.g. in different Flyte workers, from 
+    # Note that this can be called from anywhere asynchronously, e.g. in different Flyte workers, from
     # a Jupyter notebook, a local Python script etc - as long as the same metadata_database config is used
     with DatasetWriter(dataset_definition, metadata_database) as writer:
         writer.add_example(

@@ -2,7 +2,8 @@ import os
 import tempfile
 import unittest
 from contextlib import contextmanager
-from typing import Iterator, Tuple
+from typing import Any, Iterator, NamedTuple, Tuple
+from unittest.mock import patch
 
 import numpy as np
 import pyarrow as pa  # type: ignore
@@ -105,3 +106,71 @@ class TestS3Dataset(unittest.TestCase):
                 reference = FAKE_DATA[i]
                 self.assertEqual(retrieved["foo"], reference["foo"])
                 np.testing.assert_array_equal(retrieved["np_arr"], reference["np_arr"])
+
+    def test_dataset_size(self) -> None:
+        with self._setup_storage() as (fake_s3_storage, fake_s3_path_factory, tmpdir):
+            # overwrite the mocked resource function using the fake storage
+            class FakeResponse(NamedTuple):
+                content_length: int
+
+            # we do this to mock out using boto3, we use boto3 on the dataset
+            # size because we can get just file metadata but we only mock
+            # out the file storage pull usually to mock out boto3 we sub in
+            # a replacement function that uses the fake storage
+            class MockedS3Resource:
+                def __init__(self) -> None:
+                    pass
+
+                def Object(self, bucket: str, key: str) -> FakeResponse:
+                    full_path = os.path.join("s3://", bucket, key)
+                    data = fake_s3_storage.fetch_obj_s3(full_path)
+
+                    return FakeResponse(content_length=len(data))
+
+            def mock_resource_returner(_: Any):
+                return MockedS3Resource()
+
+            with patch("wicker.core.datasets.boto3.resource", mock_resource_returner):
+
+                ds = S3Dataset(
+                    FAKE_NAME,
+                    FAKE_VERSION,
+                    FAKE_PARTITION,
+                    local_cache_path_prefix=tmpdir,
+                    columns_to_load=None,
+                    storage=fake_s3_storage,
+                    s3_path_factory=fake_s3_path_factory,
+                    pa_filesystem=pafs.LocalFileSystem(),
+                )
+
+                # sub this in to get the local size of the parquet dir
+                def _get_parquet_dir_size_mocked():
+                    def get_parquet_size(path="."):
+                        total = 0
+                        with os.scandir(path) as it:
+                            for entry in it:
+                                if entry.is_file() and ".parquet" in entry.name:
+                                    total += entry.stat().st_size
+                                elif entry.is_dir():
+                                    total += get_parquet_size(entry.path)
+                        return total
+
+                    return get_parquet_size(fake_s3_storage._tmpdir)
+
+                ds._get_parquet_dir_size = _get_parquet_dir_size_mocked  # type: ignore
+
+                dataset_size = ds.dataset_size
+
+                # get the expected size, all of the col files plus pyarrow table
+                def get_dir_size(path="."):
+                    total = 0
+                    with os.scandir(path) as it:
+                        for entry in it:
+                            if entry.is_file() and ".json" not in entry.name:
+                                total += entry.stat().st_size
+                            elif entry.is_dir():
+                                total += get_dir_size(entry.path)
+                    return total
+
+                expected_bytes = get_dir_size(fake_s3_storage._tmpdir)
+                assert expected_bytes == dataset_size

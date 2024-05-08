@@ -5,7 +5,7 @@ for large datasets.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -21,11 +21,9 @@ except ImportError:
 from operator import add
 
 from wicker import schema as schema_module
-from wicker.core.column_files import ColumnBytesFileWriter
 from wicker.core.definitions import DatasetID
 from wicker.core.errors import WickerDatastoreException
 from wicker.core.persistance import AbstractDataPersistor
-from wicker.core.shuffle import save_index
 from wicker.core.storage import S3DataStorage, S3PathFactory
 from wicker.schema import serialization
 
@@ -45,6 +43,8 @@ def persist_wicker_dataset(
     rdd: pyspark.rdd.RDD[Tuple[str, UnparsedExample]],
     s3_storage: S3DataStorage = S3DataStorage(),
     s3_path_factory: S3PathFactory = S3PathFactory(),
+    local_reduction: bool = False,
+    sort: bool = True,
 ) -> Optional[Dict[str, int]]:
     """
     Persist wicker dataset public facing api function, for api consistency.
@@ -60,9 +60,19 @@ def persist_wicker_dataset(
     :type s3_storage: S3DataStorage
     :param s3_path_factory: s3 path abstraction
     :type s3_path_factory: S3PathFactory
+    :param local_reduction: if true, reduce tables on main instance (no spark). This is useful if the spark reduction
+        is not feasible for a large dataste.
+    :type local_reduction: bool
+    :param sort: if true, sort the resulting table by primary keys
+    :type sort: bool
     """
     return SparkPersistor(s3_storage, s3_path_factory).persist_wicker_dataset(
-        dataset_name, dataset_version, dataset_schema, rdd
+        dataset_name,
+        dataset_version,
+        dataset_schema,
+        rdd,
+        local_reduction=local_reduction,
+        sort=sort,
     )
 
 
@@ -89,6 +99,8 @@ class SparkPersistor(AbstractDataPersistor):
         dataset_version: str,
         schema: schema_module.DatasetSchema,
         rdd: pyspark.rdd.RDD[Tuple[str, UnparsedExample]],
+        local_reduction: bool = False,
+        sort: bool = True,
     ) -> Optional[Dict[str, int]]:
         """
         Persist the current rdd dataset defined by name, version, schema, and data.
@@ -108,7 +120,7 @@ class SparkPersistor(AbstractDataPersistor):
         s3_path_factory = self.s3_path_factory
         parse_row = self.parse_row
         get_row_keys = self.get_row_keys
-        persist_spark_partition_wicker = self.persist_spark_partition_wicker
+        persist_wicker_partition = self.persist_wicker_partition
         save_partition_tbl = self.save_partition_tbl
 
         # put the schema up on to s3
@@ -128,7 +140,7 @@ class SparkPersistor(AbstractDataPersistor):
         # Sort RDD by keys
         rdd2: pyspark.rdd.RDD[Tuple[Tuple[Any, ...], Tuple[str, ParsedExample]]] = rdd1.sortByKey(
             # TODO(jchia): Magic number, we should derive this based on row size
-            numPartitions=dataset_size // SPARK_PARTITION_SIZE,
+            numPartitions=max(1, dataset_size // SPARK_PARTITION_SIZE),
             ascending=True,
         )
 
@@ -148,8 +160,10 @@ class SparkPersistor(AbstractDataPersistor):
 
         # persist the spark partition to S3Storage
         rdd3 = rdd2.values()
+
         rdd4 = rdd3.mapPartitions(
-            lambda spark_iterator: persist_spark_partition_wicker(
+            lambda spark_iterator: persist_wicker_partition(
+                dataset_name,
                 spark_iterator,
                 schema,
                 s3_storage,
@@ -158,43 +172,91 @@ class SparkPersistor(AbstractDataPersistor):
             )
         )
 
-        # combine the rdd by the keys in the pyarrow table
-        rdd5 = rdd4.combineByKey(
-            createCombiner=lambda data: pa.Table.from_pydict(
-                {col: [data[col]] for col in schema.get_all_column_names()}
-            ),
-            mergeValue=lambda tbl, data: pa.Table.from_batches(
-                [
-                    *tbl.to_batches(),  # type: ignore
-                    *pa.Table.from_pydict({col: [data[col]] for col in schema.get_all_column_names()}).to_batches(),
-                ]
-            ),
-            mergeCombiners=lambda tbl1, tbl2: pa.Table.from_batches(
-                [
-                    *tbl1.to_batches(),  # type: ignore
-                    *tbl2.to_batches(),  # type: ignore
-                ]
-            ),
-        )
-        # create the partition tables
-        rdd6 = rdd5.mapValues(
-            lambda pa_tbl: pc.take(
-                pa_tbl,
-                pc.sort_indices(
-                    pa_tbl,
-                    sort_keys=[(pk, "ascending") for pk in schema.primary_keys],
+        if not local_reduction:
+            # combine the rdd by the keys in the pyarrow table
+            rdd5 = rdd4.combineByKey(
+                createCombiner=lambda data: pa.Table.from_pydict(
+                    {col: [data[col]] for col in schema.get_all_column_names()}
+                ),
+                mergeValue=lambda tbl, data: pa.Table.from_batches(
+                    [
+                        *tbl.to_batches(),  # type: ignore
+                        *pa.Table.from_pydict({col: [data[col]] for col in schema.get_all_column_names()}).to_batches(),
+                    ]
+                ),
+                mergeCombiners=lambda tbl1, tbl2: pa.Table.from_batches(
+                    [
+                        *tbl1.to_batches(),  # type: ignore
+                        *tbl2.to_batches(),  # type: ignore
+                    ]
                 ),
             )
-        )
-        # save the parition table to s3
-        rdd7 = rdd6.map(
-            lambda partition_table: save_partition_tbl(
-                partition_table, dataset_name, dataset_version, s3_storage, s3_path_factory
-            )
-        )
-        written = rdd7.collect()
 
-        return {partition: size for partition, size in written}
+            # create the partition tables
+            if sort:
+                rdd6 = rdd5.mapValues(
+                    lambda pa_tbl: pc.take(
+                        pa_tbl,
+                        pc.sort_indices(
+                            pa_tbl,
+                            sort_keys=[(pk, "ascending") for pk in schema.primary_keys],
+                        ),
+                    )
+                )
+            else:
+                rdd6 = rdd5
+
+            # save the parition table to s3
+            rdd7 = rdd6.map(
+                lambda partition_table: save_partition_tbl(
+                    partition_table, dataset_name, dataset_version, s3_storage, s3_path_factory
+                )
+            )
+            rdd_list = rdd7.collect()
+            written = {partition: size for partition, size in rdd_list}
+        else:
+            # In normal operation, rdd5 may have thousands of partitions at the start of operation,
+            # however because there are typically only at most three dataset splits (train,test,val),
+            # the output of rdd5 has only three partitions with any data. Empriically this has lead to
+            # issues related to driver memory. As a work around, we can instead perform this reduction
+            # manually outside of the JVM without much of a performance penalty since spark's parallelism
+            # was not being taken advantage of anyway.
+
+            # We are going to iterate over each partition, grab its pyarrow table, and merge them.
+            # to avoid localIterator from running rdd4 sequentially, we first cache it and trigger an action.
+            rdd4 = rdd4.cache()
+            _ = rdd4.count()
+
+            # the rest of this is adapted from the map task persist
+            merged_dicts: Dict[str, Dict[str, List[Any]]] = {}
+            for partition_key, row in rdd4.toLocalIterator():
+                current_dict: Dict[str, List[Any]] = merged_dicts.get(partition_key, {})
+                for col in row.keys():
+                    if col in current_dict:
+                        current_dict[col].append(row[col])
+                    else:
+                        current_dict[col] = [row[col]]
+                merged_dicts[partition_key] = current_dict
+
+            arrow_dict = {}
+            for partition_key, data_dict in merged_dicts.items():
+                data_table = pa.Table.from_pydict(data_dict)
+                if sort:
+                    arrow_dict[partition_key] = pc.take(
+                        pa.Table.from_pydict(data_dict),
+                        pc.sort_indices(data_table, sort_keys=[(pk, "ascending") for pk in schema.primary_keys]),
+                    )
+                else:
+                    arrow_dict[partition_key] = data_table
+
+            written = {}
+            for partition_key, pa_table in arrow_dict.items():
+                self.save_partition_tbl(
+                    (partition_key, pa_table), dataset_name, dataset_version, self.s3_storage, self.s3_path_factory
+                )
+                written[partition_key] = pa_table.num_rows
+
+        return written
 
     @staticmethod
     def get_row_keys(
@@ -210,71 +272,3 @@ class SparkPersistor(AbstractDataPersistor):
         """
         partition, data = partition_data_tup
         return (partition,) + tuple(data[pk] for pk in schema.primary_keys)
-
-    # Write data to Column Byte Files
-    @staticmethod
-    def persist_spark_partition_wicker(
-        spark_partition_iter: Iterable[Tuple[str, ParsedExample]],
-        schema: schema_module.DatasetSchema,
-        s3_storage: S3DataStorage,
-        s3_path_factory: S3PathFactory,
-        target_max_column_file_numrows: int = 50,
-    ) -> Iterable[Tuple[str, PointerParsedExample]]:
-        """Persists a Spark partition of examples with parsed bytes into S3Storage as ColumnBytesFiles,
-        returning a new Spark partition of examples with heavy-pointers and metadata only.
-        :param spark_partition_iter: Spark partition of `(partition_str, example)`, where `example`
-            is a dictionary of parsed bytes that needs to be uploaded to S3
-        :param target_max_column_file_numrows: Maximum number of rows in column files. Defaults to 50.
-        :return: a Generator of `(partition_str, example)`, where `example` is a dictionary with heavy-pointers
-            that point to ColumnBytesFiles in S3 in place of the parsed bytes
-        """
-        column_bytes_file_writers: Dict[str, ColumnBytesFileWriter] = {}
-        heavy_pointer_columns = schema.get_pointer_columns()
-        metadata_columns = schema.get_non_pointer_columns()
-
-        for partition, example in spark_partition_iter:
-            # Create ColumnBytesFileWriter lazily as required, for each partition
-            if partition not in column_bytes_file_writers:
-                column_bytes_file_writers[partition] = ColumnBytesFileWriter(
-                    s3_storage,
-                    s3_path_factory,
-                    target_file_rowgroup_size=target_max_column_file_numrows,
-                )
-
-            # Write to ColumnBytesFileWriter and return only metadata + heavy-pointers
-            parquet_metadata: Dict[str, Any] = {col: example[col] for col in metadata_columns}
-            for col in heavy_pointer_columns:
-                loc = column_bytes_file_writers[partition].add(col, example[col])
-                parquet_metadata[col] = loc.to_bytes()
-            yield partition, parquet_metadata
-
-        # Flush all writers when finished
-        for partition in column_bytes_file_writers:
-            column_bytes_file_writers[partition].close()
-
-    # sort the indices of the primary keys in ascending order
-    @staticmethod
-    def save_partition_tbl(
-        partition_table_tuple: Tuple[str, pa.Table],
-        dataset_name: str,
-        dataset_version: str,
-        s3_storage: S3DataStorage,
-        s3_path_factory: S3PathFactory,
-    ) -> Tuple[str, int]:
-        """
-        Save a partition table to s3 under the dataset name and version.
-
-        :param partition_table_tuple: Tuple of partition id and pyarrow table to save
-        :type partition_table_tuple: Tuple[str, pyarrow.Table]
-        :return: A tuple containing the paritiion id and the num of saved rows
-        :rtype: Tuple[str, int]
-        """
-        partition, pa_tbl = partition_table_tuple
-        save_index(
-            dataset_name,
-            dataset_version,
-            {partition: pa_tbl},
-            s3_storage=s3_storage,
-            s3_path_factory=s3_path_factory,
-        )
-        return (partition, pa_tbl.num_rows)

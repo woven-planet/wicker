@@ -15,11 +15,14 @@ from urllib.parse import urlparse
 import uuid
 import boto3
 import boto3.session
+import botocore  # type: ignore
 from botocore.exceptions import ClientError  # type: ignore
+from retry import retry
 
 from wicker.core.config import get_config
 from wicker.core.definitions import DatasetID, DatasetPartition
 from wicker.core.filelock import SimpleUnixFileLock
+from wicker.core.utils import time_limit
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +37,15 @@ class S3DataStorage:
         unit tests to easily mock / patch the S3 client or to utilize the S3 Stubber. Unit tests
         might also find it convenient to mock or patch member functions on instances of this class.
         """
+        boto_config = get_config().aws_s3_config.boto_config
+        boto_client_config = botocore.config.Config(
+            max_pool_connections=boto_config.max_pool_connections,
+            read_timeout=boto_config.read_timeout_s,
+            connect_timeout=boto_config.connect_timeout_s,
+        )
         self.session = boto3.session.Session() if session is None else session
-        self.client = self.session.client("s3")
+        self.client = self.session.client("s3", config=boto_client_config)
+        self.read_timeout = get_config().storage_download_config.timeout
 
     def __getstate__(self) -> Dict[Any, Any]:
         return {}
@@ -43,6 +53,7 @@ class S3DataStorage:
     def __setstate__(self, state: Dict[Any, Any]) -> None:
         self.session = boto3.session.Session()
         self.client = self.session.client("s3")
+        self.read_timeout = get_config().storage_download_config.timeout
         return
 
     @staticmethod
@@ -72,6 +83,23 @@ class S3DataStorage:
         except ClientError:
             return False
 
+    @retry(
+        Exception,
+        tries=get_config().storage_download_config.retries,
+        backoff=get_config().storage_download_config.retry_backoff,
+        delay=get_config().storage_download_config.retry_delay_s,
+        logger=logger,
+    )
+    def download_with_retries(self, bucket: str, key: str, local_path: str):
+        try:
+            with time_limit(
+                self.read_timeout, f"Timing out in trying to download object for bucket: {bucket}, key: {key}"
+            ):
+                self.client.download_file(bucket, key, local_path)
+        except Exception as e:
+            logging.error(f"Failed to download s3 object in bucket: {bucket}, key: {key}")
+            raise e
+
     def fetch_file_s3(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
         """Fetches a file from S3 to the local machine and skips it if it already exists. This function
         is safe to call concurrently from multiple processes and utilizes a local filelock to block
@@ -99,8 +127,7 @@ class S3DataStorage:
                     # Long term, we would also add a size check or md5sum comparison against the object in S3.
                     filedir = os.path.split(local_path)[0]
                     os.makedirs(filedir, exist_ok=True)
-                    self.client.download_file(bucket, key, local_path)
-
+                    self.download_with_retries(bucket=bucket, key=key, local_path=local_path)
                     with open(success_marker, "w"):
                         pass
 
@@ -165,6 +192,27 @@ class WickerPathFactory:
                 - _SUCCESS
                 - part-0-attempt-1234.parquet
                 - part-1-attempt-2345.parquet
+
+    If store_concatenated_bytes_files_in_dataset is True, then the bucket structure will
+    be under the dataset directory:
+
+            s3://<root_path>
+            /dataset_name_1
+            /dataset_name_2
+                /__COLUMN_CONCATENATED_FILES__
+                    - file1
+                    - file2
+                /0.0.1
+                /0.0.2
+                - avro_schema.json
+                / assets
+                    - files added by users
+                / partition_1.parquet
+                / partition_2.parquet
+                    - _l5ml_dataset_partition_metadata.json
+                    - _SUCCESS
+                    - part-0-attempt-1234.parquet
+                    - part-1-attempt-2345.parquet
     """
 
     def __init__(self, store_concatenated_bytes_files_in_dataset: bool = False, root_path: Optional[str] = None) -> None:

@@ -51,6 +51,7 @@ class ColumnBytesFileLocationV1:
     @classmethod
     def from_bytes(cls, b: bytes) -> ColumnBytesFileLocationV1:
         protocol_version = int.from_bytes(b[0:1], "little")
+        # non 1 version does not gurantee parsability in struct unpack
         if protocol_version != 1:
             raise ValueError(f"Unable to parse ColumnBytesFileLocation with protocol_version={protocol_version}")
         _, file_id, byte_offset, data_size = struct.unpack(ColumnBytesFileLocationV1.STRUCT_PACK_FMT, b)
@@ -88,6 +89,7 @@ class ColumnBytesFileWriter:
         s3_path_factory: S3PathFactory = S3PathFactory(),
         target_file_size: Optional[int] = None,
         target_file_rowgroup_size: Optional[int] = None,
+        dataset_name: str = None,
     ) -> None:
         """Create a ColumnBytesFileWriter
 
@@ -95,6 +97,7 @@ class ColumnBytesFileWriter:
         :param s3_path_factory: path factory to use, defaults to S3PathFactory()
         :param target_file_size: If set, open a new binary file when a column file gets larger than this many bytes.
         :param target_file_rowgroup_size: If set, open a new binary file when a column file has more rows than this
+        :param dataset_name: dataset name, defaults to None
         """
         self.storage = storage
         self.s3_path_factory = s3_path_factory
@@ -102,6 +105,7 @@ class ColumnBytesFileWriter:
         self.write_buffers: Dict[str, ColumnBytesFileWriteBuffer] = {}
         self.target_file_size = target_file_size
         self.target_file_rowgroup_size = target_file_rowgroup_size
+        self.dataset_name = dataset_name
 
     def __enter__(self) -> ColumnBytesFileWriter:
         return self
@@ -157,7 +161,9 @@ class ColumnBytesFileWriter:
         )
 
     def _write_column(self, column_name: str) -> None:
-        columns_root_path = self.s3_path_factory.get_column_concatenated_bytes_files_path()
+        columns_root_path = self.s3_path_factory.get_column_concatenated_bytes_files_path(
+            dataset_name=self.dataset_name
+        )
         write_buffer = self.write_buffers[column_name]
         path = os.path.join(columns_root_path, str(write_buffer.file_id))
         if write_buffer.buffer.tell() > 0:
@@ -181,6 +187,7 @@ class ColumnBytesFileCache:
         filelock_timeout_seconds: int = -1,
         path_factory: S3PathFactory = S3PathFactory(),
         storage: Optional[S3DataStorage] = None,
+        dataset_name: str = None,
     ):
         """Initializes a ColumnBytesFileCache
 
@@ -189,11 +196,13 @@ class ColumnBytesFileCache:
         :param filelock_timeout_seconds: number of seconds after which to timeout on waiting for downloads,
             defaults to -1 which indicates to wait forever
         :type filelock_timeout_seconds: int, optional
+        :param dataset_name: name of the dataset, defaults to None
+        :type dataset_name: str, optional
         """
         self._s3_storage = storage if storage is not None else S3DataStorage()
         self._root_path = local_cache_path_prefix
         self._filelock_timeout_seconds = filelock_timeout_seconds
-        self._columns_root_path = path_factory.get_column_concatenated_bytes_files_path()
+        self._columns_root_path = path_factory.get_column_concatenated_bytes_files_path(dataset_name=dataset_name)
 
     def read(
         self,

@@ -46,9 +46,10 @@ class DatasetID:
                 f"Provided dataset name {name} must be alphanumeric and contain no spaces, only underscores"
             )
         if not re.match(r"^[0-9]+\.[0-9]+\.[0-9]+$", version):
-            raise ValueError(
+            pass
+            """raise ValueError(
                 f"Provided dataset version {version} should be a semantic version without any prefixes/suffixes"
-            )
+            )"""
 
     def __post_init__(self) -> None:
         DatasetID.validate_dataset_id(self.name, self.version)
