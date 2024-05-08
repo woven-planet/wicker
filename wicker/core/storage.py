@@ -9,10 +9,10 @@ Boto3 S3 documentation links:
 import io
 import logging
 import os
+import uuid
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
-import uuid
 import boto3
 import boto3.session
 import botocore  # type: ignore
@@ -215,7 +215,9 @@ class WickerPathFactory:
                     - part-1-attempt-2345.parquet
     """
 
-    def __init__(self, store_concatenated_bytes_files_in_dataset: bool = False, root_path: Optional[str] = None) -> None:
+    def __init__(
+        self, store_concatenated_bytes_files_in_dataset: bool = False, root_path: Optional[str] = None
+    ) -> None:
         """Init the path factory.
 
         Object to form the expected paths and return them to the user based of root path and storage bool.
@@ -286,7 +288,7 @@ class WickerPathFactory:
         self, data_partition: DatasetPartition, prefix: Optional[str] = None
     ) -> str:
         """Get partition metadata path in wicker known file structure.
-        
+
         Public gettr for dataset partition metadata file path.
 
         Args:
@@ -371,7 +373,9 @@ class WickerPathFactory:
         """
         return self._get_dataset_schema_path(dataset_id=dataset_id, prefix=prefix)
 
-    def _get_column_concatenated_bytes_files_path(self, dataset_name: Optional[str] = None, prefix: Optional[str] = None) -> str:
+    def _get_column_concatenated_bytes_files_path(
+        self, dataset_name: Optional[str] = None, prefix: Optional[str] = None
+    ) -> str:
         """Gets the path to the root of all column_concatenated_bytes files
 
         :param dataset_name: if self.store_concatenated_bytes_files_in_dataset is True,
@@ -389,7 +393,9 @@ class WickerPathFactory:
             return full_path.replace(prefix, "")
         return full_path
 
-    def get_column_concatenated_bytes_files_path(self, dataset_name: Optional[str] = None, prefix: Optional[str] = None) -> str:
+    def get_column_concatenated_bytes_files_path(
+        self, dataset_name: Optional[str] = None, prefix: Optional[str] = None
+    ) -> str:
         """Get the colum concatenated bytes file path.
 
         Public gettr for column concatenated bytes file dir.
@@ -532,7 +538,7 @@ class S3PathFactory(WickerPathFactory):
         if not s3_prefix:
             prefix = "s3://"
         return self._get_column_concatenated_bytes_files_path(dataset_name=dataset_name, prefix=prefix)
-    
+
     def get_column_concatenated_bytes_s3path_from_uuid(self, file_uuid: bytes, dataset_name: str = None) -> str:
         """Public gettr for column concat bytes with uuid
 
