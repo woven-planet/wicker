@@ -290,7 +290,6 @@ class S3PathFactory(WickerPathFactory):
 
     def __init__(self, s3_root_path: Optional[str] = None) -> None:
         s3_config = get_config().aws_s3_config
-        print(s3_config)
         store_concatenated_bytes_files_in_dataset = s3_config.store_concatenated_bytes_files_in_dataset
         super().__init__(store_concatenated_bytes_files_in_dataset, s3_root_path)
         if s3_root_path is None:
@@ -312,7 +311,6 @@ class S3PathFactory(WickerPathFactory):
         prefix = None
         if not s3_prefix:
             prefix = "s3://"
-
         return self._get_dataset_partition_path(data_partition=data_partition, prefix=prefix)
 
     def get_dataset_schema_path(self, dataset_id: DatasetID, s3_prefix: bool = True) -> str:
