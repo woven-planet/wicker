@@ -360,7 +360,7 @@ class WickerPathFactory:
 
 
 class S3PathFactory(WickerPathFactory):
-    """Factory class for Wicker dataset paths
+    """Factory class for S3 Wicker dataset paths
 
     Our bucket should look like::
 
@@ -381,6 +381,27 @@ class S3PathFactory(WickerPathFactory):
                 - _SUCCESS
                 - part-0-attempt-1234.parquet
                 - part-1-attempt-2345.parquet
+
+    If store_concatenated_bytes_files_in_dataset is True, then the bucket structure will
+    be under the dataset directory:
+
+            s3://<root_path>
+            /dataset_name_1
+            /dataset_name_2
+                /__COLUMN_CONCATENATED_FILES__
+                    - file1
+                    - file2
+                /0.0.1
+                /0.0.2
+                - avro_schema.json
+                / assets
+                    - files added by users
+                / partition_1.parquet
+                / partition_2.parquet
+                    - _l5ml_dataset_partition_metadata.json
+                    - _SUCCESS
+                    - part-0-attempt-1234.parquet
+                    - part-1-attempt-2345.parquet
     """
 
     def __init__(self, s3_root_path: Optional[str] = None) -> None:
