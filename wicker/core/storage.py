@@ -196,7 +196,7 @@ class WickerPathFactory:
     If store_concatenated_bytes_files_in_dataset is True, then the bucket structure will
     be under the dataset directory:
 
-            s3://<root_path>
+            <root_path>
             /dataset_name_1
             /dataset_name_2
                 /__COLUMN_CONCATENATED_FILES__
