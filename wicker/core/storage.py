@@ -228,7 +228,9 @@ class WickerPathFactory:
             root_path (Optional[str], optional): File system loc of the root of the wicker file structure.
                 Defaults to None.
         """
-        self.root_path = root_path
+        if root_path is None:
+            raise ValueError("Cannot create path factory without root path, please pass root of wicker fs.")
+        self.root_path: str = root_path
         self.store_concatenated_bytes_files_in_dataset = store_concatenated_bytes_files_in_dataset
 
     def __eq__(self, other: Any) -> bool:
@@ -254,18 +256,6 @@ class WickerPathFactory:
             return full_path.replace(prefix, "")
         return full_path
 
-    def get_dataset_assets_path(self, dataset_id: DatasetID, prefix: Optional[str] = None) -> str:
-        """Public gettr method for grabbing assets path in wicker dataset
-
-        Args:
-            dataset_id (DatasetID): Id of the dataset
-            prefix (Optional[str], optional): Optional prefix to remove from file paths. Defaults to None.
-
-        Returns:
-            str: path to assets folder
-        """
-        return self._get_dataset_assets_path(dataset_id=dataset_id, prefix=prefix)
-
     def _get_dataset_partition_metadata_path(
         self, data_partition: DatasetPartition, prefix: Optional[str] = None
     ) -> str:
@@ -279,28 +269,12 @@ class WickerPathFactory:
             str: Path to partition metadata json file.
         """
         full_path = os.path.join(
-            self.get_dataset_partition_path(data_partition),
+            self._get_dataset_partition_path(data_partition),
             "_l5ml_dataset_partition_metadata.json",
         )
         if prefix:
             return full_path.replace(prefix, "")
         return full_path
-
-    def get_dataset_partition_metadata_path(
-        self, data_partition: DatasetPartition, prefix: Optional[str] = None
-    ) -> str:
-        """Get partition metadata path in wicker known file structure.
-
-        Public gettr for dataset partition metadata file path.
-
-        Args:
-            data_partition (DatasetPartition): Dataset partition to use for pathing.
-            prefix (Optional[str], optional): Optional prefix to remove from file paths. Defaults to None.
-
-        Returns:
-            str: Path to partition metadata json file.
-        """
-        return self._get_dataset_partition_metadata_path(data_partition=data_partition, prefix=prefix)
 
     def _get_dataset_partition_path(self, data_partition: DatasetPartition, prefix: Optional[str] = None) -> str:
         """Get the dataset partition parquet path.
@@ -325,20 +299,6 @@ class WickerPathFactory:
             return full_path.replace(prefix, "")
         return full_path
 
-    def get_dataset_partition_path(self, data_partition: DatasetPartition, prefix: Optional[str] = None) -> str:
-        """Get the dataset partition parquet path.
-
-        Public gettr for the dataset partition parquet file path.
-
-        Args:
-            data_partition (DatasetPartition): DatasetPartition to use for pathing
-            prefix (Optional[str], optional): Optional prefix to remove from file paths. Defaults to None.
-
-        Returns:
-            str: Path to partition parquet file
-        """
-        return self._get_dataset_partition_path(self, data_partition=data_partition, prefix=prefix)
-
     def _get_dataset_schema_path(self, dataset_id: DatasetID, prefix: Optional[str] = None) -> str:
         """Get the dataset schema path.
 
@@ -361,20 +321,6 @@ class WickerPathFactory:
             return full_path.replace(prefix, "")
         return full_path
 
-    def get_dataset_schema_path(self, dataset_id: DatasetID, prefix: Optional[str] = None) -> str:
-        """Get the dataset schema path.
-
-        Public gettr for grabbing the avro_schema json file.
-
-        Args:
-            dataset_id (DatasetID): Id of the dataset to use for pathing.
-            prefix (Optional[str], optional): Optional prefix to remove from file path. Defaults to None.
-
-        Returns:
-            str: Path to dataset avro schema file.
-        """
-        return self._get_dataset_schema_path(dataset_id=dataset_id, prefix=prefix)
-
     def _get_column_concatenated_bytes_files_path(
         self, dataset_name: Optional[str] = None, prefix: Optional[str] = None
     ) -> str:
@@ -394,23 +340,6 @@ class WickerPathFactory:
         if prefix:
             return full_path.replace(prefix, "")
         return full_path
-
-    def get_column_concatenated_bytes_files_path(
-        self, dataset_name: Optional[str] = None, prefix: Optional[str] = None
-    ) -> str:
-        """Get the colum concatenated bytes file path.
-
-        Public gettr for column concatenated bytes file dir.
-
-        Args:
-            dataset_name (Optional[str], optional): if self.store_concatenated_bytes_files_in_dataset is True,
-            it requires dataset name, defaults to None
-            prefix (Optional[str], optional): prefix to trim off path, if none skip
-
-        Returns:
-            str: path to the column_concatenated_bytes file with the file_id
-        """
-        return self._get_column_concatenated_bytes_files_path(dataset_name=dataset_name, prefix=prefix)
 
     def get_temporary_row_files_path(self, dataset_id: DatasetID) -> str:
         """Get path to temporary rows file path.
@@ -496,7 +425,7 @@ class S3PathFactory(WickerPathFactory):
         prefix = None
         if not s3_prefix:
             prefix = "s3://"
-        return super().get_dataset_partition_metadata_path(data_partition, prefix)
+        return self._get_dataset_partition_metadata_path(data_partition, prefix)
 
     def get_dataset_partition_path(self, data_partition: DatasetPartition, s3_prefix: bool = True) -> str:
         """Get path to dataset partition data file.
