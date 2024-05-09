@@ -210,7 +210,7 @@ class ColumnBytesFileCache:
     ) -> bytes:
         column_concatenated_bytes_file_path = os.path.join(self._columns_root_path, str(cbf_info.file_id))
 
-        local_path = self._s3_storage.fetch_file_s3(
+        local_path = self._s3_storage.fetch_file(
             column_concatenated_bytes_file_path,
             self._root_path,
             timeout_seconds=self._filelock_timeout_seconds,
