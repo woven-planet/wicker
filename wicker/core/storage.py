@@ -47,14 +47,14 @@ class AbstractDataStorage:
         raise NotImplementedError("Implement for equivalent api access.")
 
 
-class LocalDataStorage:
+class LocalDataStorage(AbstractDataStorage):
     """Storage routines for reading and writing objects in local fs"""
     def __init__(self) -> None:
         """Constructor for a local FS"""
         pass
 
 
-class S3DataStorage:
+class S3DataStorage(AbstractDataStorage):
     """Storage routines for reading and writing objects in S3"""
 
     def __init__(self, session: Optional[boto3.session.Session] = None) -> None:
