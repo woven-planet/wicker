@@ -27,6 +27,33 @@ from wicker.core.utils import time_limit
 logger = logging.getLogger(__name__)
 
 
+class AbstractDataStorage:
+    """Abstract data storage class that implements required methods for Column Bytes File Cache"""
+    
+    def fetch_file(
+            self,
+            input_path: str,
+            local_prefix: str,
+            timeout_seconds: int
+        ) -> str:
+        """Fetch file from chosen data storage method.
+
+        :param input_path: input file path
+        :param local_prefix: local path that specifies where to download the file
+        :param timeout_seconds: number of seconds till timing out on waiting for the file to be downloaded
+        :return: local path to the downloaded file
+        
+        """
+        raise NotImplementedError("Implement for equivalent api access.")
+
+
+class LocalDataStorage:
+    """Storage routines for reading and writing objects in local fs"""
+    def __init__(self) -> None:
+        """Constructor for a local FS"""
+        pass
+
+
 class S3DataStorage:
     """Storage routines for reading and writing objects in S3"""
 
@@ -100,7 +127,7 @@ class S3DataStorage:
             logging.error(f"Failed to download s3 object in bucket: {bucket}, key: {key}")
             raise e
 
-    def fetch_file_s3(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
+    def fetch_file(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
         """Fetches a file from S3 to the local machine and skips it if it already exists. This function
         is safe to call concurrently from multiple processes and utilizes a local filelock to block
         parallel downloads such that only one process will perform the download.
