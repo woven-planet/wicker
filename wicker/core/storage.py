@@ -9,6 +9,7 @@ Boto3 S3 documentation links:
 import io
 import logging
 import os
+import shutil
 import uuid
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
@@ -29,29 +30,56 @@ logger = logging.getLogger(__name__)
 
 class AbstractDataStorage:
     """Abstract data storage class that implements required methods for Column Bytes File Cache"""
-    
-    def fetch_file(
-            self,
-            input_path: str,
-            local_prefix: str,
-            timeout_seconds: int
-        ) -> str:
+
+    def fetch_file(self, input_path: str, local_prefix: str, timeout_seconds: int) -> str:
         """Fetch file from chosen data storage method.
 
         :param input_path: input file path
         :param local_prefix: local path that specifies where to download the file
         :param timeout_seconds: number of seconds till timing out on waiting for the file to be downloaded
         :return: local path to the downloaded file
-        
+
         """
         raise NotImplementedError("Implement for equivalent api access.")
 
 
 class LocalDataStorage(AbstractDataStorage):
     """Storage routines for reading and writing objects in local fs"""
+
     def __init__(self) -> None:
         """Constructor for a local FS"""
         pass
+
+    @retry(
+        Exception,
+        tries=get_config().storage_download_config.retries,
+        backoff=get_config().storage_download_config.retry_backoff,
+        delay=get_config().storage_download_config.retry_delay_s,
+        logger=logger,
+    )
+    def download_with_retries(self, input_path: str, local_path: str):
+        try:
+            shutil.copyfile(input_path, local_path)
+        except Exception as e:
+            logging.error(f"Failed to download/move object for file path: {input_path}")
+            raise e
+
+    def fetch_file(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
+        """Fetches a file local file system, ie: gets the path to the file.
+
+        This function assumes the input_path is a valid file in the fs based on wicker assumed pathing.
+
+        The reasoning here is that if you use this for a mounted file system that doesn't have caching
+        to local automatically you can grab and move files to local fs on instance.
+
+        :param input_path: input file path on system
+        :param local_prefix: local path that specifies where to download the file
+        :param timeout_seconds: number of seconds till timing out on waiting for the file to be downloaded
+        :return: local path to the file on the local fs
+        """
+        local_path = os.path.join(local_prefix, os.path.basename(input_path))
+        self.download_with_retries(input_path, local_path)
+        return local_path
 
 
 class S3DataStorage(AbstractDataStorage):
