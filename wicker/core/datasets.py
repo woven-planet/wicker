@@ -104,7 +104,7 @@ class S3Dataset(AbstractDataset):
     def schema(self) -> DatasetSchema:
         if self._schema is None:
             schema_path = self._s3_path_factory.get_dataset_schema_path(self._dataset_id)
-            local_path = self._storage.fetch_file_s3(
+            local_path = self._storage.fetch_file(
                 schema_path, self._local_cache_path_prefix, timeout_seconds=self._filelock_timeout_seconds
             )
             with open(local_path, "rb") as f:

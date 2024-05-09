@@ -31,7 +31,7 @@ class FakeS3DataStorage(S3DataStorage):
         with open(self._get_local_path(input_path), "rb") as f:
             return f.read()
 
-    def fetch_file_s3(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
+    def fetch_file(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
         if not self.check_exists_s3(input_path):
             raise KeyError(f"File {input_path} not found in the fake s3 storage.")
         bucket, key = self.bucket_key_from_s3_path(input_path)
@@ -73,7 +73,7 @@ class LocalDataStorage(S3DataStorage):
         return file_info.type != pafs.FileType.NotFound
 
     # Override.
-    def fetch_file_s3(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
+    def fetch_file(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
         # This raises if the input path is not relative to the root.
         relative_input_path = Path(input_path).relative_to(self._root_path)
 
