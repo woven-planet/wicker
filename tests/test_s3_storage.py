@@ -123,7 +123,7 @@ class TestS3DataStorage(TestCase):
 
     # Stubber does not have a stub function for S3 client download_file function, so patch it
     @mock.patch("boto3.s3.transfer.S3Transfer.download_file")
-    def test_fetch_file_on_nonexistent_file(self, download_file: mock.Mock) -> None:
+    def test_fetch_file_s3_on_nonexistent_file(self, download_file: mock.Mock) -> None:
         """Unit test for the fetch_file function for a non-existent file in S3."""
         data_storage = S3DataStorage()
         input_path = "s3://foo/bar/barbazz/dummy"
