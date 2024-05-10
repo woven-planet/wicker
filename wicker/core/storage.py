@@ -77,9 +77,9 @@ class LocalDataStorage(AbstractDataStorage):
         :param timeout_seconds: number of seconds till timing out on waiting for the file to be downloaded
         :return: local path to the file on the local fs
         """
-        local_path = os.path.join(local_prefix, os.path.basename(input_path))
-        self.download_with_retries(input_path, local_path)
-        return local_path
+        input_path = os.path.join(input_path, os.path.basename(local_prefix))
+        self.download_with_retries(input_path, local_prefix)
+        return local_prefix
 
 
 class S3DataStorage(AbstractDataStorage):
