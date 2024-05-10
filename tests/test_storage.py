@@ -1,4 +1,6 @@
 import os
+import random
+import string
 import tempfile
 from typing import Any, Dict
 from unittest import TestCase, mock
@@ -7,7 +9,43 @@ from botocore.exceptions import ClientError  # type: ignore
 from botocore.stub import Stubber  # type: ignore
 
 from wicker.core.config import WickerConfig
-from wicker.core.storage import S3DataStorage, S3PathFactory
+from wicker.core.storage import LocalDataStorage, S3DataStorage, S3PathFactory
+
+RANDOM_SEED_VALUE = 1
+RANDOM_STRING_CHAR_COUNT = 10
+
+
+class TestLocalDataStorage(TestCase):
+    def test_fetch_file(self) -> None:
+        """Unit test for fetching file from local/mounted file system to different location"""
+        # put file in the directory that you're using for test
+        with tempfile.TemporaryDirectory() as temp_dir:
+            src_dir = os.path.join(temp_dir, "test", "location", "starting", "mount")
+            os.makedirs(src_dir, exist_ok=True)
+            src_path = os.path.join(src_dir, "test.txt")
+            dst_dir = os.path.join(temp_dir, "desired", "location", "for", "test")
+            os.makedirs(dst_dir, exist_ok=True)
+            dst_path = os.path.join(dst_dir, "test.txt")
+
+            random.seed(RANDOM_SEED_VALUE)
+            expected_string = "".join(
+                random.choices(string.ascii_uppercase + string.digits, k=RANDOM_STRING_CHAR_COUNT)
+            )
+            with open(src_path, "w") as open_src:
+                open_src.write(expected_string)
+
+            # create local file store
+            local_datastore = LocalDataStorage()
+            # save file to destination
+            local_datastore.fetch_file(src_dir, dst_path)
+
+            # verify file exists
+            assert os.path.exists(dst_path)
+
+            # assert contents are the expected
+            with open(dst_path, "r") as open_dst_file:
+                test_string = open_dst_file.readline()
+                assert test_string == expected_string
 
 
 class TestS3DataStorage(TestCase):
