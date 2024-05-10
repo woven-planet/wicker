@@ -41,7 +41,7 @@ class AbstractDataStorage:
 
         """
         raise NotImplementedError("Implement for equivalent api access.")
-    
+
     def put_file(self, local_path: str, target_path: str) -> None:
         """Put file on data storage.
 
@@ -52,7 +52,7 @@ class AbstractDataStorage:
 
     def put_object(self, object_bytes: bytes, path: str) -> None:
         """Put object on data storage
-        
+
         :param object_bytes: bytes to write to path
         :param path: path to write object
         """
@@ -99,7 +99,7 @@ class LocalDataStorage(AbstractDataStorage):
 
     def put_file(self, input_path: str, target_path: str) -> None:
         """Put file on local or mounted data storage.
-        
+
         :param input_path: file path on the local system.
         :param target_path: file path on local system or mounted drive.
         """
@@ -108,7 +108,7 @@ class LocalDataStorage(AbstractDataStorage):
 
     def put_object(self, object_bytes: bytes, path: str) -> None:
         """Put object on data storage
-        
+
         :param object_bytes: bytes to write to path
         :param path: path to write object
         """
@@ -344,7 +344,7 @@ class WickerPathFactory:
         if prefix:
             return full_path.replace(prefix, "")
         return full_path
-    
+
     def get_dataset_assets_path(self, dataset_id: DatasetID, prefix: Optional[str] = None) -> str:
         """Get path to data assets folder.
 
@@ -357,7 +357,7 @@ class WickerPathFactory:
             str: Path to data assets folder.
         """
         return self._get_dataset_assets_path(dataset_id=dataset_id, prefix=prefix)
-    
+
     def _get_dataset_partition_metadata_path(
         self, data_partition: DatasetPartition, prefix: Optional[str] = None
     ) -> str:
@@ -405,7 +405,7 @@ class WickerPathFactory:
         """Get the dataset partition parquet path.
 
         Public gettr handling interface to the gettr.
-        
+
         Args:
             data_partition (DatasetPartition): DatasetPartition to use for pathing
             prefix (Optional[str], optional): Optional prefix to remove from file paths. Defaults to None.
@@ -414,8 +414,10 @@ class WickerPathFactory:
             str: Path to partition parquet file
         """
         return self._get_dataset_partition_path(data_partition, prefix)
-    
-    def get_dataset_partition_metadata_path(self, data_partition: DatasetPartition, prefix: Optional[str] = None) -> str:
+
+    def get_dataset_partition_metadata_path(
+        self, data_partition: DatasetPartition, prefix: Optional[str] = None
+    ) -> str:
         """Get metadata file path for partition.
 
         Args:
@@ -426,7 +428,6 @@ class WickerPathFactory:
             str: Path to dataset partition metadata file.
         """
         return self._get_dataset_partition_metadata_path(data_partition, prefix)
-
 
     def _get_dataset_schema_path(self, dataset_id: DatasetID, prefix: Optional[str] = None) -> str:
         """Get the dataset schema path.
@@ -449,7 +450,7 @@ class WickerPathFactory:
         if prefix:
             return full_path.replace(prefix, "")
         return full_path
-    
+
     def get_dataset_schema_path(self, dataset_id: DatasetID, prefix: Optional[str] = None) -> str:
         """Get path to the dataset schema.
 
@@ -481,8 +482,10 @@ class WickerPathFactory:
         if prefix:
             return full_path.replace(prefix, "")
         return full_path
-    
-    def get_column_concatenated_bytes_files_path(self, dataset_name: Optional[str] = None, prefix: Optional[str] = None) -> str:
+
+    def get_column_concatenated_bytes_files_path(
+        self, dataset_name: Optional[str] = None, prefix: Optional[str] = None
+    ) -> str:
         """Gets the path to the root of all column_concatenated_bytes files
 
         :param dataset_name: if self.store_concatenated_bytes_files_in_dataset is True,

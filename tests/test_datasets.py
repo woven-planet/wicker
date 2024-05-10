@@ -70,11 +70,11 @@ class TestLocalDataset(unittest.TestCase):
             )
             os.makedirs(os.path.dirname(metadata_table_path), exist_ok=True)
             papq.write_table(arrow_metadata_table, metadata_table_path)
-            
+
             fake_local_fs_storage.put_object(
                 serialization.dumps(FAKE_SCHEMA).encode("utf-8"),
                 fake_local_path_factory.get_dataset_schema_path(FAKE_DATASET_ID),
-            ) 
+            )
             yield fake_local_fs_storage, fake_local_path_factory, tmpdir
 
     def test_dataset(self):
