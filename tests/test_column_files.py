@@ -26,7 +26,7 @@ class TestColumnBytesFileWriter(unittest.TestCase):
             path_factory=path_factory,
         ):
             pass
-        mock_storage.put_object_s3.assert_not_called()
+        mock_storage.put_object.assert_not_called()
 
     def test_write_one_column_one_row(self) -> None:
         path_factory = S3PathFactory()

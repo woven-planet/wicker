@@ -195,7 +195,7 @@ def initialize_dataset(
     s3_path_factory = S3PathFactory()
     s3_storage = S3DataStorage()
     schema_path = s3_path_factory.get_dataset_schema_path(DatasetID.from_str(dataset_id))
-    s3_storage.put_object_s3(schema_json_str.encode("utf-8"), schema_path)
+    s3_storage.put_object(schema_json_str.encode("utf-8"), schema_path)
     return schema_json_str
 
 

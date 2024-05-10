@@ -55,7 +55,7 @@ class TestLocalDataset(unittest.TestCase):
             fake_local_path_factory = WickerPathFactory(root_path=tmpdir)
             with ColumnBytesFileWriter(
                 storage=fake_local_fs_storage,
-                path_factory=fake_local_fs_storage,
+                path_factory=fake_local_path_factory,
                 target_file_rowgroup_size=10,
             ) as writer:
                 locs = [
@@ -70,12 +70,16 @@ class TestLocalDataset(unittest.TestCase):
             )
             os.makedirs(os.path.dirname(metadata_table_path), exist_ok=True)
             papq.write_table(arrow_metadata_table, metadata_table_path)
+            
+            fake_local_fs_storage.put_object(
+                serialization.dumps(FAKE_SCHEMA).encode("utf-8"),
+                fake_local_path_factory.get_dataset_schema_path(FAKE_DATASET_ID),
+            ) 
             yield fake_local_fs_storage, fake_local_path_factory, tmpdir
 
     def test_dataset(self):
         with self._setup_storage() as (fake_local_storage, fake_local_path_factory, tmpdir):
             print(fake_local_path_factory)
-        raise
 
 
 class TestS3Dataset(unittest.TestCase):
@@ -90,7 +94,7 @@ class TestS3Dataset(unittest.TestCase):
             fake_s3_path_factory = S3PathFactory()
             with ColumnBytesFileWriter(
                 storage=fake_s3_storage,
-                s3_path_factory=fake_s3_path_factory,
+                path_factory=fake_s3_path_factory,
                 target_file_rowgroup_size=10,
             ) as writer:
                 locs = [
@@ -105,7 +109,7 @@ class TestS3Dataset(unittest.TestCase):
             )
             metadata_table_path = os.path.join(
                 tmpdir,
-                fake_s3_path_factory.get_dataset_partition_path(FAKE_DATASET_PARTITION, s3_prefix=False),
+                fake_s3_path_factory.get_dataset_partition_path(FAKE_DATASET_PARTITION, prefix="s3://"),
                 "part-1.parquet",
             )
             os.makedirs(os.path.dirname(metadata_table_path), exist_ok=True)
@@ -113,7 +117,7 @@ class TestS3Dataset(unittest.TestCase):
                 arrow_metadata_table,
                 metadata_table_path,
             )
-            fake_s3_storage.put_object_s3(
+            fake_s3_storage.put_object(
                 serialization.dumps(FAKE_SCHEMA).encode("utf-8"),
                 fake_s3_path_factory.get_dataset_schema_path(FAKE_DATASET_ID),
             )

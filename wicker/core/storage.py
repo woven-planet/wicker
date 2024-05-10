@@ -41,6 +41,22 @@ class AbstractDataStorage:
 
         """
         raise NotImplementedError("Implement for equivalent api access.")
+    
+    def put_file(self, local_path: str, target_path: str) -> None:
+        """Put file on data storage.
+
+        :param local_path: input file path
+        :param target_path: target path on storage to put file
+        """
+        raise NotImplementedError("Implement for equivalent access to file puts.")
+
+    def put_object(self, object_bytes: bytes, path: str) -> None:
+        """Put object on data storage
+        
+        :param object_bytes: bytes to write to path
+        :param path: path to write object
+        """
+        raise NotImplementedError("Implement for equivalent access to object puts.")
 
 
 class LocalDataStorage(AbstractDataStorage):
@@ -80,6 +96,24 @@ class LocalDataStorage(AbstractDataStorage):
         input_path = os.path.join(input_path, os.path.basename(local_prefix))
         self.download_with_retries(input_path, local_prefix)
         return local_prefix
+
+    def put_file(self, input_path: str, target_path: str) -> None:
+        """Put file on local or mounted data storage.
+        
+        :param input_path: file path on the local system.
+        :param target_path: file path on local system or mounted drive.
+        """
+        os.makedirs(target_path, exist_ok=True)
+        shutil.copy2(input_path, target_path)
+
+    def put_object(self, object_bytes: bytes, path: str) -> None:
+        """Put object on data storage
+        
+        :param object_bytes: bytes to write to path
+        :param path: path to write object
+        """
+        with open(path, "wb") as binary_file:
+            binary_file.write(object_bytes)
 
 
 class S3DataStorage(AbstractDataStorage):
@@ -199,25 +233,25 @@ class S3DataStorage(AbstractDataStorage):
         self.client.download_fileobj(bucket, key, bio)
         return bio.getvalue()
 
-    def put_object_s3(self, object_bytes: bytes, s3_path: str) -> None:
+    def put_object(self, object_bytes: bytes, path: str) -> None:
         """Upload an object to S3
 
         :param object_bytes: the object to upload to S3
         :type object_bytes: bytes
-        :param s3_path: path to the file in S3
-        :type s3_path: str
+        :param path: path to the file in S3
+        :type path: str
         """
         # Long term, we would add an md5sum check and short-circuit the upload if they are the same
         bucket, key = self.bucket_key_from_s3_path(s3_path)
         self.client.put_object(Body=object_bytes, Bucket=bucket, Key=key)
 
-    def put_file(self, local_path: str, s3_path: str) -> None:
+    def put_file(self, local_path: str, target_path: str) -> None:
         """Upload a file to S3
 
         :param local_path: local path to the file
-        :param s3_path: s3 path to dump file to
+        :param target_path: s3 path to dump file to
         """
-        bucket, key = self.bucket_key_from_s3_path(s3_path)
+        bucket, key = self.bucket_key_from_s3_path(target_path)
         self.client.upload_file(local_path, bucket, key)
 
     def __eq__(self, other: Any) -> bool:
@@ -310,7 +344,20 @@ class WickerPathFactory:
         if prefix:
             return full_path.replace(prefix, "")
         return full_path
+    
+    def get_dataset_assets_path(self, dataset_id: DatasetID, prefix: Optional[str] = None) -> str:
+        """Get path to data assets folder.
 
+        Public gettr for data asset folder path logic.
+
+        Args:
+            dataset_id (DatasetID): Id to gather file path.
+            prefix (Optional[str]): Optional prefix to remove from file paths. Defaults to None.
+        Returns:
+            str: Path to data assets folder.
+        """
+        return self._get_dataset_assets_path(dataset_id=dataset_id, prefix=prefix)
+    
     def _get_dataset_partition_metadata_path(
         self, data_partition: DatasetPartition, prefix: Optional[str] = None
     ) -> str:
@@ -354,6 +401,33 @@ class WickerPathFactory:
             return full_path.replace(prefix, "")
         return full_path
 
+    def get_dataset_partition_path(self, data_partition: DatasetPartition, prefix: Optional[str] = None) -> str:
+        """Get the dataset partition parquet path.
+
+        Public gettr handling interface to the gettr.
+        
+        Args:
+            data_partition (DatasetPartition): DatasetPartition to use for pathing
+            prefix (Optional[str], optional): Optional prefix to remove from file paths. Defaults to None.
+
+        Returns:
+            str: Path to partition parquet file
+        """
+        return self._get_dataset_partition_path(data_partition, prefix)
+    
+    def get_dataset_partition_metadata_path(self, data_partition: DatasetPartition, prefix: Optional[str] = None) -> str:
+        """Get metadata file path for partition.
+
+        Args:
+            data_partition (DatasetPartition): Partition to gather file path.
+            prefix (Optional[str]): Optional prefix to remove from file paths. Defaults to None.
+
+        Returns:
+            str: Path to dataset partition metadata file.
+        """
+        return self._get_dataset_partition_metadata_path(data_partition, prefix)
+
+
     def _get_dataset_schema_path(self, dataset_id: DatasetID, prefix: Optional[str] = None) -> str:
         """Get the dataset schema path.
 
@@ -375,6 +449,18 @@ class WickerPathFactory:
         if prefix:
             return full_path.replace(prefix, "")
         return full_path
+    
+    def get_dataset_schema_path(self, dataset_id: DatasetID, prefix: Optional[str] = None) -> str:
+        """Get path to the dataset schema.
+
+        Args:
+            dataset_id (DatasetID): Id of the dataset.
+            prefix (Optional[str], optional): Optional prefix to remove from file path. Defaults to None.
+
+        Returns:
+            str: Path to dataset schema.
+        """
+        return self._get_dataset_schema_path(dataset_id=dataset_id, prefix=prefix)
 
     def _get_column_concatenated_bytes_files_path(
         self, dataset_name: Optional[str] = None, prefix: Optional[str] = None
@@ -395,6 +481,16 @@ class WickerPathFactory:
         if prefix:
             return full_path.replace(prefix, "")
         return full_path
+    
+    def get_column_concatenated_bytes_files_path(self, dataset_name: Optional[str] = None, prefix: Optional[str] = None) -> str:
+        """Gets the path to the root of all column_concatenated_bytes files
+
+        :param dataset_name: if self.store_concatenated_bytes_files_in_dataset is True,
+            it requires dataset name, defaults to None
+        :param prefix: prefix to eliminate from file path.
+        :return: path to the column_concatenated_bytes file with the file_id
+        """
+        return self._get_column_concatenated_bytes_files_path(dataset_name=dataset_name, prefix=prefix)
 
     def get_temporary_row_files_path(self, dataset_id: DatasetID) -> str:
         """Get path to temporary rows file path.
@@ -470,81 +566,6 @@ class S3PathFactory(WickerPathFactory):
         if s3_root_path is None:
             s3_root_path = get_config().aws_s3_config.s3_datasets_path
         super().__init__(store_concatenated_bytes_files_in_dataset, s3_root_path)
-
-    def get_dataset_assets_path(self, dataset_id: DatasetID, s3_prefix: bool = True) -> str:
-        """Get path to data assets folder.
-
-        Public gettr for data asset folder path logic.
-
-        Args:
-            dataset_id (DatasetID): Id to gather file path.
-            s3_prefix (bool, optional): Whether to eliminate s3 prefix or not. Defaults to True.
-
-        Returns:
-            str: Path to data assets folder.
-        """
-        prefix = None
-        if not s3_prefix:
-            prefix = "s3://"
-        return self._get_dataset_assets_path(dataset_id=dataset_id, prefix=prefix)
-
-    def get_dataset_partition_metadata_path(self, data_partition: DatasetPartition, s3_prefix: bool = True) -> str:
-        """Get metadata file path for partition.
-
-        Args:
-            data_partition (DatasetPartition): Partition to gather file path.
-            s3_prefix (bool, optional): Whether to eliminate s3 prefix or not. Defaults to True.
-
-        Returns:
-            str: Path to dataset partition metadata file.
-        """
-        prefix = None
-        if not s3_prefix:
-            prefix = "s3://"
-        return self._get_dataset_partition_metadata_path(data_partition, prefix)
-
-    def get_dataset_partition_path(self, data_partition: DatasetPartition, s3_prefix: bool = True) -> str:
-        """Get path to dataset partition data file.
-
-        Args:
-            data_partition (DatasetPartition): Partition to gather file path.
-            s3_prefix (bool, optional): Whether to eliminate s3 prefix or not. Defaults to True.
-
-        Returns:
-            str: Path to dataset partition data file.
-        """
-        prefix = None
-        if not s3_prefix:
-            prefix = "s3://"
-        return self._get_dataset_partition_path(data_partition=data_partition, prefix=prefix)
-
-    def get_dataset_schema_path(self, dataset_id: DatasetID, s3_prefix: bool = True) -> str:
-        """Get path to the dataset schema.
-
-        Args:
-            dataset_id (DatasetID): Id of the dataset.
-            s3_prefix (bool, optional): Whether to eliminate s3 prefix or not. Defaults to True.
-
-        Returns:
-            str: Path to dataset schema.
-        """
-        prefix = None
-        if not s3_prefix:
-            prefix = "s3://"
-        return self._get_dataset_schema_path(dataset_id=dataset_id, prefix=prefix)
-
-    def get_column_concatenated_bytes_files_path(self, s3_prefix: bool = True, dataset_name: str = None) -> str:
-        """Gets the path to the root of all column_concatenated_bytes files
-
-        :param s3_prefix: whether to return the s3:// prefix, defaults to True
-        :param dataset_name: if self.store_concatenated_bytes_files_in_dataset is True,
-            it requires dataset name, defaults to None
-        :return: path to the column_concatenated_bytes file with the file_id
-        """
-        prefix = None
-        if not s3_prefix:
-            prefix = "s3://"
-        return self._get_column_concatenated_bytes_files_path(dataset_name=dataset_name, prefix=prefix)
 
     def get_column_concatenated_bytes_s3path_from_uuid(self, file_uuid: bytes, dataset_name: str = None) -> str:
         """Public gettr for column concat bytes with uuid
