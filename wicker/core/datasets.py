@@ -92,7 +92,7 @@ class LocalFSDataset(AbstractDataset):
         self._schema: Optional[DatasetSchema] = None
         self._arrow_table: Optional[pyarrow.Table] = None
 
-        self._local_cache_path_prefix = local_cache_path_prefix
+        self._local_cache_path_prefix: Optional[str] = local_cache_path_prefix
         self._filelock_timeout_seconds = filelock_timeout_seconds
         self._storage = storage if storage is not None else LocalDataStorage()
         self._path_factory = (
@@ -101,9 +101,9 @@ class LocalFSDataset(AbstractDataset):
         self._column_bytes_file_cache = None
         if self._local_cache_path_prefix:
             self._column_bytes_file_cache = ColumnBytesFileCache(
-                local_cache_path_prefix=local_cache_path_prefix,
+                local_cache_path_prefix=self._local_cache_path_prefix,
                 filelock_timeout_seconds=filelock_timeout_seconds,
-                path_factory=self._s3_path_factory,
+                path_factory=self._path_factory,
                 storage=self._storage,
                 dataset_name=dataset_name,
             )
@@ -123,7 +123,7 @@ class LocalFSDataset(AbstractDataset):
         if self._schema is None:
             schema_path = self._path_factory.get_dataset_schema_path(self._dataset_id)
             local_path = schema_path
-            if self._column_bytes_file_cache is not None:
+            if self._column_bytes_file_cache is not None and self._local_cache_path_prefix is not None:
                 local_path = self._storage.fetch_file(
                     schema_path, self._local_cache_path_prefix, timeout_seconds=self._filelock_timeout_seconds
                 )
@@ -146,10 +146,13 @@ class LocalFSDataset(AbstractDataset):
         tbl = self.arrow_table()
         columns = self._columns_to_load if self._columns_to_load is not None else tbl.column_names
         row = {col: tbl[col][idx].as_py() for col in columns}
-        return dataloading.load_example(
-            self._column_bytes_file_cache.resolve_pointers(row, self.schema()),
-            self.schema(),
-        )
+        if self._column_bytes_file_cache is not None:
+            return dataloading.load_example(
+                self._column_bytes_file_cache.resolve_pointers(row, self.schema()),
+                self.schema(),
+            )
+        else:
+            raise NotImplementedError("Need to implement cacheless pull")
 
 
 class S3Dataset(AbstractDataset):

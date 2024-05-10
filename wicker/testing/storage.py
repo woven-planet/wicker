@@ -58,7 +58,7 @@ class FakeS3DataStorage(S3DataStorage):
         shutil.copy2(local_path, full_tmp_path)
 
 
-class LocalDataStorage(S3DataStorage):
+class TestS3LocalDataStorage(S3DataStorage):
     def __init__(self, root_path: str):
         super().__init__()
         self._root_path = Path(root_path)

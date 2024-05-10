@@ -242,7 +242,7 @@ class S3DataStorage(AbstractDataStorage):
         :type path: str
         """
         # Long term, we would add an md5sum check and short-circuit the upload if they are the same
-        bucket, key = self.bucket_key_from_s3_path(s3_path)
+        bucket, key = self.bucket_key_from_s3_path(path)
         self.client.put_object(Body=object_bytes, Bucket=bucket, Key=key)
 
     def put_file(self, local_path: str, target_path: str) -> None:
