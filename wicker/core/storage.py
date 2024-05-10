@@ -211,7 +211,7 @@ class S3DataStorage(AbstractDataStorage):
         bucket, key = self.bucket_key_from_s3_path(s3_path)
         self.client.put_object(Body=object_bytes, Bucket=bucket, Key=key)
 
-    def put_file_s3(self, local_path: str, s3_path: str) -> None:
+    def put_file(self, local_path: str, s3_path: str) -> None:
         """Upload a file to S3
 
         :param local_path: local path to the file

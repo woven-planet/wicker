@@ -15,7 +15,12 @@ import uuid
 from types import TracebackType
 from typing import IO, Any, Dict, List, Literal, Optional, Tuple, Type
 
-from wicker.core.storage import LocalDataStorage, S3DataStorage, S3PathFactory, WickerPathFactory
+from wicker.core.storage import (
+    LocalDataStorage,
+    S3DataStorage,
+    S3PathFactory,
+    WickerPathFactory,
+)
 from wicker.schema import schema, validation
 
 
@@ -161,9 +166,7 @@ class ColumnBytesFileWriter:
         )
 
     def _write_column(self, column_name: str) -> None:
-        columns_root_path = self.path_factory.get_column_concatenated_bytes_files_path(
-            dataset_name=self.dataset_name
-        )
+        columns_root_path = self.path_factory.get_column_concatenated_bytes_files_path(dataset_name=self.dataset_name)
         write_buffer = self.write_buffers[column_name]
         path = os.path.join(columns_root_path, str(write_buffer.file_id))
         if write_buffer.buffer.tell() > 0:

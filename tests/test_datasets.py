@@ -13,9 +13,9 @@ import pyarrow.parquet as papq  # type: ignore
 from wicker.core.column_files import ColumnBytesFileWriter
 from wicker.core.datasets import S3Dataset
 from wicker.core.definitions import DatasetID, DatasetPartition
-from wicker.core.storage import S3PathFactory
+from wicker.core.storage import S3PathFactory, WickerPathFactory
 from wicker.schema import schema, serialization
-from wicker.testing.storage import FakeS3DataStorage
+from wicker.testing.storage import FakeLocalDataStorage, FakeS3DataStorage
 
 FAKE_NAME = "dataset_name"
 FAKE_VERSION = "0.0.1"
@@ -45,6 +45,37 @@ def cwd(path):
         yield
     finally:
         os.chdir(oldpwd)
+
+
+class TestLocalDataset(unittest.TestCase):
+    @contextmanager
+    def _setup_storage(self) -> Iterator[Tuple[FakeLocalDataStorage, WickerPathFactory, str]]:
+        with tempfile.TemporaryDirectory() as tmpdir, cwd(tmpdir):
+            fake_local_fs_storage = FakeLocalDataStorage(tmpdir=tmpdir)
+            fake_local_path_factory = WickerPathFactory(root_path=tmpdir)
+            with ColumnBytesFileWriter(
+                storage=fake_local_fs_storage,
+                path_factory=fake_local_fs_storage,
+                target_file_rowgroup_size=10,
+            ) as writer:
+                locs = [
+                    writer.add("np_arr", FAKE_NUMPY_CODEC.validate_and_encode_object(data["np_arr"]))
+                    for data in FAKE_DATA
+                ]
+            arrow_metadata_table = pa.Table.from_pydict(
+                {"foo": [data["foo"] for data in FAKE_DATA], "np_arr": [loc.to_bytes() for loc in locs]}
+            )
+            metadata_table_path = os.path.join(
+                tmpdir, fake_local_path_factory.get_dataset_partition_path(FAKE_DATASET_PARTITION)
+            )
+            os.makedirs(os.path.dirname(metadata_table_path), exist_ok=True)
+            papq.write_table(arrow_metadata_table, metadata_table_path)
+            yield fake_local_fs_storage, fake_local_path_factory, tmpdir
+
+    def test_dataset(self):
+        with self._setup_storage() as (fake_local_storage, fake_local_path_factory, tmpdir):
+            print(fake_local_path_factory)
+        raise
 
 
 class TestS3Dataset(unittest.TestCase):

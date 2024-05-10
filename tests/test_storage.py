@@ -116,8 +116,8 @@ class TestS3DataStorage(TestCase):
             stubber.add_response("put_object", response, expected_params)
             data_storage.put_object_s3(object_bytes, input_path)
 
-    def test_put_file_s3(self) -> None:
-        """Unit test for the put_file_s3 function"""
+    def test_put_file(self) -> None:
+        """Unit test for the put_file function"""
         data_storage = S3DataStorage()
         object_bytes = b"this is my object"
         input_path = "s3://foo/bar/baz/dummy"
@@ -129,7 +129,7 @@ class TestS3DataStorage(TestCase):
             with Stubber(data_storage.client) as stubber:
                 response = {}  # type: ignore
                 stubber.add_response("put_object", response, None)
-                data_storage.put_file_s3(tmpfile.name, input_path)
+                data_storage.put_file(tmpfile.name, input_path)
 
     @staticmethod
     def download_file_side_effect(*args, **kwargs) -> None:  # type: ignore

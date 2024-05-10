@@ -38,7 +38,7 @@ class TestColumnBytesFileWriter(unittest.TestCase):
             info = ccb.add(FAKE_COL, FAKE_BYTES)
             self.assertEqual(info.byte_offset, 0)
             self.assertEqual(info.data_size, len(FAKE_BYTES))
-        mock_storage.put_file_s3.assert_called_once_with(
+        mock_storage.put_file.assert_called_once_with(
             unittest.mock.ANY,
             os.path.join(
                 path_factory.get_column_concatenated_bytes_files_path(),
@@ -60,7 +60,7 @@ class TestColumnBytesFileWriter(unittest.TestCase):
             next_info = ccb.add(FAKE_COL, FAKE_BYTES)
             self.assertEqual(next_info.byte_offset, len(FAKE_BYTES))
             self.assertEqual(next_info.data_size, len(FAKE_BYTES))
-        mock_storage.put_file_s3.assert_called_once_with(
+        mock_storage.put_file.assert_called_once_with(
             unittest.mock.ANY,
             os.path.join(
                 path_factory.get_column_concatenated_bytes_files_path(),
@@ -95,14 +95,14 @@ class TestColumnBytesFileWriter(unittest.TestCase):
             self.assertEqual(info2.byte_offset, len(FAKE_BYTES) * 2)
             self.assertEqual(info2.data_size, len(FAKE_BYTES))
 
-        mock_storage.put_file_s3.assert_any_call(
+        mock_storage.put_file.assert_any_call(
             unittest.mock.ANY,
             os.path.join(
                 path_factory.get_column_concatenated_bytes_files_path(),
                 str(info1.file_id),
             ),
         )
-        mock_storage.put_file_s3.assert_any_call(
+        mock_storage.put_file.assert_any_call(
             unittest.mock.ANY,
             os.path.join(
                 path_factory.get_column_concatenated_bytes_files_path(),
@@ -148,9 +148,7 @@ class TestColumnBytesFileWriter(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path_factory = S3PathFactory()
             storage = FakeS3DataStorage(tmpdir=tmpdir)
-            with ColumnBytesFileWriter(
-                storage=storage, s3_path_factory=path_factory, target_file_rowgroup_size=1
-            ) as ccb:
+            with ColumnBytesFileWriter(storage=storage, path_factory=path_factory, target_file_rowgroup_size=1) as ccb:
                 info1 = ccb.add(FAKE_COL, FAKE_BYTES)
                 self.assertEqual(info1.byte_offset, 0)
                 self.assertEqual(info1.data_size, len(FAKE_BYTES))

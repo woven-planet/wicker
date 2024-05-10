@@ -246,7 +246,7 @@ def save_index(
                 # on the Parquet files that could make use of predicate push-down
                 write_statistics=False,
             )
-            s3_storage.put_file_s3(
+            s3_storage.put_file(
                 tmpfile.name,
                 parquet_path,
             )
