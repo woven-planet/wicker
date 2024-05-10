@@ -15,7 +15,7 @@ import uuid
 from types import TracebackType
 from typing import IO, Any, Dict, List, Literal, Optional, Tuple, Type
 
-from wicker.core.storage import S3DataStorage, S3PathFactory
+from wicker.core.storage import LocalDataStorage, S3DataStorage, S3PathFactory, WickerPathFactory
 from wicker.schema import schema, validation
 
 
@@ -85,8 +85,8 @@ class ColumnBytesFileWriter:
 
     def __init__(
         self,
-        storage: S3DataStorage = S3DataStorage(),
-        s3_path_factory: S3PathFactory = S3PathFactory(),
+        storage: Union[LocalDataStorage, S3DataStorage] = S3DataStorage(),
+        path_factory: Union[WickerPathFactory, S3PathFactory] = S3PathFactory(),
         target_file_size: Optional[int] = None,
         target_file_rowgroup_size: Optional[int] = None,
         dataset_name: str = None,
@@ -94,13 +94,13 @@ class ColumnBytesFileWriter:
         """Create a ColumnBytesFileWriter
 
         :param storage: storage client to use, defaults to S3DataStorage()
-        :param s3_path_factory: path factory to use, defaults to S3PathFactory()
+        :param path_factory: path factory to use, defaults to S3PathFactory()
         :param target_file_size: If set, open a new binary file when a column file gets larger than this many bytes.
         :param target_file_rowgroup_size: If set, open a new binary file when a column file has more rows than this
         :param dataset_name: dataset name, defaults to None
         """
         self.storage = storage
-        self.s3_path_factory = s3_path_factory
+        self.path_factory = path_factory
         # {column_name: (file_id, write_count, <filehandle_to_tmp_file>)}
         self.write_buffers: Dict[str, ColumnBytesFileWriteBuffer] = {}
         self.target_file_size = target_file_size
@@ -149,7 +149,7 @@ class ColumnBytesFileWriter:
         )
 
     def close(self) -> None:
-        """Writes the data in the buffer to S3"""
+        """Writes the data in the buffer to data store"""
         for column_name in self.write_buffers:
             self._write_column(column_name)
 
@@ -161,7 +161,7 @@ class ColumnBytesFileWriter:
         )
 
     def _write_column(self, column_name: str) -> None:
-        columns_root_path = self.s3_path_factory.get_column_concatenated_bytes_files_path(
+        columns_root_path = self.path_factory.get_column_concatenated_bytes_files_path(
             dataset_name=self.dataset_name
         )
         write_buffer = self.write_buffers[column_name]
@@ -169,7 +169,7 @@ class ColumnBytesFileWriter:
         if write_buffer.buffer.tell() > 0:
             write_buffer.buffer.flush()
             write_buffer.buffer.seek(0)
-            self.storage.put_file_s3(
+            self.storage.put_file(
                 write_buffer.buffer.name,
                 path,
             )
@@ -185,8 +185,8 @@ class ColumnBytesFileCache:
         self,
         local_cache_path_prefix: str = "/tmp",
         filelock_timeout_seconds: int = -1,
-        path_factory: S3PathFactory = S3PathFactory(),
-        storage: Optional[S3DataStorage] = None,
+        path_factory: Union[WickerPathFactory, S3PathFactory] = S3PathFactory(),
+        storage: Optional[Union[LocalDataStorage, S3DataStorage]] = None,
         dataset_name: str = None,
     ):
         """Initializes a ColumnBytesFileCache
@@ -199,7 +199,7 @@ class ColumnBytesFileCache:
         :param dataset_name: name of the dataset, defaults to None
         :type dataset_name: str, optional
         """
-        self._s3_storage = storage if storage is not None else S3DataStorage()
+        self._storage = storage if storage is not None else S3DataStorage()
         self._root_path = local_cache_path_prefix
         self._filelock_timeout_seconds = filelock_timeout_seconds
         self._columns_root_path = path_factory.get_column_concatenated_bytes_files_path(dataset_name=dataset_name)
@@ -210,7 +210,7 @@ class ColumnBytesFileCache:
     ) -> bytes:
         column_concatenated_bytes_file_path = os.path.join(self._columns_root_path, str(cbf_info.file_id))
 
-        local_path = self._s3_storage.fetch_file(
+        local_path = self._storage.fetch_file(
             column_concatenated_bytes_file_path,
             self._root_path,
             timeout_seconds=self._filelock_timeout_seconds,

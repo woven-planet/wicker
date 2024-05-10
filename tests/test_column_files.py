@@ -23,7 +23,7 @@ class TestColumnBytesFileWriter(unittest.TestCase):
         path_factory = S3PathFactory()
         with ColumnBytesFileWriter(
             storage=mock_storage,
-            s3_path_factory=path_factory,
+            path_factory=path_factory,
         ):
             pass
         mock_storage.put_object_s3.assert_not_called()
@@ -33,7 +33,7 @@ class TestColumnBytesFileWriter(unittest.TestCase):
         mock_storage = MagicMock()
         with ColumnBytesFileWriter(
             storage=mock_storage,
-            s3_path_factory=path_factory,
+            path_factory=path_factory,
         ) as ccb:
             info = ccb.add(FAKE_COL, FAKE_BYTES)
             self.assertEqual(info.byte_offset, 0)
@@ -51,7 +51,7 @@ class TestColumnBytesFileWriter(unittest.TestCase):
         mock_storage = MagicMock()
         with ColumnBytesFileWriter(
             storage=mock_storage,
-            s3_path_factory=path_factory,
+            path_factory=path_factory,
         ) as ccb:
             info = ccb.add(FAKE_COL, FAKE_BYTES)
             self.assertEqual(info.byte_offset, 0)
@@ -73,7 +73,7 @@ class TestColumnBytesFileWriter(unittest.TestCase):
         mock_storage = MagicMock()
         with ColumnBytesFileWriter(
             storage=mock_storage,
-            s3_path_factory=path_factory,
+            path_factory=path_factory,
         ) as ccb:
             info1 = ccb.add(FAKE_COL, FAKE_BYTES)
             self.assertEqual(info1.byte_offset, 0)
@@ -114,7 +114,7 @@ class TestColumnBytesFileWriter(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path_factory = S3PathFactory()
             storage = FakeS3DataStorage(tmpdir=tmpdir)
-            with ColumnBytesFileWriter(storage=storage, s3_path_factory=path_factory, target_file_size=10) as ccb:
+            with ColumnBytesFileWriter(storage=storage, path_factory=path_factory, target_file_size=10) as ccb:
                 info1 = ccb.add(FAKE_COL, FAKE_BYTES)
                 self.assertEqual(info1.byte_offset, 0)
                 self.assertEqual(info1.data_size, len(FAKE_BYTES))
