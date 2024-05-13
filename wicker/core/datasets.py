@@ -120,6 +120,11 @@ class LocalFSDataset(AbstractDataset):
         )
 
     def schema(self) -> DatasetSchema:
+        """Grab and load schema for dataset from expected path.
+
+        Returns:
+            DatasetSchema: Dataset schema object for the loaded dataset.
+        """
         if self._schema is None:
             schema_path = self._path_factory.get_dataset_schema_path(self._dataset_id)
             local_path = schema_path
@@ -134,15 +139,35 @@ class LocalFSDataset(AbstractDataset):
         return self._schema
 
     def arrow_table(self) -> pyarrow.Table:
+        """Grab and load arrow table from expected path.
+        
+        Returns:
+            pyarrow.Table: Arrow table object for the loaded dataset.
+        """
         path = self._path_factory.get_dataset_partition_path(self._partition)
         if not self._arrow_table:
             self._arrow_table = papq.read_table(path, columns=self._columns_to_load, filesystem=self._pa_filesystem)
         return self._arrow_table
 
     def __len__(self) -> int:
+        """Get length of arrow table inferring it is the same as the dataset.
+
+        Returns:
+            int: length of arrow table.
+        """
         return len(self.arrow_table())
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
+        """Get data item at index within arrow table.
+        
+        Pulls from either cache or data store the item in the dataset at index specified.
+        
+        Args:
+            idx (int): idx in arrow table to grab data.
+
+        Returns:
+            Dict[str, Any]: Row of data defined through schema object.
+        """
         tbl = self.arrow_table()
         columns = self._columns_to_load if self._columns_to_load is not None else tbl.column_names
         row = {col: tbl[col][idx].as_py() for col in columns}
