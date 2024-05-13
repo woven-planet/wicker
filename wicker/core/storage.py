@@ -11,6 +11,7 @@ import logging
 import os
 import shutil
 import uuid
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
@@ -93,7 +94,7 @@ class LocalDataStorage(AbstractDataStorage):
         :param timeout_seconds: number of seconds till timing out on waiting for the file to be downloaded
         :return: local path to the file on the local fs
         """
-        input_path = os.path.join(input_path, os.path.basename(local_prefix))
+        local_prefix = os.path.join(local_prefix, os.path.basename(input_path))
         self.download_with_retries(input_path, local_prefix)
         return local_prefix
 
@@ -103,7 +104,7 @@ class LocalDataStorage(AbstractDataStorage):
         :param input_path: file path on the local system.
         :param target_path: file path on local system or mounted drive.
         """
-        os.makedirs(target_path, exist_ok=True)
+        os.makedirs(Path(target_path).parent, exist_ok=True)
         shutil.copy2(input_path, target_path)
 
     def put_object(self, object_bytes: bytes, path: str) -> None:
@@ -112,6 +113,7 @@ class LocalDataStorage(AbstractDataStorage):
         :param object_bytes: bytes to write to path
         :param path: path to write object
         """
+        os.makedirs(Path(path).parent, exist_ok=True)
         with open(path, "wb") as binary_file:
             binary_file.write(object_bytes)
 
@@ -461,7 +463,8 @@ class WickerPathFactory:
         Returns:
             str: Path to dataset schema.
         """
-        return self._get_dataset_schema_path(dataset_id=dataset_id, prefix=prefix)
+        schema_path = self._get_dataset_schema_path(dataset_id=dataset_id, prefix=prefix)
+        return schema_path
 
     def _get_column_concatenated_bytes_files_path(
         self, dataset_name: Optional[str] = None, prefix: Optional[str] = None

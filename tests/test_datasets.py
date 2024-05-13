@@ -11,7 +11,7 @@ import pyarrow.fs as pafs  # type: ignore
 import pyarrow.parquet as papq  # type: ignore
 
 from wicker.core.column_files import ColumnBytesFileWriter
-from wicker.core.datasets import S3Dataset
+from wicker.core.datasets import LocalFSDataset, S3Dataset
 from wicker.core.definitions import DatasetID, DatasetPartition
 from wicker.core.storage import S3PathFactory, WickerPathFactory
 from wicker.schema import schema, serialization
@@ -59,9 +59,10 @@ class TestLocalDataset(unittest.TestCase):
                 target_file_rowgroup_size=10,
             ) as writer:
                 locs = [
-                    writer.add("np_arr", FAKE_NUMPY_CODEC.validate_and_encode_object(data["np_arr"]))
+                    writer.add("np_arr", FAKE_NUMPY_CODEC.validate_and_encode_object(data["np_arr"]))  # type: ignore
                     for data in FAKE_DATA
                 ]
+
             arrow_metadata_table = pa.Table.from_pydict(
                 {"foo": [data["foo"] for data in FAKE_DATA], "np_arr": [loc.to_bytes() for loc in locs]}
             )
@@ -79,7 +80,21 @@ class TestLocalDataset(unittest.TestCase):
 
     def test_dataset(self):
         with self._setup_storage() as (fake_local_storage, fake_local_path_factory, tmpdir):
-            print(fake_local_path_factory)
+            ds = LocalFSDataset(
+                FAKE_NAME,
+                FAKE_PARTITION,
+                FAKE_VERSION,
+                local_cache_path_prefix=tmpdir,
+                columns_to_load=None,
+                storage=fake_local_storage,
+                path_factory=fake_local_path_factory,
+                pa_filesystem=pafs.LocalFileSystem(),
+            )
+            for i in range(len(FAKE_DATA)):
+                retrieved = ds[i]
+                reference = FAKE_DATA[i]
+                self.assertEqual(retrieved["foo"], reference["foo"])
+                np.testing.assert_array_equal(retrieved["np_arr"], reference["np_arr"])
 
 
 class TestS3Dataset(unittest.TestCase):
