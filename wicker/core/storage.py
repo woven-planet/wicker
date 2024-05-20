@@ -215,9 +215,7 @@ class WickerPathFactory:
                     - part-1-attempt-2345.parquet
     """
 
-    def __init__(
-            self, root_path: str, store_concatenated_bytes_files_in_dataset: bool = False
-    ) -> None:
+    def __init__(self, root_path: str, store_concatenated_bytes_files_in_dataset: bool = False) -> None:
         """Init the path factory.
 
         Object to form the expected paths and return them to the user based of root path and storage bool.
@@ -415,7 +413,7 @@ class S3PathFactory(WickerPathFactory):
         super().__init__(s3_root_path, store_concatenated_bytes_files_in_dataset)  # type: ignore
 
     def get_dataset_assets_path(self, dataset_id: DatasetID, s3_prefix: bool = True) -> str:
-        """Get path to data assets folder. 
+        """Get path to data assets folder.
 
         Public gettr for data asset folder path logic.
 
