@@ -11,6 +11,7 @@ import logging
 import os
 import shutil
 import uuid
+from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
@@ -28,9 +29,10 @@ from wicker.core.utils import time_limit
 logger = logging.getLogger(__name__)
 
 
-class AbstractDataStorage:
+class AbstractDataStorage(ABC):
     """Abstract data storage class that implements required methods for Column Bytes File Cache"""
 
+    @abstractmethod
     def fetch_file(self, input_path: str, local_prefix: str, timeout_seconds: int) -> str:
         """Fetch file from chosen data storage method.
 
@@ -40,7 +42,7 @@ class AbstractDataStorage:
         :return: local path to the downloaded file
 
         """
-        raise NotImplementedError("Implement for equivalent api access.")
+        pass
 
 
 class LocalDataStorage(AbstractDataStorage):
