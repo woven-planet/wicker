@@ -412,7 +412,7 @@ class S3PathFactory(WickerPathFactory):
         if s3_root_path is None:
             s3_root_path = s3_config.s3_datasets_path
         # ignore type as we already handled none case above
-        super().__init__(store_concatenated_bytes_files_in_dataset, s3_root_path)  # type: ignore
+        super().__init__(s3_root_path, store_concatenated_bytes_files_in_dataset)  # type: ignore
 
     def get_dataset_assets_path(self, dataset_id: DatasetID, s3_prefix: bool = True) -> str:
         """Get path to data assets folder. 
