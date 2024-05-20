@@ -216,20 +216,17 @@ class WickerPathFactory:
     """
 
     def __init__(
-        self, store_concatenated_bytes_files_in_dataset: bool = False, root_path: Optional[str] = None
+            self, root_path: str, store_concatenated_bytes_files_in_dataset: bool = False
     ) -> None:
         """Init the path factory.
 
         Object to form the expected paths and return them to the user based of root path and storage bool.
 
-        Args:
+        Args:.
+            root_path (str): File system loc of the root of the wicker file structure.
             store_concatenated_bytes_files_in_dataset (bool, optional): Whether to assume concat bytes files are stored.
-                Defaults to False.
-            root_path (Optional[str], optional): File system loc of the root of the wicker file structure.
-                Defaults to None.
+                Defaults to False
         """
-        if root_path is None:
-            raise ValueError("Cannot create path factory without root path, please pass root of wicker fs.")
         self.root_path: str = root_path
         self.store_concatenated_bytes_files_in_dataset = store_concatenated_bytes_files_in_dataset
 
@@ -413,24 +410,23 @@ class S3PathFactory(WickerPathFactory):
         s3_config = get_config().aws_s3_config
         store_concatenated_bytes_files_in_dataset = s3_config.store_concatenated_bytes_files_in_dataset
         if s3_root_path is None:
-            s3_root_path = get_config().aws_s3_config.s3_datasets_path
-        super().__init__(store_concatenated_bytes_files_in_dataset, s3_root_path)
+            s3_root_path = s3_config.s3_datasets_path
+        # ignore type as we already handled none case above
+        super().__init__(store_concatenated_bytes_files_in_dataset, s3_root_path)  # type: ignore
 
     def get_dataset_assets_path(self, dataset_id: DatasetID, s3_prefix: bool = True) -> str:
-        """Get path to data assets folder.
+        """Get path to data assets folder. 
 
         Public gettr for data asset folder path logic.
 
         Args:
             dataset_id (DatasetID): Id to gather file path.
-            s3_prefix (bool, optional): Whether to eliminate s3 prefix or not. Defaults to True.
+            s3_prefix (bool, optional): Whether to keep the s3 prefix or not. Defaults to True.
 
         Returns:
             str: Path to data assets folder.
         """
-        prefix = None
-        if not s3_prefix:
-            prefix = "s3://"
+        prefix = "s3://" if not s3_prefix else None
         return self._get_dataset_assets_path(dataset_id=dataset_id, prefix=prefix)
 
     def get_dataset_partition_metadata_path(self, data_partition: DatasetPartition, s3_prefix: bool = True) -> str:
@@ -438,14 +434,12 @@ class S3PathFactory(WickerPathFactory):
 
         Args:
             data_partition (DatasetPartition): Partition to gather file path.
-            s3_prefix (bool, optional): Whether to eliminate s3 prefix or not. Defaults to True.
+            s3_prefix (bool, optional): Whether to keep the s3 prefix or not. Defaults to True.
 
         Returns:
             str: Path to dataset partition metadata file.
         """
-        prefix = None
-        if not s3_prefix:
-            prefix = "s3://"
+        prefix = "s3://" if not s3_prefix else None
         return self._get_dataset_partition_metadata_path(data_partition, prefix)
 
     def get_dataset_partition_path(self, data_partition: DatasetPartition, s3_prefix: bool = True) -> str:
@@ -453,14 +447,12 @@ class S3PathFactory(WickerPathFactory):
 
         Args:
             data_partition (DatasetPartition): Partition to gather file path.
-            s3_prefix (bool, optional): Whether to eliminate s3 prefix or not. Defaults to True.
+            s3_prefix (bool, optional): Whether to keep the s3 prefix or not. Defaults to True.
 
         Returns:
             str: Path to dataset partition data file.
         """
-        prefix = None
-        if not s3_prefix:
-            prefix = "s3://"
+        prefix = "s3://" if not s3_prefix else None
         return self._get_dataset_partition_path(data_partition=data_partition, prefix=prefix)
 
     def get_dataset_schema_path(self, dataset_id: DatasetID, s3_prefix: bool = True) -> str:
@@ -468,14 +460,12 @@ class S3PathFactory(WickerPathFactory):
 
         Args:
             dataset_id (DatasetID): Id of the dataset.
-            s3_prefix (bool, optional): Whether to eliminate s3 prefix or not. Defaults to True.
+            s3_prefix (bool, optional): Whether to keep the s3 prefix or not. Defaults to True.
 
         Returns:
             str: Path to dataset schema.
         """
-        prefix = None
-        if not s3_prefix:
-            prefix = "s3://"
+        prefix = "s3://" if not s3_prefix else None
         return self._get_dataset_schema_path(dataset_id=dataset_id, prefix=prefix)
 
     def get_column_concatenated_bytes_files_path(self, s3_prefix: bool = True, dataset_name: str = None) -> str:
@@ -486,9 +476,7 @@ class S3PathFactory(WickerPathFactory):
             it requires dataset name, defaults to None
         :return: path to the column_concatenated_bytes file with the file_id
         """
-        prefix = None
-        if not s3_prefix:
-            prefix = "s3://"
+        prefix = "s3://" if not s3_prefix else None
         return self._get_column_concatenated_bytes_files_path(dataset_name=dataset_name, prefix=prefix)
 
     def get_column_concatenated_bytes_s3path_from_uuid(self, file_uuid: bytes, dataset_name: str = None) -> str:
