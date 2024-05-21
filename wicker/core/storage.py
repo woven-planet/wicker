@@ -407,8 +407,7 @@ class S3PathFactory(WickerPathFactory):
         """
         s3_config = get_config().aws_s3_config
         store_concatenated_bytes_files_in_dataset = s3_config.store_concatenated_bytes_files_in_dataset
-        if s3_root_path is None:
-            s3_root_path = s3_config.s3_datasets_path
+        s3_root_path = s3_root_path if s3_root_path is not None else s3_config.s3_datasets_path
         # ignore type as we already handled none case above
         super().__init__(s3_root_path, store_concatenated_bytes_files_in_dataset)  # type: ignore
 
