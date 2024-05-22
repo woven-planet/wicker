@@ -46,10 +46,10 @@ class AbstractDataStorage(ABC):
 
 
 class LocalDataStorage(AbstractDataStorage):
-    """Storage routines for reading and writing objects in local fs"""
+    """Storage routines for reading and writing objects in local file system"""
 
     def __init__(self) -> None:
-        """Constructor for a local FS"""
+        """Constructor for a local file system"""
         pass
 
     @retry(
@@ -69,15 +69,15 @@ class LocalDataStorage(AbstractDataStorage):
     def fetch_file(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
         """Fetches a file local file system, ie: gets the path to the file.
 
-        This function assumes the input_path is a valid file in the fs based on wicker assumed pathing.
+        This function assumes the input_path is a valid file in the file system based on wicker assumed pathing.
 
         The reasoning here is that if you use this for a mounted file system that doesn't have caching
-        to local automatically you can grab and move files to local fs on instance.
+        to local automatically you can grab and move files to local file system on instance.
 
         :param input_path: input file path on system
         :param local_prefix: local path that specifies where to download the file
         :param timeout_seconds: number of seconds till timing out on waiting for the file to be downloaded
-        :return: local path to the file on the local fs
+        :return: local path to the file on the local file system
         """
         input_path = os.path.join(input_path, os.path.basename(local_prefix))
         self.download_with_retries(input_path, local_prefix)
