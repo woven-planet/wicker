@@ -235,7 +235,7 @@ class WickerPathFactory:
         """Get the asset path in known file structure.
 
         Args:
-            dataset_id (DatasetID): Id of the dataset
+            dataset_id (DatasetID): ID of the dataset
             prefix (Optional[str], optional): Optional prefix to remove from file paths. Defaults to None.
 
         Returns:
