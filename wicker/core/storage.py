@@ -297,7 +297,7 @@ class WickerPathFactory:
     def _get_dataset_schema_path(self, dataset_id: DatasetID, prefix: Optional[str] = None) -> str:
         """Get the dataset schema path.
 
-        Private gettr handling pathing logic to avro_schema json file.
+        Private getter handling pathing logic to avro_schema json file.
 
         Args:
             dataset_id (DatasetID): Id of the dataset to use for pathing.
