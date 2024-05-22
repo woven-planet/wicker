@@ -414,7 +414,7 @@ class S3PathFactory(WickerPathFactory):
     def get_dataset_assets_path(self, dataset_id: DatasetID, s3_prefix: bool = True) -> str:
         """Get path to data assets folder.
 
-        Public gettr for data asset folder path logic.
+        Public getter for data asset folder path logic.
 
         Args:
             dataset_id (DatasetID): Id to gather file path.
