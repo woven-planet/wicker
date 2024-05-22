@@ -278,9 +278,9 @@ class WickerPathFactory:
         Object to form the expected paths and return them to the user based of root path and storage bool.
 
         Args:.
-            root_path (str): File system loc of the root of the wicker file structure.
-            store_concatenated_bytes_files_in_dataset (bool, optional): Whether to assume concat bytes files are stored.
-                Defaults to False
+            root_path (str): File system location of the root of the wicker file structure.
+            store_concatenated_bytes_files_in_dataset (bool, optional): Whether to assume concatenated bytes files
+                are stored in the dataset folder. Defaults to False
         """
         self.root_path: str = root_path
         self.store_concatenated_bytes_files_in_dataset = store_concatenated_bytes_files_in_dataset
@@ -292,7 +292,7 @@ class WickerPathFactory:
         """Get the asset path in known file structure.
 
         Args:
-            dataset_id (DatasetID): Id of the dataset
+            dataset_id (DatasetID): ID of the dataset
             prefix (Optional[str], optional): Optional prefix to remove from file paths. Defaults to None.
 
         Returns:
@@ -331,7 +331,7 @@ class WickerPathFactory:
     def _get_dataset_partition_path(self, data_partition: DatasetPartition, prefix: Optional[str] = None) -> str:
         """Get the dataset partition parquet path.
 
-        Private gettr handling logic of pathing centrally.
+        Private getter handling logic of pathing centrally.
 
         Args:
             data_partition (DatasetPartition): DatasetPartition to use for pathing
@@ -354,10 +354,10 @@ class WickerPathFactory:
     def _get_dataset_schema_path(self, dataset_id: DatasetID, prefix: Optional[str] = None) -> str:
         """Get the dataset schema path.
 
-        Private gettr handling pathing logic to avro_schema json file.
+        Private getter handling pathing logic to avro_schema json file.
 
         Args:
-            dataset_id (DatasetID): Id of the dataset to use for pathing.
+            dataset_id (DatasetID): ID of the dataset to use for pathing.
             prefix (Optional[str], optional): Optional prefix to remove from file path. Defaults to None.
 
         Returns:
@@ -397,7 +397,7 @@ class WickerPathFactory:
         """Get path to temporary rows file path.
 
         Args:
-            dataset_id (DatasetID): Id of dataset to use for pathing.
+            dataset_id (DatasetID): ID of dataset to use for pathing.
 
         Returns:
             str: Path to temporary rows file.
@@ -464,18 +464,17 @@ class S3PathFactory(WickerPathFactory):
         """
         s3_config = get_config().aws_s3_config
         store_concatenated_bytes_files_in_dataset = s3_config.store_concatenated_bytes_files_in_dataset
-        if s3_root_path is None:
-            s3_root_path = s3_config.s3_datasets_path
+        s3_root_path = s3_root_path if s3_root_path is not None else s3_config.s3_datasets_path
         # ignore type as we already handled none case above
         super().__init__(s3_root_path, store_concatenated_bytes_files_in_dataset)  # type: ignore
 
     def get_dataset_assets_path(self, dataset_id: DatasetID, s3_prefix: bool = True) -> str:
         """Get path to data assets folder.
 
-        Public gettr for data asset folder path logic.
+        Public getter for data asset folder path logic.
 
         Args:
-            dataset_id (DatasetID): Id to gather file path.
+            dataset_id (DatasetID): ID to gather file path.
             s3_prefix (bool, optional): Whether to keep the s3 prefix or not. Defaults to True.
 
         Returns:
@@ -514,7 +513,7 @@ class S3PathFactory(WickerPathFactory):
         """Get path to the dataset schema.
 
         Args:
-            dataset_id (DatasetID): Id of the dataset.
+            dataset_id (DatasetID): ID of the dataset.
             s3_prefix (bool, optional): Whether to keep the s3 prefix or not. Defaults to True.
 
         Returns:
