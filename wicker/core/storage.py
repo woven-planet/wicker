@@ -417,7 +417,7 @@ class S3PathFactory(WickerPathFactory):
         Public getter for data asset folder path logic.
 
         Args:
-            dataset_id (DatasetID): Id to gather file path.
+            dataset_id (DatasetID): ID to gather file path.
             s3_prefix (bool, optional): Whether to keep the s3 prefix or not. Defaults to True.
 
         Returns:
