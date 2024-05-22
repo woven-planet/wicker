@@ -456,7 +456,7 @@ class S3PathFactory(WickerPathFactory):
         """Get path to the dataset schema.
 
         Args:
-            dataset_id (DatasetID): Id of the dataset.
+            dataset_id (DatasetID): ID of the dataset.
             s3_prefix (bool, optional): Whether to keep the s3 prefix or not. Defaults to True.
 
         Returns:
