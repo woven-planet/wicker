@@ -300,7 +300,7 @@ class WickerPathFactory:
         Private getter handling pathing logic to avro_schema json file.
 
         Args:
-            dataset_id (DatasetID): Id of the dataset to use for pathing.
+            dataset_id (DatasetID): ID of the dataset to use for pathing.
             prefix (Optional[str], optional): Optional prefix to remove from file path. Defaults to None.
 
         Returns:
