@@ -340,7 +340,7 @@ class WickerPathFactory:
         """Get path to temporary rows file path.
 
         Args:
-            dataset_id (DatasetID): Id of dataset to use for pathing.
+            dataset_id (DatasetID): ID of dataset to use for pathing.
 
         Returns:
             str: Path to temporary rows file.
