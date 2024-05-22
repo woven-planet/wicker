@@ -222,8 +222,8 @@ class WickerPathFactory:
 
         Args:.
             root_path (str): File system location of the root of the wicker file structure.
-            store_concatenated_bytes_files_in_dataset (bool, optional): Whether to assume concatenated bytes files are stored.
-                Defaults to False
+            store_concatenated_bytes_files_in_dataset (bool, optional): Whether to assume concatenated bytes files
+                are stored in the dataset folder. Defaults to False
         """
         self.root_path: str = root_path
         self.store_concatenated_bytes_files_in_dataset = store_concatenated_bytes_files_in_dataset
