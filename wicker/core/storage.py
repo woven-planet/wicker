@@ -221,7 +221,7 @@ class WickerPathFactory:
         Object to form the expected paths and return them to the user based of root path and storage bool.
 
         Args:.
-            root_path (str): File system loc of the root of the wicker file structure.
+            root_path (str): File system location of the root of the wicker file structure.
             store_concatenated_bytes_files_in_dataset (bool, optional): Whether to assume concat bytes files are stored.
                 Defaults to False
         """
