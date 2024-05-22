@@ -236,7 +236,7 @@ class WickerPathFactory:
 
         Args:
             dataset_id (DatasetID): ID of the dataset
-            prefix (Optional[str], optional): Optional prefix to remove from file paths. Defaults to None.
+            prefix_to_trim(Optional[str], optional): Optional prefix to remove from file paths. Defaults to None.
 
         Returns:
             str: path to assets folder
@@ -258,7 +258,7 @@ class WickerPathFactory:
 
         Args:
             data_partition (DatasetPartition): data partition to use for path
-            prefix (Optional[str], optional): Optional prefix to remove from file paths. Defaults to None.
+            prefix_to_trim(Optional[str], optional): Optional prefix to remove from file paths. Defaults to None.
 
         Returns:
             str: Path to partition metadata json file.
@@ -280,7 +280,7 @@ class WickerPathFactory:
 
         Args:
             data_partition (DatasetPartition): DatasetPartition to use for pathing
-            prefix (Optional[str], optional): Optional prefix to remove from file paths. Defaults to None.
+            prefix_to_trim(Optional[str], optional): Optional prefix to remove from file paths. Defaults to None.
 
         Returns:
             str: Path to partition parquet file
@@ -303,7 +303,7 @@ class WickerPathFactory:
 
         Args:
             dataset_id (DatasetID): ID of the dataset to use for pathing.
-            prefix (Optional[str], optional): Optional prefix to remove from file path. Defaults to None.
+            prefix_to_trim(Optional[str], optional): Optional prefix to remove from file path. Defaults to None.
 
         Returns:
             str: Path to dataset avro schema file.
