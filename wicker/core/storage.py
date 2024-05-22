@@ -274,7 +274,7 @@ class WickerPathFactory:
     def _get_dataset_partition_path(self, data_partition: DatasetPartition, prefix: Optional[str] = None) -> str:
         """Get the dataset partition parquet path.
 
-        Private gettr handling logic of pathing centrally.
+        Private getter handling logic of pathing centrally.
 
         Args:
             data_partition (DatasetPartition): DatasetPartition to use for pathing
