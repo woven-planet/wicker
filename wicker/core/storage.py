@@ -102,8 +102,9 @@ class FileSystemDataStorage(AbstractDataStorage):
         :param timeout_seconds: number of seconds till timing out on waiting for the file to be downloaded
         :return: local path to the file on the local fs
         """
-        self.download_with_retries(input_path, local_prefix)
-        return local_prefix
+        local_full_path = os.path.join(local_prefix, os.path.basename(input_path))
+        self.download_with_retries(input_path, local_full_path)
+        return local_full_path
 
     def put_file(self, input_path: str, target_path: str) -> None:
         """Put file on local or mounted data storage.

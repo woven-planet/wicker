@@ -59,16 +59,16 @@ class FileSystemDataset(AbstractDataset):
         dataset_name: str,
         dataset_partition_name: str,
         dataset_version: str,
-        filesystem_root_path: str,
         columns_to_load: Optional[List[str]] = None,
         filelock_timeout_seconds: int = FILE_LOCK_TIMEOUT_SECONDS,
+        filesystem_root_path: Optional[str] = None,
         local_cache_path_prefix: Optional[str] = os.getenv("TMPDIR", "/tmp"),
         pa_filesystem: Optional[pafs.LocalFileSystem] = None,
         path_factory: Optional[WickerPathFactory] = None,
         storage: Optional[FileSystemDataStorage] = None,
         treat_objects_as_bytes: bool = False,
     ):
-        """Initializes a LocalFSDataset.
+        """Initializes a FileSystemDataset.
 
         :param dataset_name: name of the dataset
         :param dataset_partition_name: partition name
@@ -86,7 +86,7 @@ class FileSystemDataset(AbstractDataset):
         """
         super().__init__()
         if path_factory is None and filesystem_root_path is None:
-            raise ValueError("Need to pass either path factory of wicker ds or root of the tree.")
+            raise ValueError("Need to pass either path factory of wicker dataset or root of the tree.")
         self._columns_to_load = columns_to_load
         self._treat_objects_as_bytes = treat_objects_as_bytes
         self._schema: Optional[DatasetSchema] = None
@@ -95,8 +95,9 @@ class FileSystemDataset(AbstractDataset):
         self._local_cache_path_prefix: Optional[str] = local_cache_path_prefix
         self._filelock_timeout_seconds = filelock_timeout_seconds
         self._storage = storage if storage is not None else FileSystemDataStorage()
+        # ignore type failure here as we handle the case where they're both none above
         self._path_factory = (
-            path_factory if path_factory is not None else WickerPathFactory(root_path=filesystem_root_path)
+            path_factory if path_factory is not None else WickerPathFactory(root_path=filesystem_root_path)  # type: ignore
         )
         self._column_bytes_file_cache = None
         if self._local_cache_path_prefix:

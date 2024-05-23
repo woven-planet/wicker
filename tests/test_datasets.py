@@ -47,7 +47,7 @@ def cwd(path):
         os.chdir(oldpwd)
 
 
-class TestLocalDataset(unittest.TestCase):
+class TestFileSystemDataset(unittest.TestCase):
     @contextmanager
     def _setup_storage(self) -> Iterator[Tuple[FakeFileSystemDataStorage, WickerPathFactory, str]]:
         with tempfile.TemporaryDirectory() as tmpdir, cwd(tmpdir):
