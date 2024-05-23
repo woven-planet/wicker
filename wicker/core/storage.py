@@ -45,11 +45,11 @@ class AbstractDataStorage(ABC):
         pass
 
 
-class LocalDataStorage(AbstractDataStorage):
-    """Storage routines for reading and writing objects in local file system"""
+class FileSystemDataStorage(AbstractDataStorage):
+    """Storage routines for reading and writing objects in file system"""
 
     def __init__(self) -> None:
-        """Constructor for a local file system"""
+        """Constructor for a file system storage instance."""
         pass
 
     @retry(
@@ -67,7 +67,7 @@ class LocalDataStorage(AbstractDataStorage):
             raise e
 
     def fetch_file(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
-        """Fetches a file local file system, ie: gets the path to the file.
+        """Fetches a file system, ie: gets the path to the file.
 
         This function assumes the input_path is a valid file in the file system based on wicker assumed pathing.
 
