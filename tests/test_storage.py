@@ -116,7 +116,7 @@ class TestS3DataStorage(TestCase):
             stubber.add_response("put_object", response, expected_params)
             data_storage.put_object(object_bytes, input_path)
 
-    def test_put_file(self) -> None:
+    def test_put_file_s3(self) -> None:
         """Unit test for the put_file function"""
         data_storage = S3DataStorage()
         object_bytes = b"this is my object"
@@ -129,7 +129,7 @@ class TestS3DataStorage(TestCase):
             with Stubber(data_storage.client) as stubber:
                 response = {}  # type: ignore
                 stubber.add_response("put_object", response, None)
-                data_storage.put_file(tmpfile.name, input_path)
+                data_storage.put_file_s3(tmpfile.name, input_path)
 
     @staticmethod
     def download_file_side_effect(*args, **kwargs) -> None:  # type: ignore
@@ -141,7 +141,7 @@ class TestS3DataStorage(TestCase):
 
     # Stubber does not have a stub function for S3 client download_file function, so patch it
     @mock.patch("boto3.s3.transfer.S3Transfer.download_file")
-    def test_fetch_file(self, download_file: mock.Mock) -> None:
+    def test_fetch_file_s3(self, download_file: mock.Mock) -> None:
         """Unit test for the fetch_file function."""
         data_storage = S3DataStorage()
         input_path = "s3://foo/bar/baz/dummy"
@@ -149,7 +149,7 @@ class TestS3DataStorage(TestCase):
             # Add a side-effect to create the file to download at the correct local path
             download_file.side_effect = self.download_file_side_effect
 
-            local_path = data_storage.fetch_file(input_path, local_prefix)
+            local_path = data_storage.fetch_file_s3(input_path, local_prefix)
             download_file.assert_called_once_with(
                 bucket="foo",
                 key="bar/baz/dummy",
