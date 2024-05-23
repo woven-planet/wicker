@@ -132,7 +132,7 @@ class TestS3Dataset(unittest.TestCase):
                 arrow_metadata_table,
                 metadata_table_path,
             )
-            fake_s3_storage.put_object(
+            fake_s3_storage.put_object_s3(
                 serialization.dumps(FAKE_SCHEMA).encode("utf-8"),
                 fake_s3_path_factory.get_dataset_schema_path(FAKE_DATASET_ID),
             )

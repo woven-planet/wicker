@@ -196,7 +196,7 @@ class TestShuffleWorker(unittest.TestCase):
             )
 
             fake_storage = FakeS3DataStorage(tmpdir=tmpdir)
-            fake_storage.put_object(
+            fake_storage.put_object_s3(
                 serialization.dumps(FAKE_DATASET_SCHEMA).encode("utf-8"),
                 f"{get_config().aws_s3_config.s3_datasets_path}/{FAKE_DATASET_ID.name}"
                 f"/{FAKE_DATASET_ID.version}/avro_schema.json",

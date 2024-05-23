@@ -100,8 +100,8 @@ class TestS3DataStorage(TestCase):
             # The check_exists_s3 function catches the exception when the key does not exist
             self.assertFalse(data_storage.check_exists_s3(input_path))
 
-    def test_put_object(self) -> None:
-        """Unit test for the put_object function."""
+    def test_put_object_s3(self) -> None:
+        """Unit test for the put_object_s3 function."""
         data_storage = S3DataStorage()
         object_bytes = b"this is my object"
         input_path = "s3://foo/bar/baz/dummy"
@@ -114,7 +114,7 @@ class TestS3DataStorage(TestCase):
                 "Key": "bar/baz/dummy",
             }
             stubber.add_response("put_object", response, expected_params)
-            data_storage.put_object(object_bytes, input_path)
+            data_storage.put_object_s3(object_bytes, input_path)
 
     def test_put_file_s3(self) -> None:
         """Unit test for the put_file function"""
