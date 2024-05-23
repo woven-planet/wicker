@@ -102,7 +102,6 @@ class FileSystemDataStorage(AbstractDataStorage):
         :param timeout_seconds: number of seconds till timing out on waiting for the file to be downloaded
         :return: local path to the file on the local fs
         """
-        local_prefix = os.path.join(local_prefix, os.path.basename(input_path))
         self.download_with_retries(input_path, local_prefix)
         return local_prefix
 
