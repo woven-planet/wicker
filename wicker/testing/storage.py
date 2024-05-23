@@ -46,14 +46,14 @@ class FakeS3DataStorage(S3DataStorage):
             shutil.copy2(self._get_local_path(input_path), dest_path)
         return dest_path
 
-    def put_object(self, object_bytes: bytes, s3_path: str) -> None:
+    def put_object_s3(self, object_bytes: bytes, s3_path: str) -> None:
         full_tmp_path = self._get_local_path(s3_path)
         os.makedirs(os.path.dirname(full_tmp_path), exist_ok=True)
         with open(full_tmp_path, "wb") as f:
             f.write(object_bytes)
 
-    def put_file(self, local_path: str, target_path: str) -> None:
-        full_tmp_path = self._get_local_path(target_path)
+    def put_file_s3(self, local_path: str, s3_path: str) -> None:
+        full_tmp_path = self._get_local_path(s3_path)
         os.makedirs(os.path.dirname(full_tmp_path), exist_ok=True)
         shutil.copy2(local_path, full_tmp_path)
 
@@ -94,12 +94,12 @@ class TestS3LocalDataStorage(S3DataStorage):
         raise NotImplementedError("fetch_partial_file_s3")
 
     # Override.
-    def put_object(self, object_bytes: bytes, s3_path: str) -> None:
+    def put_object_s3(self, object_bytes: bytes, s3_path: str) -> None:
         self._create_path(os.path.dirname(s3_path))
         with self._fs.open_output_stream(s3_path) as ostream:
             ostream.write(object_bytes)
 
     # Override.
-    def put_file(self, local_path: str, s3_path: str) -> None:
+    def put_file_s3(self, local_path: str, s3_path: str) -> None:
         self._create_path(os.path.dirname(s3_path))
         self._fs.copy_file(local_path, s3_path)
