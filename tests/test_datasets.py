@@ -11,11 +11,11 @@ import pyarrow.fs as pafs  # type: ignore
 import pyarrow.parquet as papq  # type: ignore
 
 from wicker.core.column_files import ColumnBytesFileWriter
-from wicker.core.datasets import LocalFSDataset, S3Dataset
+from wicker.core.datasets import FileSystemDataset, S3Dataset
 from wicker.core.definitions import DatasetID, DatasetPartition
 from wicker.core.storage import S3PathFactory, WickerPathFactory
 from wicker.schema import schema, serialization
-from wicker.testing.storage import FakeLocalDataStorage, FakeS3DataStorage
+from wicker.testing.storage import FakeFileSystemDataStorage, FakeS3DataStorage
 
 FAKE_NAME = "dataset_name"
 FAKE_VERSION = "0.0.1"
@@ -49,9 +49,9 @@ def cwd(path):
 
 class TestLocalDataset(unittest.TestCase):
     @contextmanager
-    def _setup_storage(self) -> Iterator[Tuple[FakeLocalDataStorage, WickerPathFactory, str]]:
+    def _setup_storage(self) -> Iterator[Tuple[FakeFileSystemDataStorage, WickerPathFactory, str]]:
         with tempfile.TemporaryDirectory() as tmpdir, cwd(tmpdir):
-            fake_local_fs_storage = FakeLocalDataStorage(tmpdir=tmpdir)
+            fake_local_fs_storage = FakeFileSystemDataStorage(tmpdir=tmpdir)
             fake_local_path_factory = WickerPathFactory(root_path=tmpdir)
             with ColumnBytesFileWriter(
                 storage=fake_local_fs_storage,
@@ -67,14 +67,14 @@ class TestLocalDataset(unittest.TestCase):
                 {"foo": [data["foo"] for data in FAKE_DATA], "np_arr": [loc.to_bytes() for loc in locs]}
             )
             metadata_table_path = os.path.join(
-                tmpdir, fake_local_path_factory.get_dataset_partition_path(FAKE_DATASET_PARTITION)
+                tmpdir, fake_local_path_factory._get_dataset_partition_path(FAKE_DATASET_PARTITION)
             )
             os.makedirs(os.path.dirname(metadata_table_path), exist_ok=True)
             papq.write_table(arrow_metadata_table, metadata_table_path)
 
             fake_local_fs_storage.put_object(
                 serialization.dumps(FAKE_SCHEMA).encode("utf-8"),
-                fake_local_path_factory.get_dataset_schema_path(FAKE_DATASET_ID),
+                fake_local_path_factory._get_dataset_schema_path(FAKE_DATASET_ID),
             )
             yield fake_local_fs_storage, fake_local_path_factory, tmpdir
 
@@ -124,7 +124,7 @@ class TestS3Dataset(unittest.TestCase):
             )
             metadata_table_path = os.path.join(
                 tmpdir,
-                fake_s3_path_factory.get_dataset_partition_path(FAKE_DATASET_PARTITION, prefix="s3://"),
+                fake_s3_path_factory.get_dataset_partition_path(FAKE_DATASET_PARTITION, s3_prefix=False),
                 "part-1.parquet",
             )
             os.makedirs(os.path.dirname(metadata_table_path), exist_ok=True)

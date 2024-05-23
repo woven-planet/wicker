@@ -16,7 +16,7 @@ from types import TracebackType
 from typing import IO, Any, Dict, List, Literal, Optional, Tuple, Type, Union
 
 from wicker.core.storage import (
-    LocalDataStorage,
+    FileSystemDataStorage,
     S3DataStorage,
     S3PathFactory,
     WickerPathFactory,
@@ -90,7 +90,7 @@ class ColumnBytesFileWriter:
 
     def __init__(
         self,
-        storage: Union[LocalDataStorage, S3DataStorage] = S3DataStorage(),
+        storage: Union[FileSystemDataStorage, S3DataStorage] = S3DataStorage(),
         path_factory: Union[WickerPathFactory, S3PathFactory] = S3PathFactory(),
         target_file_size: Optional[int] = None,
         target_file_rowgroup_size: Optional[int] = None,
@@ -166,7 +166,8 @@ class ColumnBytesFileWriter:
         )
 
     def _write_column(self, column_name: str) -> None:
-        columns_root_path = self.path_factory.get_column_concatenated_bytes_files_path(dataset_name=self.dataset_name)
+        # use the private function as this does not make use of s3 prefix cutting.
+        columns_root_path = self.path_factory._get_column_concatenated_bytes_files_path(dataset_name=self.dataset_name)
         write_buffer = self.write_buffers[column_name]
         path = os.path.join(columns_root_path, str(write_buffer.file_id))
         if write_buffer.buffer.tell() > 0:
@@ -189,7 +190,7 @@ class ColumnBytesFileCache:
         local_cache_path_prefix: str = "/tmp",
         filelock_timeout_seconds: int = -1,
         path_factory: Union[WickerPathFactory, S3PathFactory] = S3PathFactory(),
-        storage: Optional[Union[LocalDataStorage, S3DataStorage]] = None,
+        storage: Optional[Union[FileSystemDataStorage, S3DataStorage]] = None,
         dataset_name: str = None,
     ):
         """Initializes a ColumnBytesFileCache
@@ -205,7 +206,8 @@ class ColumnBytesFileCache:
         self._storage = storage if storage is not None else S3DataStorage()
         self._root_path = local_cache_path_prefix
         self._filelock_timeout_seconds = filelock_timeout_seconds
-        self._columns_root_path = path_factory.get_column_concatenated_bytes_files_path(dataset_name=dataset_name)
+        # use the private function here as we don't use the s3 prefix removal anyway
+        self._columns_root_path = path_factory._get_column_concatenated_bytes_files_path(dataset_name=dataset_name)
 
     def read(
         self,

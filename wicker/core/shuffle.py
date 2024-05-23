@@ -230,7 +230,7 @@ def save_index(
             partition=partition_name,
         )
 
-        parquet_folder = s3_path_factory.get_dataset_partition_path(dataset_partition, prefix="s3://")
+        parquet_folder = s3_path_factory.get_dataset_partition_path(dataset_partition, s3_prefix=False)
         parquet_path = os.path.join(parquet_folder, "part-0.parquet")
 
         # Write the Parquet file as one file locally, then upload to S3

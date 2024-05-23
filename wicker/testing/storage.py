@@ -5,10 +5,10 @@ from typing import Any, Dict
 
 import pyarrow.fs as pafs
 
-from wicker.core.storage import LocalDataStorage, S3DataStorage
+from wicker.core.storage import FileSystemDataStorage, S3DataStorage
 
 
-class FakeLocalDataStorage(LocalDataStorage):
+class FakeFileSystemDataStorage(FileSystemDataStorage):
     def __init__(self, tmpdir: str = "/tmp") -> None:
         super().__init__()
 

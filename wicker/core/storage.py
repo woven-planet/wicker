@@ -104,7 +104,6 @@ class FileSystemDataStorage(AbstractDataStorage):
             binary_file.write(object_bytes)
 
 
-
 class S3DataStorage(AbstractDataStorage):
     """Storage routines for reading and writing objects in S3"""
 

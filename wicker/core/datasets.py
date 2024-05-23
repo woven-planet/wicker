@@ -15,7 +15,7 @@ from wicker.core.config import get_config  # type: ignore
 from wicker.core.definitions import DatasetDefinition, DatasetID, DatasetPartition
 from wicker.core.shuffle import ShuffleWorker
 from wicker.core.storage import (
-    LocalDataStorage,
+    FileSystemDataStorage,
     S3DataStorage,
     S3PathFactory,
     WickerPathFactory,
@@ -51,7 +51,7 @@ class AbstractDataset(abc.ABC):
         pass
 
 
-class LocalFSDataset(AbstractDataset):
+class FileSystemDataset(AbstractDataset):
     """Implementation of a Map-based dataset on local fs or mounted drive"""
 
     def __init__(
@@ -59,13 +59,13 @@ class LocalFSDataset(AbstractDataset):
         dataset_name: str,
         dataset_partition_name: str,
         dataset_version: str,
+        filesystem_root_path: str,
         columns_to_load: Optional[List[str]] = None,
         filelock_timeout_seconds: int = FILE_LOCK_TIMEOUT_SECONDS,
-        filesystem_root_path: Optional[str] = None,
         local_cache_path_prefix: Optional[str] = os.getenv("TMPDIR", "/tmp"),
         pa_filesystem: Optional[pafs.LocalFileSystem] = None,
         path_factory: Optional[WickerPathFactory] = None,
-        storage: Optional[LocalDataStorage] = None,
+        storage: Optional[FileSystemDataStorage] = None,
         treat_objects_as_bytes: bool = False,
     ):
         """Initializes a LocalFSDataset.
@@ -81,7 +81,7 @@ class LocalFSDataset(AbstractDataset):
         :param local_cache_path_prefix: Path to local cache path, if None don't create cache
         :param pa_filesystem: Pyarrow filesystem for reading the parquet files and tables.
         :param path_factory: Optional WickerPathFactory for pulling consistent paths.
-        :param storage: Optional LocalDataStorage object for pulling files from filesystem
+        :param storage: Optional FileSystemDataStorage object for pulling files from filesystem
         :param treat_objects_as_bytes: If set, don't try to decode ObjectFields and keep them as binary data.
         """
         super().__init__()
@@ -94,7 +94,7 @@ class LocalFSDataset(AbstractDataset):
 
         self._local_cache_path_prefix: Optional[str] = local_cache_path_prefix
         self._filelock_timeout_seconds = filelock_timeout_seconds
-        self._storage = storage if storage is not None else LocalDataStorage()
+        self._storage = storage if storage is not None else FileSystemDataStorage()
         self._path_factory = (
             path_factory if path_factory is not None else WickerPathFactory(root_path=filesystem_root_path)
         )
@@ -126,7 +126,7 @@ class LocalFSDataset(AbstractDataset):
             DatasetSchema: Dataset schema object for the loaded dataset.
         """
         if self._schema is None:
-            schema_path = self._path_factory.get_dataset_schema_path(self._dataset_id)
+            schema_path = self._path_factory._get_dataset_schema_path(self._dataset_id)
             local_path = schema_path
             if self._column_bytes_file_cache is not None and self._local_cache_path_prefix is not None:
                 local_path = self._storage.fetch_file(
@@ -140,11 +140,11 @@ class LocalFSDataset(AbstractDataset):
 
     def arrow_table(self) -> pyarrow.Table:
         """Grab and load arrow table from expected path.
-        
+
         Returns:
             pyarrow.Table: Arrow table object for the loaded dataset.
         """
-        path = self._path_factory.get_dataset_partition_path(self._partition)
+        path = self._path_factory._get_dataset_partition_path(self._partition)
         if not self._arrow_table:
             self._arrow_table = papq.read_table(path, columns=self._columns_to_load, filesystem=self._pa_filesystem)
         return self._arrow_table
@@ -159,9 +159,9 @@ class LocalFSDataset(AbstractDataset):
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         """Get data item at index within arrow table.
-        
+
         Pulls from either cache or data store the item in the dataset at index specified.
-        
+
         Args:
             idx (int): idx in arrow table to grab data.
 
@@ -224,9 +224,7 @@ class S3Dataset(AbstractDataset):
             storage=self._storage,
             dataset_name=dataset_name,
         )
-        self._pa_filesystem = (
-            pafs.S3FileSystem(region=get_config().aws_s3_config.region) if pa_filesystem is None else pa_filesystem
-        )
+        self._pa_filesystem = pafs.LocalFileSystem() if pa_filesystem is None else pa_filesystem
 
         self._dataset_id = DatasetID(name=dataset_name, version=dataset_version)
         self._partition = DatasetPartition(dataset_id=self._dataset_id, partition=dataset_partition_name)
@@ -248,7 +246,7 @@ class S3Dataset(AbstractDataset):
         return self._schema
 
     def arrow_table(self) -> pyarrow.Table:
-        path = self._s3_path_factory.get_dataset_partition_path(self._partition, prefix="s3://")
+        path = self._s3_path_factory.get_dataset_partition_path(self._partition, s3_prefix=False)
         if not self._arrow_table:
             self._arrow_table = papq.read_table(path, columns=self._columns_to_load, filesystem=self._pa_filesystem)
         return self._arrow_table
@@ -274,7 +272,7 @@ class S3Dataset(AbstractDataset):
         # bytes size of arrow table not bytes in arrow table
         # bytes in arrow table is a method of arrow table but it doesn't
         # reflect the size of the file sizes stored on s3 just the loaded data
-        arrow_path = self._s3_path_factory.get_dataset_partition_path(self._partition, prefix="s3://")
+        arrow_path = self._s3_path_factory.get_dataset_partition_path(self._partition, s3_prefix=False)
         bucket, key = arrow_path.replace("s3://", "").split("/", 1)
 
         def get_folder_size(bucket, prefix):
