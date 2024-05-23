@@ -158,7 +158,8 @@ class S3DataStorage(AbstractDataStorage):
             raise e
 
     def fetch_file(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
-        """Fetches a file from S3 to the local machine and skips it if it already exists. This function
+        """
+        Fetches a file from S3 to the local machine and skips it if it already exists. This function
         is safe to call concurrently from multiple processes and utilizes a local filelock to block
         parallel downloads such that only one process will perform the download.
 
@@ -189,6 +190,10 @@ class S3DataStorage(AbstractDataStorage):
                         pass
 
         return local_path
+
+    def fetch_file_s3(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
+        """Deprecated fetch file access, function signature kept to preserve backwards compatibility."""
+        return self.fetch_file(input_path=input_path, local_prefix=local_prefix, timeout_seconds=timeout_seconds)
 
     def fetch_obj_s3(self, input_path: str) -> bytes:
         """Fetches an object from S3 as bytes in memory
