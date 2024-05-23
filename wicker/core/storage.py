@@ -11,6 +11,7 @@ import logging
 import os
 import shutil
 import uuid
+from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
@@ -29,9 +30,10 @@ from wicker.core.utils import time_limit
 logger = logging.getLogger(__name__)
 
 
-class AbstractDataStorage:
+class AbstractDataStorage(ABC):
     """Abstract data storage class that implements required methods for Column Bytes File Cache"""
 
+    @abstractmethod
     def fetch_file(self, input_path: str, local_prefix: str, timeout_seconds: int) -> str:
         """Fetch file from chosen data storage method.
 
@@ -41,30 +43,14 @@ class AbstractDataStorage:
         :return: local path to the downloaded file
 
         """
-        raise NotImplementedError("Implement for equivalent api access.")
-
-    def put_file(self, local_path: str, target_path: str) -> None:
-        """Put file on data storage.
-
-        :param local_path: input file path
-        :param target_path: target path on storage to put file
-        """
-        raise NotImplementedError("Implement for equivalent access to file puts.")
-
-    def put_object(self, object_bytes: bytes, path: str) -> None:
-        """Put object on data storage
-
-        :param object_bytes: bytes to write to path
-        :param path: path to write object
-        """
-        raise NotImplementedError("Implement for equivalent access to object puts.")
+        pass
 
 
-class LocalDataStorage(AbstractDataStorage):
-    """Storage routines for reading and writing objects in local fs"""
+class FileSystemDataStorage(AbstractDataStorage):
+    """Storage routines for reading and writing objects in file system"""
 
     def __init__(self) -> None:
-        """Constructor for a local FS"""
+        """Constructor for a file system storage instance."""
         pass
 
     @retry(
@@ -82,12 +68,12 @@ class LocalDataStorage(AbstractDataStorage):
             raise e
 
     def fetch_file(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
-        """Fetches a file local file system, ie: gets the path to the file.
+        """Fetches a file system, ie: gets the path to the file.
 
-        This function assumes the input_path is a valid file in the fs based on wicker assumed pathing.
+        This function assumes the input_path is a valid file in the file system based on wicker assumed pathing.
 
         The reasoning here is that if you use this for a mounted file system that doesn't have caching
-        to local automatically you can grab and move files to local fs on instance.
+        to local automatically you can grab and move files to local file system on instance.
 
         :param input_path: input file path on system
         :param local_prefix: local path that specifies where to download the file
@@ -116,6 +102,7 @@ class LocalDataStorage(AbstractDataStorage):
         os.makedirs(Path(path).parent, exist_ok=True)
         with open(path, "wb") as binary_file:
             binary_file.write(object_bytes)
+
 
 
 class S3DataStorage(AbstractDataStorage):
@@ -192,7 +179,8 @@ class S3DataStorage(AbstractDataStorage):
             raise e
 
     def fetch_file(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
-        """Fetches a file from S3 to the local machine and skips it if it already exists. This function
+        """
+        Fetches a file from S3 to the local machine and skips it if it already exists. This function
         is safe to call concurrently from multiple processes and utilizes a local filelock to block
         parallel downloads such that only one process will perform the download.
 
@@ -223,6 +211,10 @@ class S3DataStorage(AbstractDataStorage):
                         pass
 
         return local_path
+
+    def fetch_file_s3(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
+        """Deprecated fetch file access, function signature kept to preserve backwards compatibility."""
+        return self.fetch_file(input_path=input_path, local_prefix=local_prefix, timeout_seconds=timeout_seconds)
 
     def fetch_obj_s3(self, input_path: str) -> bytes:
         """Fetches an object from S3 as bytes in memory
@@ -306,33 +298,28 @@ class WickerPathFactory:
                     - part-1-attempt-2345.parquet
     """
 
-    def __init__(
-        self, store_concatenated_bytes_files_in_dataset: bool = False, root_path: Optional[str] = None
-    ) -> None:
+    def __init__(self, root_path: str, store_concatenated_bytes_files_in_dataset: bool = False) -> None:
         """Init the path factory.
 
         Object to form the expected paths and return them to the user based of root path and storage bool.
 
-        Args:
-            store_concatenated_bytes_files_in_dataset (bool, optional): Whether to assume concat bytes files are stored.
-                Defaults to False.
-            root_path (Optional[str], optional): File system loc of the root of the wicker file structure.
-                Defaults to None.
+        Args:.
+            root_path (str): File system location of the root of the wicker file structure.
+            store_concatenated_bytes_files_in_dataset (bool, optional): Whether to assume concatenated bytes files
+                are stored in the dataset folder. Defaults to False
         """
-        if root_path is None:
-            raise ValueError("Cannot create path factory without root path, please pass root of wicker fs.")
         self.root_path: str = root_path
         self.store_concatenated_bytes_files_in_dataset = store_concatenated_bytes_files_in_dataset
 
     def __eq__(self, other: Any) -> bool:
         return super().__eq__(other) and type(self) == type(other) and self.root_path == other.root_path
 
-    def _get_dataset_assets_path(self, dataset_id: DatasetID, prefix: Optional[str] = None) -> str:
+    def _get_dataset_assets_path(self, dataset_id: DatasetID, prefix_to_trim: Optional[str] = None) -> str:
         """Get the asset path in known file structure.
 
         Args:
-            dataset_id (DatasetID): Id of the dataset
-            prefix (Optional[str], optional): Optional prefix to remove from file paths. Defaults to None.
+            dataset_id (DatasetID): ID of the dataset
+            prefix_to_trim(Optional[str], optional): Optional prefix to remove from file paths. Defaults to None.
 
         Returns:
             str: path to assets folder
@@ -343,31 +330,18 @@ class WickerPathFactory:
             dataset_id.version,
             "assets",
         )
-        if prefix:
-            return full_path.replace(prefix, "")
+        if prefix_to_trim:
+            return full_path.replace(prefix_to_trim, "")
         return full_path
 
-    def get_dataset_assets_path(self, dataset_id: DatasetID, prefix: Optional[str] = None) -> str:
-        """Get path to data assets folder.
-
-        Public gettr for data asset folder path logic.
-
-        Args:
-            dataset_id (DatasetID): Id to gather file path.
-            prefix (Optional[str]): Optional prefix to remove from file paths. Defaults to None.
-        Returns:
-            str: Path to data assets folder.
-        """
-        return self._get_dataset_assets_path(dataset_id=dataset_id, prefix=prefix)
-
     def _get_dataset_partition_metadata_path(
-        self, data_partition: DatasetPartition, prefix: Optional[str] = None
+        self, data_partition: DatasetPartition, prefix_to_trim: Optional[str] = None
     ) -> str:
         """Get partition metadata path in wicker known file structure.
 
         Args:
             data_partition (DatasetPartition): data partition to use for path
-            prefix (Optional[str], optional): Optional prefix to remove from file paths. Defaults to None.
+            prefix_to_trim(Optional[str], optional): Optional prefix to remove from file paths. Defaults to None.
 
         Returns:
             str: Path to partition metadata json file.
@@ -376,18 +350,20 @@ class WickerPathFactory:
             self._get_dataset_partition_path(data_partition),
             "_l5ml_dataset_partition_metadata.json",
         )
-        if prefix:
-            return full_path.replace(prefix, "")
+        if prefix_to_trim:
+            return full_path.replace(prefix_to_trim, "")
         return full_path
 
-    def _get_dataset_partition_path(self, data_partition: DatasetPartition, prefix: Optional[str] = None) -> str:
+    def _get_dataset_partition_path(
+        self, data_partition: DatasetPartition, prefix_to_trim: Optional[str] = None
+    ) -> str:
         """Get the dataset partition parquet path.
 
-        Private gettr handling logic of pathing centrally.
+        Private getter handling logic of pathing centrally.
 
         Args:
             data_partition (DatasetPartition): DatasetPartition to use for pathing
-            prefix (Optional[str], optional): Optional prefix to remove from file paths. Defaults to None.
+            prefix_to_trim(Optional[str], optional): Optional prefix to remove from file paths. Defaults to None.
 
         Returns:
             str: Path to partition parquet file
@@ -399,46 +375,18 @@ class WickerPathFactory:
             f"{data_partition.partition}.parquet",
         )
 
-        if prefix:
-            return full_path.replace(prefix, "")
+        if prefix_to_trim:
+            return full_path.replace(prefix_to_trim, "")
         return full_path
 
-    def get_dataset_partition_path(self, data_partition: DatasetPartition, prefix: Optional[str] = None) -> str:
-        """Get the dataset partition parquet path.
-
-        Public gettr handling interface to the gettr.
-
-        Args:
-            data_partition (DatasetPartition): DatasetPartition to use for pathing
-            prefix (Optional[str], optional): Optional prefix to remove from file paths. Defaults to None.
-
-        Returns:
-            str: Path to partition parquet file
-        """
-        return self._get_dataset_partition_path(data_partition, prefix)
-
-    def get_dataset_partition_metadata_path(
-        self, data_partition: DatasetPartition, prefix: Optional[str] = None
-    ) -> str:
-        """Get metadata file path for partition.
-
-        Args:
-            data_partition (DatasetPartition): Partition to gather file path.
-            prefix (Optional[str]): Optional prefix to remove from file paths. Defaults to None.
-
-        Returns:
-            str: Path to dataset partition metadata file.
-        """
-        return self._get_dataset_partition_metadata_path(data_partition, prefix)
-
-    def _get_dataset_schema_path(self, dataset_id: DatasetID, prefix: Optional[str] = None) -> str:
+    def _get_dataset_schema_path(self, dataset_id: DatasetID, prefix_to_trim: Optional[str] = None) -> str:
         """Get the dataset schema path.
 
-        Private gettr handling pathing logic to avro_schema json file.
+        Private getter handling pathing logic to avro_schema json file.
 
         Args:
-            dataset_id (DatasetID): Id of the dataset to use for pathing.
-            prefix (Optional[str], optional): Optional prefix to remove from file path. Defaults to None.
+            dataset_id (DatasetID): ID of the dataset to use for pathing.
+            prefix_to_trim(Optional[str], optional): Optional prefix to remove from file path. Defaults to None.
 
         Returns:
             str: Path to dataset avro schema file.
@@ -449,31 +397,18 @@ class WickerPathFactory:
             dataset_id.version,
             "avro_schema.json",
         )
-        if prefix:
-            return full_path.replace(prefix, "")
+        if prefix_to_trim:
+            return full_path.replace(prefix_to_trim, "")
         return full_path
 
-    def get_dataset_schema_path(self, dataset_id: DatasetID, prefix: Optional[str] = None) -> str:
-        """Get path to the dataset schema.
-
-        Args:
-            dataset_id (DatasetID): Id of the dataset.
-            prefix (Optional[str], optional): Optional prefix to remove from file path. Defaults to None.
-
-        Returns:
-            str: Path to dataset schema.
-        """
-        schema_path = self._get_dataset_schema_path(dataset_id=dataset_id, prefix=prefix)
-        return schema_path
-
     def _get_column_concatenated_bytes_files_path(
-        self, dataset_name: Optional[str] = None, prefix: Optional[str] = None
+        self, dataset_name: Optional[str] = None, prefix_to_trim: Optional[str] = None
     ) -> str:
         """Gets the path to the root of all column_concatenated_bytes files
 
         :param dataset_name: if self.store_concatenated_bytes_files_in_dataset is True,
             it requires dataset name, defaults to None
-        :param prefix: prefix to trim off path, if none skip
+        :param prefix_to_trim: prefix to trim off path, if none skip
         :return: path to the column_concatenated_bytes file with the file_id
         """
         if self.store_concatenated_bytes_files_in_dataset:
@@ -482,27 +417,15 @@ class WickerPathFactory:
             full_path = os.path.join(self.root_path, dataset_name, "__COLUMN_CONCATENATED_FILES__")
         else:
             full_path = os.path.join(self.root_path, "__COLUMN_CONCATENATED_FILES__")
-        if prefix:
-            return full_path.replace(prefix, "")
+        if prefix_to_trim:
+            return full_path.replace(prefix_to_trim, "")
         return full_path
-
-    def get_column_concatenated_bytes_files_path(
-        self, dataset_name: Optional[str] = None, prefix: Optional[str] = None
-    ) -> str:
-        """Gets the path to the root of all column_concatenated_bytes files
-
-        :param dataset_name: if self.store_concatenated_bytes_files_in_dataset is True,
-            it requires dataset name, defaults to None
-        :param prefix: prefix to eliminate from file path.
-        :return: path to the column_concatenated_bytes file with the file_id
-        """
-        return self._get_column_concatenated_bytes_files_path(dataset_name=dataset_name, prefix=prefix)
 
     def get_temporary_row_files_path(self, dataset_id: DatasetID) -> str:
         """Get path to temporary rows file path.
 
         Args:
-            dataset_id (DatasetID): Id of dataset to use for pathing.
+            dataset_id (DatasetID): ID of dataset to use for pathing.
 
         Returns:
             str: Path to temporary rows file.
@@ -569,9 +492,74 @@ class S3PathFactory(WickerPathFactory):
         """
         s3_config = get_config().aws_s3_config
         store_concatenated_bytes_files_in_dataset = s3_config.store_concatenated_bytes_files_in_dataset
-        if s3_root_path is None:
-            s3_root_path = get_config().aws_s3_config.s3_datasets_path
-        super().__init__(store_concatenated_bytes_files_in_dataset, s3_root_path)
+        s3_root_path = s3_root_path if s3_root_path is not None else s3_config.s3_datasets_path
+        # ignore type as we already handled none case above
+        super().__init__(s3_root_path, store_concatenated_bytes_files_in_dataset)  # type: ignore
+
+    def get_dataset_assets_path(self, dataset_id: DatasetID, s3_prefix: bool = True) -> str:
+        """Get path to data assets folder.
+
+        Public getter for data asset folder path logic.
+
+        Args:
+            dataset_id (DatasetID): ID to gather file path.
+            s3_prefix (bool, optional): Whether to keep the s3 prefix or not. Defaults to True.
+
+        Returns:
+            str: Path to data assets folder.
+        """
+        prefix_to_trim = "s3://" if not s3_prefix else None
+        return self._get_dataset_assets_path(dataset_id=dataset_id, prefix_to_trim=prefix_to_trim)
+
+    def get_dataset_partition_metadata_path(self, data_partition: DatasetPartition, s3_prefix: bool = True) -> str:
+        """Get metadata file path for partition.
+
+        Args:
+            data_partition (DatasetPartition): Partition to gather file path.
+            s3_prefix (bool, optional): Whether to keep the s3 prefix or not. Defaults to True.
+
+        Returns:
+            str: Path to dataset partition metadata file.
+        """
+        prefix_to_trim = "s3://" if not s3_prefix else None
+        return self._get_dataset_partition_metadata_path(data_partition, prefix_to_trim)
+
+    def get_dataset_partition_path(self, data_partition: DatasetPartition, s3_prefix: bool = True) -> str:
+        """Get path to dataset partition data file.
+
+        Args:
+            data_partition (DatasetPartition): Partition to gather file path.
+            s3_prefix (bool, optional): Whether to keep the s3 prefix or not. Defaults to True.
+
+        Returns:
+            str: Path to dataset partition data file.
+        """
+        prefix_to_trim = "s3://" if not s3_prefix else None
+        return self._get_dataset_partition_path(data_partition=data_partition, prefix_to_trim=prefix_to_trim)
+
+    def get_dataset_schema_path(self, dataset_id: DatasetID, s3_prefix: bool = True) -> str:
+        """Get path to the dataset schema.
+
+        Args:
+            dataset_id (DatasetID): ID of the dataset.
+            s3_prefix (bool, optional): Whether to keep the s3 prefix or not. Defaults to True.
+
+        Returns:
+            str: Path to dataset schema.
+        """
+        prefix_to_trim = "s3://" if not s3_prefix else None
+        return self._get_dataset_schema_path(dataset_id=dataset_id, prefix_to_trim=prefix_to_trim)
+
+    def get_column_concatenated_bytes_files_path(self, s3_prefix: bool = True, dataset_name: str = None) -> str:
+        """Gets the path to the root of all column_concatenated_bytes files
+
+        :param s3_prefix: whether to return the s3:// prefix, defaults to True
+        :param dataset_name: if self.store_concatenated_bytes_files_in_dataset is True,
+            it requires dataset name, defaults to None
+        :return: path to the column_concatenated_bytes file with the file_id
+        """
+        prefix_to_trim = "s3://" if not s3_prefix else None
+        return self._get_column_concatenated_bytes_files_path(dataset_name=dataset_name, prefix_to_trim=prefix_to_trim)
 
     def get_column_concatenated_bytes_s3path_from_uuid(self, file_uuid: bytes, dataset_name: str = None) -> str:
         """Public gettr for column concat bytes with uuid

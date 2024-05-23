@@ -9,13 +9,13 @@ from botocore.exceptions import ClientError  # type: ignore
 from botocore.stub import Stubber  # type: ignore
 
 from wicker.core.config import WickerConfig
-from wicker.core.storage import LocalDataStorage, S3DataStorage, S3PathFactory
+from wicker.core.storage import FileSystemDataStorage, S3DataStorage, S3PathFactory
 
 RANDOM_SEED_VALUE = 1
 RANDOM_STRING_CHAR_COUNT = 10
 
 
-class TestLocalDataStorage(TestCase):
+class TestFileSystemDataStorage(TestCase):
     def test_fetch_file(self) -> None:
         """Unit test for fetching file from local/mounted file system to different location"""
         # put file in the directory that you're using for test
@@ -35,7 +35,7 @@ class TestLocalDataStorage(TestCase):
                 open_src.write(expected_string)
 
             # create local file store
-            local_datastore = LocalDataStorage()
+            local_datastore = FileSystemDataStorage()
             # save file to destination
             local_datastore.fetch_file(src_dir, dst_path)
 
