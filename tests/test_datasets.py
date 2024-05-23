@@ -80,7 +80,7 @@ class TestLocalDataset(unittest.TestCase):
 
     def test_dataset(self):
         with self._setup_storage() as (fake_local_storage, fake_local_path_factory, tmpdir):
-            ds = LocalFSDataset(
+            ds = FileSystemDataset(
                 FAKE_NAME,
                 FAKE_PARTITION,
                 FAKE_VERSION,

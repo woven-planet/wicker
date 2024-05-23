@@ -45,6 +45,28 @@ class AbstractDataStorage(ABC):
         """
         pass
 
+    @abstractmethod
+    def put_file(self, input_path: str, target_path: str) -> None:
+        """Put file on data storage in target location.
+
+        :param input_path: input path of file
+        :type input_path: str
+        :param target_path: target path to place file
+        :type target_path: str
+        """
+        pass
+
+    @abstractmethod
+    def put_object(self, object_bytes: bytes, target_path: str) -> None:
+        """Put object on data storage in target location.
+
+        :param object_bytes: Bytes of object to store.
+        :type object_bytes: bytes
+        :param target_path: Path to storage destination.
+        :type target_path: str
+        """
+        pass
+
 
 class FileSystemDataStorage(AbstractDataStorage):
     """Storage routines for reading and writing objects in file system"""
@@ -226,7 +248,7 @@ class S3DataStorage(AbstractDataStorage):
         self.client.download_fileobj(bucket, key, bio)
         return bio.getvalue()
 
-    def put_object(self, object_bytes: bytes, path: str) -> None:
+    def put_object(self, object_bytes: bytes, target_path: str) -> None:
         """Upload an object to S3
 
         :param object_bytes: the object to upload to S3
@@ -235,8 +257,12 @@ class S3DataStorage(AbstractDataStorage):
         :type path: str
         """
         # Long term, we would add an md5sum check and short-circuit the upload if they are the same
-        bucket, key = self.bucket_key_from_s3_path(path)
+        bucket, key = self.bucket_key_from_s3_path(target_path)
         self.client.put_object(Body=object_bytes, Bucket=bucket, Key=key)
+
+    def put_object_s3(self, object_bytes: bytes, s3_path: str) -> None:
+        """Deprecated api access to the put object functionality."""
+        self.put_object(object_bytes=object_bytes, target_path=s3_path)
 
     def put_file(self, local_path: str, target_path: str) -> None:
         """Upload a file to S3
@@ -246,6 +272,10 @@ class S3DataStorage(AbstractDataStorage):
         """
         bucket, key = self.bucket_key_from_s3_path(target_path)
         self.client.upload_file(local_path, bucket, key)
+
+    def put_file_s3(self, local_path: str, s3_path: str) -> None:
+        """Deprecated api access to the put file functionality."""
+        self.put_file(local_path=local_path, target_path=s3_path)
 
     def __eq__(self, other: Any) -> bool:
         # We don't want to use isinstance here to make sure we have the same implementation.
