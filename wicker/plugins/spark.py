@@ -125,7 +125,7 @@ class SparkPersistor(AbstractDataPersistor):
 
         # put the schema up on to s3
         schema_path = s3_path_factory.get_dataset_schema_path(DatasetID(name=dataset_name, version=dataset_version))
-        s3_storage.put_object(serialization.dumps(schema).encode("utf-8"), schema_path)
+        s3_storage.put_object_s3(serialization.dumps(schema).encode("utf-8"), schema_path)
 
         # parse the rows and ensure validation passes, ie: rows actual data matches expected types
         rdd0 = rdd.mapValues(lambda row: parse_row(row, schema))  # type: ignore
