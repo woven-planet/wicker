@@ -117,7 +117,7 @@ class TestS3DataStorage(TestCase):
             data_storage.put_object_s3(object_bytes, input_path)
 
     def test_put_file_s3(self) -> None:
-        """Unit test for the put_file function"""
+        """Unit test for the put_file_s3 function"""
         data_storage = S3DataStorage()
         object_bytes = b"this is my object"
         input_path = "s3://foo/bar/baz/dummy"
