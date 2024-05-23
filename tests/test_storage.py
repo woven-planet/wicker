@@ -46,6 +46,46 @@ class TestFileSystemDataStorage(TestCase):
             with open(dst_path, "r") as open_dst_file:
                 test_string = open_dst_file.readline()
                 assert test_string == expected_string
+    
+    def test_put_file(self) -> None:
+        """Unit test for putting file on local/mounted drive location."""
+        data_storage = FileSystemDataStorage()
+        object_bytes = b"testy testy"
+
+        # write to a sample file in our system
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpfile_path = os.path.join(tmpdir, "test.txt")
+            with open(tmpfile_path, "wb") as open_file:
+                open_file.write(object_bytes)
+            input_path = "path/to/testy/testy/test.testy"
+            input_path = os.path.join(tmpdir, input_path)
+            data_storage.put_file(tmpfile_path, input_path)
+            
+            # test the file was written correctly by opening and verifying
+            moved_bytes = None
+            with open(input_path, "rb") as read_file:
+                moved_bytes = read_file.readline()
+
+            assert moved_bytes == object_bytes
+
+    def test_put_object(self) -> None:
+        """Unit test for putting object on local/mounted drive location."""
+        data_storage = FileSystemDataStorage()
+        object_bytes = b"testy testy"
+
+        # write to a sample file in our system
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_path = "path/to/testy/testy/test.testy"
+            input_path = os.path.join(tmpdir, input_path)
+            data_storage.put_object(object_bytes, input_path)
+            
+            # test the file was written correctly by opening and verifying
+            moved_bytes = None
+            with open(input_path, "rb") as read_file:
+                moved_bytes = read_file.readline()
+
+            assert moved_bytes == object_bytes
+
 
 
 class TestS3DataStorage(TestCase):
