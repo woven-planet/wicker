@@ -104,7 +104,7 @@ class DatasetWriterBackend:
             hashed_row_key,
         )
 
-        # Persist data in S3 and in MetadataDatabase
+        # Persist data in datastore and in MetadataDatabase
         self._s3_storage.put_object(pickled_row, row_s3_path)
         self._metadata_db.save_row_metadata(dataset_id, key, row_s3_path, len(pickled_row))
 
