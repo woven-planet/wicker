@@ -1,4 +1,6 @@
 import os
+import random
+import string
 import tempfile
 from typing import Any, Dict
 from unittest import TestCase, mock
@@ -7,7 +9,43 @@ from botocore.exceptions import ClientError  # type: ignore
 from botocore.stub import Stubber  # type: ignore
 
 from wicker.core.config import WickerConfig
-from wicker.core.storage import S3DataStorage, S3PathFactory
+from wicker.core.storage import FileSystemDataStorage, S3DataStorage, S3PathFactory
+
+RANDOM_SEED_VALUE = 1
+RANDOM_STRING_CHAR_COUNT = 10
+
+
+class TestFileSystemDataStorage(TestCase):
+    def test_fetch_file(self) -> None:
+        """Unit test for fetching file from local/mounted file system to different location"""
+        # put file in the directory that you're using for test
+        with tempfile.TemporaryDirectory() as temp_dir:
+            src_dir = os.path.join(temp_dir, "test", "location", "starting", "mount")
+            os.makedirs(src_dir, exist_ok=True)
+            src_path = os.path.join(src_dir, "test.txt")
+            dst_dir = os.path.join(temp_dir, "desired", "location", "for", "test")
+            os.makedirs(dst_dir, exist_ok=True)
+            dst_path = os.path.join(dst_dir, "test.txt")
+
+            random.seed(RANDOM_SEED_VALUE)
+            expected_string = "".join(
+                random.choices(string.ascii_uppercase + string.digits, k=RANDOM_STRING_CHAR_COUNT)
+            )
+            with open(src_path, "w") as open_src:
+                open_src.write(expected_string)
+
+            # create local file store
+            local_datastore = FileSystemDataStorage()
+            # save file to destination
+            local_datastore.fetch_file(src_dir, dst_path)
+
+            # verify file exists
+            assert os.path.exists(dst_path)
+
+            # assert contents are the expected
+            with open(dst_path, "r") as open_dst_file:
+                test_string = open_dst_file.readline()
+                assert test_string == expected_string
 
 
 class TestS3DataStorage(TestCase):
@@ -103,15 +141,15 @@ class TestS3DataStorage(TestCase):
 
     # Stubber does not have a stub function for S3 client download_file function, so patch it
     @mock.patch("boto3.s3.transfer.S3Transfer.download_file")
-    def test_fetch_file_s3(self, download_file: mock.Mock) -> None:
-        """Unit test for the fetch_file_s3 function."""
+    def test_fetch_file(self, download_file: mock.Mock) -> None:
+        """Unit test for the fetch_file function."""
         data_storage = S3DataStorage()
         input_path = "s3://foo/bar/baz/dummy"
         with tempfile.TemporaryDirectory() as local_prefix:
             # Add a side-effect to create the file to download at the correct local path
             download_file.side_effect = self.download_file_side_effect
 
-            local_path = data_storage.fetch_file_s3(input_path, local_prefix)
+            local_path = data_storage.fetch_file(input_path, local_prefix)
             download_file.assert_called_once_with(
                 bucket="foo",
                 key="bar/baz/dummy",
@@ -124,7 +162,7 @@ class TestS3DataStorage(TestCase):
     # Stubber does not have a stub function for S3 client download_file function, so patch it
     @mock.patch("boto3.s3.transfer.S3Transfer.download_file")
     def test_fetch_file_s3_on_nonexistent_file(self, download_file: mock.Mock) -> None:
-        """Unit test for the fetch_file_s3 function for a non-existent file in S3."""
+        """Unit test for the fetch_file function for a non-existent file in S3."""
         data_storage = S3DataStorage()
         input_path = "s3://foo/bar/barbazz/dummy"
         local_prefix = "/tmp"
@@ -134,7 +172,7 @@ class TestS3DataStorage(TestCase):
         download_file.side_effect = side_effect
 
         with self.assertRaises(ClientError):
-            data_storage.fetch_file_s3(input_path, local_prefix)
+            data_storage.fetch_file(input_path, local_prefix)
 
 
 class TestS3PathFactory(TestCase):

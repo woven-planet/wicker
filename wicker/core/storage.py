@@ -9,7 +9,9 @@ Boto3 S3 documentation links:
 import io
 import logging
 import os
+import shutil
 import uuid
+from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
@@ -27,7 +29,62 @@ from wicker.core.utils import time_limit
 logger = logging.getLogger(__name__)
 
 
-class S3DataStorage:
+class AbstractDataStorage(ABC):
+    """Abstract data storage class that implements required methods for Column Bytes File Cache"""
+
+    @abstractmethod
+    def fetch_file(self, input_path: str, local_prefix: str, timeout_seconds: int) -> str:
+        """Fetch file from chosen data storage method.
+
+        :param input_path: input file path
+        :param local_prefix: local path that specifies where to download the file
+        :param timeout_seconds: number of seconds till timing out on waiting for the file to be downloaded
+        :return: local path to the downloaded file
+
+        """
+        pass
+
+
+class FileSystemDataStorage(AbstractDataStorage):
+    """Storage routines for reading and writing objects in file system"""
+
+    def __init__(self) -> None:
+        """Constructor for a file system storage instance."""
+        pass
+
+    @retry(
+        Exception,
+        tries=get_config().storage_download_config.retries,
+        backoff=get_config().storage_download_config.retry_backoff,
+        delay=get_config().storage_download_config.retry_delay_s,
+        logger=logger,
+    )
+    def download_with_retries(self, input_path: str, local_path: str):
+        try:
+            shutil.copyfile(input_path, local_path)
+        except Exception as e:
+            logging.error(f"Failed to download/move object for file path: {input_path}")
+            raise e
+
+    def fetch_file(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
+        """Fetches a file system, ie: gets the path to the file.
+
+        This function assumes the input_path is a valid file in the file system based on wicker assumed pathing.
+
+        The reasoning here is that if you use this for a mounted file system that doesn't have caching
+        to local automatically you can grab and move files to local file system on instance.
+
+        :param input_path: input file path on system
+        :param local_prefix: local path that specifies where to download the file
+        :param timeout_seconds: number of seconds till timing out on waiting for the file to be downloaded
+        :return: local path to the file on the local file system
+        """
+        input_path = os.path.join(input_path, os.path.basename(local_prefix))
+        self.download_with_retries(input_path, local_prefix)
+        return local_prefix
+
+
+class S3DataStorage(AbstractDataStorage):
     """Storage routines for reading and writing objects in S3"""
 
     def __init__(self, session: Optional[boto3.session.Session] = None) -> None:
@@ -100,8 +157,9 @@ class S3DataStorage:
             logging.error(f"Failed to download s3 object in bucket: {bucket}, key: {key}")
             raise e
 
-    def fetch_file_s3(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
-        """Fetches a file from S3 to the local machine and skips it if it already exists. This function
+    def fetch_file(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
+        """
+        Fetches a file from S3 to the local machine and skips it if it already exists. This function
         is safe to call concurrently from multiple processes and utilizes a local filelock to block
         parallel downloads such that only one process will perform the download.
 
@@ -132,6 +190,10 @@ class S3DataStorage:
                         pass
 
         return local_path
+
+    def fetch_file_s3(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
+        """Deprecated fetch file access, function signature kept to preserve backwards compatibility."""
+        return self.fetch_file(input_path=input_path, local_prefix=local_prefix, timeout_seconds=timeout_seconds)
 
     def fetch_obj_s3(self, input_path: str) -> bytes:
         """Fetches an object from S3 as bytes in memory
