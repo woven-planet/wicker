@@ -46,7 +46,6 @@ class AbstractDataset(abc.ABC):
     ) -> None:
         super().__init__()
         self._arrow_table: Optional[pyarrow.Table] = None
-        self._column_bytes_file_cache = None
         self._columns_to_load = columns_to_load
         self._filelock_timeout_seconds = filelock_timeout_seconds
         self._local_cache_path_prefix = local_cache_path_prefix
@@ -55,7 +54,20 @@ class AbstractDataset(abc.ABC):
         self._storage = storage
         self._treat_objects_as_bytes = treat_objects_as_bytes
 
+        self._column_bytes_file_cache: Optional[ColumnBytesFileCache] = None
+        if local_cache_path_prefix is not None:
+            self._column_bytes_file_cache = ColumnBytesFileCache(
+                local_cache_path_prefix=local_cache_path_prefix,
+                filelock_timeout_seconds=filelock_timeout_seconds,
+                path_factory=self._path_factory,
+                storage=self._storage,
+                dataset_name=dataset_name,
+            )
         self._dataset_id = DatasetID(name=dataset_name, version=dataset_version)
+        self._dataset_definition = DatasetDefinition(
+            self._dataset_id,
+            schema=self.schema,
+        )
         self._partition = DatasetPartition(dataset_id=self._dataset_id, partition=dataset_partition_name)
 
     @abc.abstractmethod
@@ -73,9 +85,11 @@ class AbstractDataset(abc.ABC):
         """Return the schema of the dataset."""
         schema_data = None
         schema_path = self._path_factory._get_dataset_schema_path(self._dataset_id)
-        local_path = self._storage.fetch_file(
-            schema_path, self._local_cache_path_prefix, timeout_seconds=self._filelock_timeout_seconds
-        )
+        local_path = schema_path
+        if self._column_bytes_file_cache is not None and self._local_cache_path_prefix is not None:
+            local_path = self._storage.fetch_file(
+                schema_path, self._local_cache_path_prefix, timeout_seconds=self._filelock_timeout_seconds
+            )
         with open(local_path, "rb") as f:
             schema_data = serialization.loads(
                 f.read().decode("utf-8"), treat_objects_as_bytes=self._treat_objects_as_bytes
@@ -143,21 +157,6 @@ class FileSystemDataset(AbstractDataset):
             filelock_timeout_seconds=filelock_timeout_seconds,
             local_cache_path_prefix=local_cache_path_prefix,
             treat_objects_as_bytes=treat_objects_as_bytes,
-        )
-
-        self._column_bytes_file_cache = None
-        if self._local_cache_path_prefix:
-            self._column_bytes_file_cache = ColumnBytesFileCache(
-                local_cache_path_prefix=self._local_cache_path_prefix,
-                filelock_timeout_seconds=filelock_timeout_seconds,
-                path_factory=self._path_factory,
-                storage=self._storage,
-                dataset_name=dataset_name,
-            )
-
-        self._dataset_definition = DatasetDefinition(
-            self._dataset_id,
-            schema=self.schema,
         )
 
     def arrow_table(self) -> pyarrow.Table:
@@ -248,18 +247,6 @@ class S3Dataset(AbstractDataset):
             treat_objects_as_bytes=treat_objects_as_bytes,
         )
 
-        self._column_bytes_file_cache = ColumnBytesFileCache(
-            local_cache_path_prefix=local_cache_path_prefix,
-            filelock_timeout_seconds=filelock_timeout_seconds,
-            path_factory=self._path_factory,
-            storage=self._storage,
-            dataset_name=dataset_name,
-        )
-        self._dataset_definition = DatasetDefinition(
-            self._dataset_id,
-            schema=self.schema,
-        )
-
     def arrow_table(self) -> pyarrow.Table:
         path = self._path_factory._get_dataset_partition_path(self._partition, prefix_to_trim="s3://")
         if not self._arrow_table:
@@ -270,6 +257,8 @@ class S3Dataset(AbstractDataset):
         return len(self.arrow_table())
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
+        if self._column_bytes_file_cache is None:
+            raise ValueError("Need to have column bytes file cache.")
         tbl = self.arrow_table()
         columns = self._columns_to_load if self._columns_to_load is not None else tbl.column_names
         row = {col: tbl[col][idx].as_py() for col in columns}
