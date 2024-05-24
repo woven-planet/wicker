@@ -16,7 +16,7 @@ from types import TracebackType
 from typing import IO, Any, Dict, List, Literal, Optional, Tuple, Type, Union
 
 from wicker.core.storage import (
-    FileSystemDataStorage,
+    AbstractDataStorage,
     S3DataStorage,
     S3PathFactory,
     WickerPathFactory,
@@ -90,8 +90,8 @@ class ColumnBytesFileWriter:
 
     def __init__(
         self,
-        storage: Union[FileSystemDataStorage, S3DataStorage] = S3DataStorage(),
-        path_factory: Union[WickerPathFactory, S3PathFactory] = S3PathFactory(),
+        storage: AbstractDataStorage = S3DataStorage(),
+        path_factory: WickerPathFactory = S3PathFactory(),
         target_file_size: Optional[int] = None,
         target_file_rowgroup_size: Optional[int] = None,
         dataset_name: str = None,
@@ -190,7 +190,7 @@ class ColumnBytesFileCache:
         local_cache_path_prefix: str = "/tmp",
         filelock_timeout_seconds: int = -1,
         path_factory: Union[WickerPathFactory, S3PathFactory] = S3PathFactory(),
-        storage: Optional[Union[FileSystemDataStorage, S3DataStorage]] = None,
+        storage: Optional[AbstractDataStorage] = None,
         dataset_name: str = None,
     ):
         """Initializes a ColumnBytesFileCache

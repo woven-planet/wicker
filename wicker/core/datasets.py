@@ -15,6 +15,7 @@ from wicker.core.config import get_config  # type: ignore
 from wicker.core.definitions import DatasetDefinition, DatasetID, DatasetPartition
 from wicker.core.shuffle import ShuffleWorker
 from wicker.core.storage import (
+    AbstractDataStorage,
     FileSystemDataStorage,
     S3DataStorage,
     S3PathFactory,
@@ -30,6 +31,37 @@ FILE_LOCK_TIMEOUT_SECONDS = 300
 class AbstractDataset(abc.ABC):
     """Interface for a Map-style (non-streaming) Dataset"""
 
+    def __init__(
+        self,
+        dataset_name: str,
+        dataset_partition_name: str,
+        dataset_version: str,
+        storage: AbstractDataStorage,
+        pa_filesystem: pafs.FileSystem,
+        path_factory: WickerPathFactory,
+        columns_to_load: Optional[List[str]] = None,
+        local_cache_path_prefix: Optional[str] = os.getenv("TMPDIR", "/tmp"),
+        filelock_timeout_seconds: int = FILE_LOCK_TIMEOUT_SECONDS,
+        treat_objects_as_bytes: bool = False,
+    ) -> None:
+        super().__init__()
+        self._columns_to_load = columns_to_load
+        self._treat_objects_as_bytes = treat_objects_as_bytes
+        self._arrow_table: Optional[pyarrow.Table] = None
+
+        self._filelock_timeout_seconds = filelock_timeout_seconds
+        self._storage = storage
+        self._path_factory = path_factory
+        self._column_bytes_file_cache = None
+
+        self._pa_filesystem = pa_filesystem
+
+        self._dataset_id = DatasetID(name=dataset_name, version=dataset_version)
+        self._partition = DatasetPartition(dataset_id=self._dataset_id, partition=dataset_partition_name)
+        self._pa_filesystem = pa_filesystem
+
+        self._local_cache_path_prefix = local_cache_path_prefix
+
     @abc.abstractmethod
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         """Gets the ith Example from the given dataset/version/partition"""
@@ -40,10 +72,19 @@ class AbstractDataset(abc.ABC):
         """Returns the length of the dataset/version/partition"""
         pass
 
-    @abc.abstractmethod
+    @property
     def schema(self) -> DatasetSchema:
         """Return the schema of the dataset."""
-        pass
+        schema_data = None
+        schema_path = self._path_factory._get_dataset_schema_path(self._dataset_id)
+        local_path = self._storage.fetch_file(
+            schema_path, self._local_cache_path_prefix, timeout_seconds=self._filelock_timeout_seconds
+        )
+        with open(local_path, "rb") as f:
+            schema_data = serialization.loads(
+                f.read().decode("utf-8"), treat_objects_as_bytes=self._treat_objects_as_bytes
+            )
+        return schema_data
 
     @abc.abstractmethod
     def arrow_table(self) -> pyarrow.Table:
@@ -84,23 +125,30 @@ class FileSystemDataset(AbstractDataset):
         :param storage: Optional FileSystemDataStorage object for pulling files from filesystem
         :param treat_objects_as_bytes: If set, don't try to decode ObjectFields and keep them as binary data.
         """
-        super().__init__()
         if path_factory is None and filesystem_root_path is None:
             raise ValueError("Need to pass either path factory of wicker dataset or root of the tree.")
-        self._columns_to_load = columns_to_load
-        self._treat_objects_as_bytes = treat_objects_as_bytes
-        self._schema: Optional[DatasetSchema] = None
-        self._arrow_table: Optional[pyarrow.Table] = None
-
-        self._local_cache_path_prefix: Optional[str] = local_cache_path_prefix
-        self._filelock_timeout_seconds = filelock_timeout_seconds
-        self._storage = storage if storage is not None else FileSystemDataStorage()
         # ignore type failure here as we handle the case where they're both none above
-        self._path_factory = (
+        path_factory = (
             path_factory
             if path_factory is not None
             else WickerPathFactory(root_path=filesystem_root_path)  # type: ignore
         )
+        storage = storage if storage is not None else FileSystemDataStorage()
+        pa_filesystem = pafs.LocalFileSystem() if pa_filesystem is None else pa_filesystem
+
+        super().__init__(
+            dataset_name=dataset_name,
+            dataset_partition_name=dataset_partition_name,
+            dataset_version=dataset_version,
+            storage=storage,
+            pa_filesystem=pa_filesystem,
+            path_factory=path_factory,
+            columns_to_load=columns_to_load,
+            filelock_timeout_seconds=filelock_timeout_seconds,
+            local_cache_path_prefix=local_cache_path_prefix,
+            treat_objects_as_bytes=treat_objects_as_bytes,
+        )
+
         self._column_bytes_file_cache = None
         if self._local_cache_path_prefix:
             self._column_bytes_file_cache = ColumnBytesFileCache(
@@ -111,35 +159,10 @@ class FileSystemDataset(AbstractDataset):
                 dataset_name=dataset_name,
             )
 
-        self._pa_filesystem = (
-            pafs.S3FileSystem(region=get_config().aws_s3_config.region) if pa_filesystem is None else pa_filesystem
-        )
-
-        self._dataset_id = DatasetID(name=dataset_name, version=dataset_version)
-        self._partition = DatasetPartition(dataset_id=self._dataset_id, partition=dataset_partition_name)
         self._dataset_definition = DatasetDefinition(
             self._dataset_id,
-            schema=self.schema(),
+            schema=self.schema,
         )
-
-    def schema(self) -> DatasetSchema:
-        """Grab and load schema for dataset from expected path.
-
-        Returns:
-            DatasetSchema: Dataset schema object for the loaded dataset.
-        """
-        if self._schema is None:
-            schema_path = self._path_factory._get_dataset_schema_path(self._dataset_id)
-            local_path = schema_path
-            if self._column_bytes_file_cache is not None and self._local_cache_path_prefix is not None:
-                local_path = self._storage.fetch_file(
-                    schema_path, self._local_cache_path_prefix, timeout_seconds=self._filelock_timeout_seconds
-                )
-            with open(local_path, "rb") as f:
-                self._schema = serialization.loads(
-                    f.read().decode("utf-8"), treat_objects_as_bytes=self._treat_objects_as_bytes
-                )
-        return self._schema
 
     def arrow_table(self) -> pyarrow.Table:
         """Grab and load arrow table from expected path.
@@ -176,8 +199,8 @@ class FileSystemDataset(AbstractDataset):
         row = {col: tbl[col][idx].as_py() for col in columns}
         if self._column_bytes_file_cache is not None:
             return dataloading.load_example(
-                self._column_bytes_file_cache.resolve_pointers(row, self.schema()),
-                self.schema(),
+                self._column_bytes_file_cache.resolve_pointers(row, self.schema),
+                self.schema,
             )
         else:
             raise NotImplementedError("Need to implement cacheless pull")
@@ -210,46 +233,39 @@ class S3Dataset(AbstractDataset):
             defaults to FILE_LOCK_TIMEOUT_SECONDS
         :param treat_objects_as_bytes: If set, don't try to decode ObjectFields and keep them as binary data.
         """
-        super().__init__()
-        self._columns_to_load: Optional[List[str]] = columns_to_load
-        self._treat_objects_as_bytes = treat_objects_as_bytes
-        self._schema: Optional[DatasetSchema] = None
-        self._arrow_table: Optional[pyarrow.Table] = None
+        s3_path_factory = s3_path_factory if s3_path_factory is not None else S3PathFactory()
+        storage = storage if storage is not None else S3DataStorage()
+        pa_filesystem = (
+            pafs.S3FileSystem(region=get_config().aws_s3_config.region) if pa_filesystem is None else pa_filesystem
+        )
 
-        self._local_cache_path_prefix = local_cache_path_prefix
-        self._filelock_timeout_seconds = filelock_timeout_seconds
-        self._storage = storage if storage is not None else S3DataStorage()
-        self._s3_path_factory = s3_path_factory if s3_path_factory is not None else S3PathFactory()
+        super().__init__(
+            dataset_name=dataset_name,
+            dataset_partition_name=dataset_partition_name,
+            dataset_version=dataset_version,
+            storage=storage,
+            pa_filesystem=pa_filesystem,
+            path_factory=s3_path_factory,
+            columns_to_load=columns_to_load,
+            local_cache_path_prefix=local_cache_path_prefix,
+            filelock_timeout_seconds=filelock_timeout_seconds,
+            treat_objects_as_bytes=treat_objects_as_bytes,
+        )
+
         self._column_bytes_file_cache = ColumnBytesFileCache(
             local_cache_path_prefix=local_cache_path_prefix,
             filelock_timeout_seconds=filelock_timeout_seconds,
-            path_factory=self._s3_path_factory,
+            path_factory=self._path_factory,
             storage=self._storage,
             dataset_name=dataset_name,
         )
-        self._pa_filesystem = pafs.LocalFileSystem() if pa_filesystem is None else pa_filesystem
-
-        self._dataset_id = DatasetID(name=dataset_name, version=dataset_version)
-        self._partition = DatasetPartition(dataset_id=self._dataset_id, partition=dataset_partition_name)
         self._dataset_definition = DatasetDefinition(
             self._dataset_id,
-            schema=self.schema(),
+            schema=self.schema,
         )
 
-    def schema(self) -> DatasetSchema:
-        if self._schema is None:
-            schema_path = self._s3_path_factory.get_dataset_schema_path(self._dataset_id)
-            local_path = self._storage.fetch_file(
-                schema_path, self._local_cache_path_prefix, timeout_seconds=self._filelock_timeout_seconds
-            )
-            with open(local_path, "rb") as f:
-                self._schema = serialization.loads(
-                    f.read().decode("utf-8"), treat_objects_as_bytes=self._treat_objects_as_bytes
-                )
-        return self._schema
-
     def arrow_table(self) -> pyarrow.Table:
-        path = self._s3_path_factory.get_dataset_partition_path(self._partition, s3_prefix=False)
+        path = self._path_factory.get_dataset_partition_path(self._partition, s3_prefix=False)
         if not self._arrow_table:
             self._arrow_table = papq.read_table(path, columns=self._columns_to_load, filesystem=self._pa_filesystem)
         return self._arrow_table
@@ -262,8 +278,8 @@ class S3Dataset(AbstractDataset):
         columns = self._columns_to_load if self._columns_to_load is not None else tbl.column_names
         row = {col: tbl[col][idx].as_py() for col in columns}
         return dataloading.load_example(
-            self._column_bytes_file_cache.resolve_pointers(row, self.schema()),
-            self.schema(),
+            self._column_bytes_file_cache.resolve_pointers(row, self.schema),
+            self.schema,
         )
 
     def _get_parquet_dir_size(self) -> int:
@@ -275,7 +291,7 @@ class S3Dataset(AbstractDataset):
         # bytes size of arrow table not bytes in arrow table
         # bytes in arrow table is a method of arrow table but it doesn't
         # reflect the size of the file sizes stored on s3 just the loaded data
-        arrow_path = self._s3_path_factory.get_dataset_partition_path(self._partition, s3_prefix=False)
+        arrow_path = self._path_factory.get_dataset_partition_path(self._partition, s3_prefix=False)
         bucket, key = arrow_path.replace("s3://", "").split("/", 1)
 
         def get_folder_size(bucket, prefix):
@@ -297,7 +313,7 @@ class S3Dataset(AbstractDataset):
 
         # need to know which columns are heavy pntr columns we go to for
         # byte adding
-        schema = self.schema()
+        schema = self.schema
         heavy_pointer_cols = []
         for col_name in schema.get_all_column_names():
             if schema.get_column(col_name).is_heavy_pointer:
