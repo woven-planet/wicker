@@ -1,4 +1,5 @@
 import abc
+import logging
 import os
 from functools import cached_property
 from multiprocessing.pool import ThreadPool
@@ -10,7 +11,11 @@ import pyarrow.fs as pafs  # type: ignore
 import pyarrow.parquet as papq  # type: ignore
 import tqdm  # type: ignore
 
-from wicker.core.column_files import ColumnBytesFileCache, ColumnBytesFileLocationV1
+from wicker.core.column_files import (
+    ColumnBytesFileCache,
+    ColumnBytesFileLocationV1,
+    ColumnBytesFileReader,
+)
 from wicker.core.config import get_config  # type: ignore
 from wicker.core.definitions import DatasetDefinition, DatasetID, DatasetPartition
 from wicker.core.shuffle import ShuffleWorker
@@ -26,6 +31,8 @@ from wicker.schema.schema import DatasetSchema
 
 # How long to wait before timing out on filelocks in seconds
 FILE_LOCK_TIMEOUT_SECONDS = 300
+
+logger = logging.getLogger(__name__)
 
 
 class AbstractDataset(abc.ABC):
@@ -68,15 +75,20 @@ class AbstractDataset(abc.ABC):
         self._storage = storage
         self._treat_objects_as_bytes = treat_objects_as_bytes
 
-        self._column_bytes_file_cache: Optional[ColumnBytesFileCache] = None
+        self._column_bytes_file_reader: ColumnBytesFileReader = ColumnBytesFileReader(
+            column_bytes_root_path=path_factory._get_column_concatenated_bytes_files_path(dataset_name=dataset_name)
+        )
+        # if we have a cache prefix create a cache
         if local_cache_path_prefix is not None:
-            self._column_bytes_file_cache = ColumnBytesFileCache(
+            logging.info(f"Cache passed at path - {local_cache_path_prefix}, creating read through cache on top.")
+            self._column_bytes_file_reader = ColumnBytesFileCache(
+                column_root_path=path_factory._get_column_concatenated_bytes_files_path(dataset_name=dataset_name),
                 local_cache_path_prefix=local_cache_path_prefix,
                 filelock_timeout_seconds=filelock_timeout_seconds,
-                path_factory=self._path_factory,
                 storage=self._storage,
-                dataset_name=dataset_name,
             )
+        else:
+            logging.info("No cache passed, reading without caching.")
         self._dataset_id = DatasetID(name=dataset_name, version=dataset_version)
         self._dataset_definition = DatasetDefinition(
             self._dataset_id,
@@ -100,7 +112,8 @@ class AbstractDataset(abc.ABC):
         schema_data = None
         schema_path = self._path_factory._get_dataset_schema_path(self._dataset_id)
         local_path = schema_path
-        if self._column_bytes_file_cache is not None and self._local_cache_path_prefix is not None:
+        # only fetch the file locally if we have a cache prefix
+        if self._local_cache_path_prefix is not None:
             local_path = self._storage.fetch_file(
                 schema_path, self._local_cache_path_prefix, timeout_seconds=self._filelock_timeout_seconds
             )
@@ -206,13 +219,10 @@ class FileSystemDataset(AbstractDataset):
         tbl = self.arrow_table()
         columns = self._columns_to_load if self._columns_to_load is not None else tbl.column_names
         row = {col: tbl[col][idx].as_py() for col in columns}
-        if self._column_bytes_file_cache is not None:
-            return dataloading.load_example(
-                self._column_bytes_file_cache.resolve_pointers(row, self.schema),
-                self.schema,
-            )
-        else:
-            raise NotImplementedError("Need to implement cacheless pull")
+        return dataloading.load_example(
+            self._column_bytes_file_reader.resolve_pointers(row, self.schema),
+            self.schema,
+        )
 
 
 class S3Dataset(AbstractDataset):
@@ -271,13 +281,11 @@ class S3Dataset(AbstractDataset):
         return len(self.arrow_table())
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
-        if self._column_bytes_file_cache is None:
-            raise ValueError("Need to have column bytes file cache.")
         tbl = self.arrow_table()
         columns = self._columns_to_load if self._columns_to_load is not None else tbl.column_names
         row = {col: tbl[col][idx].as_py() for col in columns}
         return dataloading.load_example(
-            self._column_bytes_file_cache.resolve_pointers(row, self.schema),
+            self._column_bytes_file_reader.resolve_pointers(row, self.schema),
             self.schema,
         )
 

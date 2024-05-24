@@ -84,7 +84,7 @@ class TestFileSystemDataset(unittest.TestCase):
                 FAKE_NAME,
                 FAKE_PARTITION,
                 FAKE_VERSION,
-                local_cache_path_prefix=tmpdir,
+                local_cache_path_prefix=None,
                 columns_to_load=None,
                 storage=fake_local_storage,
                 path_factory=fake_local_path_factory,

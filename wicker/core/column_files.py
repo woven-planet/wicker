@@ -7,13 +7,14 @@ offsets to access the individual rows within the file.
 
 from __future__ import annotations
 
+import abc
 import dataclasses
 import os
 import struct
 import tempfile
 import uuid
 from types import TracebackType
-from typing import IO, Any, Dict, List, Literal, Optional, Tuple, Type
+from typing import IO, Any, Callable, Dict, List, Literal, Optional, Tuple, Type
 
 from wicker.core.storage import (
     AbstractDataStorage,
@@ -182,16 +183,49 @@ class ColumnBytesFileWriter:
         self.write_buffers[column_name] = self._get_new_buffer()
 
 
-class ColumnBytesFileCache:
+class ColumnBytesFileReader(abc.ABC):
+    """A reader class for column bytes files to inherit upon for caches and cacheless"""
+
+    def __init__(
+        self,
+        column_bytes_root_path: str,
+    ) -> None:
+        super().__init__()
+        self._column_bytes_root_path = column_bytes_root_path
+
+    def read(self, column_bytes_file_info: ColumnBytesFileLocationV1) -> bytes:
+        """Read data from column bytes file.
+
+        :param column_bytes_file_info: Location object to column bytes file on data store
+        :type column_bytes_file_info: ColumnBytesFileLocationV1
+        :return: bytes read from the column bytes file
+        """
+        column_concatenated_bytes_file_path = os.path.join(
+            self._column_bytes_root_path, str(column_bytes_file_info.file_id)
+        )
+
+        with open(column_concatenated_bytes_file_path, "rb") as f:
+            f.seek(column_bytes_file_info.byte_offset)
+            return f.read(column_bytes_file_info.data_size)
+
+    def resolve_pointers(
+        self,
+        example: validation.AvroRecord,
+        schema: schema.DatasetSchema,
+    ):
+        visitor = ResolvePointersVisitor(example, schema, lambda cbf_info: self.read(cbf_info))
+        return visitor.resolve_pointers()
+
+
+class ColumnBytesFileCache(ColumnBytesFileReader):
     """A read-through caching abstraction for accessing ColumnBytesFiles"""
 
     def __init__(
         self,
+        column_root_path: str,
         local_cache_path_prefix: str = "/tmp",
         filelock_timeout_seconds: int = -1,
-        path_factory: WickerPathFactory = S3PathFactory(),
         storage: Optional[AbstractDataStorage] = None,
-        dataset_name: str = None,
     ):
         """Initializes a ColumnBytesFileCache
 
@@ -203,17 +237,15 @@ class ColumnBytesFileCache:
         :param dataset_name: name of the dataset, defaults to None
         :type dataset_name: str, optional
         """
+        super().__init__(column_bytes_root_path=column_root_path)
         self._storage = storage if storage is not None else S3DataStorage()
         self._root_path = local_cache_path_prefix
         self._filelock_timeout_seconds = filelock_timeout_seconds
-        # use the private function here as we don't use the s3 prefix removal anyway
-        self._columns_root_path = path_factory._get_column_concatenated_bytes_files_path(dataset_name=dataset_name)
 
-    def read(
-        self,
-        cbf_info: ColumnBytesFileLocationV1,
-    ) -> bytes:
-        column_concatenated_bytes_file_path = os.path.join(self._columns_root_path, str(cbf_info.file_id))
+    def read(self, column_bytes_file_info: ColumnBytesFileLocationV1) -> bytes:
+        column_concatenated_bytes_file_path = os.path.join(
+            self._column_bytes_root_path, str(column_bytes_file_info.file_id)
+        )
 
         local_path = self._storage.fetch_file(
             column_concatenated_bytes_file_path,
@@ -222,16 +254,8 @@ class ColumnBytesFileCache:
         )
 
         with open(local_path, "rb") as f:
-            f.seek(cbf_info.byte_offset)
-            return f.read(cbf_info.data_size)
-
-    def resolve_pointers(
-        self,
-        example: validation.AvroRecord,
-        schema: schema.DatasetSchema,
-    ) -> validation.AvroRecord:
-        visitor = ResolvePointersVisitor(example, schema, self)
-        return visitor.resolve_pointers()
+            f.seek(column_bytes_file_info.byte_offset)
+            return f.read(column_bytes_file_info.data_size)
 
 
 class ResolvePointersVisitor(schema.DatasetSchemaVisitor[Any]):
@@ -243,9 +267,9 @@ class ResolvePointersVisitor(schema.DatasetSchemaVisitor[Any]):
         self,
         example: validation.AvroRecord,
         schema: schema.DatasetSchema,
-        cbf_cache: ColumnBytesFileCache,
+        object_read_routine: Callable[[ColumnBytesFileLocationV1], bytes],
     ):
-        self.cbf_cache = cbf_cache
+        self.object_read_routine = object_read_routine
 
         # Pointers to original data (data should be kept immutable)
         self._schema = schema
@@ -322,4 +346,4 @@ class ResolvePointersVisitor(schema.DatasetSchemaVisitor[Any]):
         if data is None:
             return data
         cbf_info = ColumnBytesFileLocationV1.from_bytes(data)
-        return self.cbf_cache.read(cbf_info)
+        return self.object_read_routine(cbf_info)
