@@ -103,7 +103,7 @@ class AbstractDataset(abc.ABC):
 
 
 class FileSystemDataset(AbstractDataset):
-    """Implementation of a Map-based dataset on local fs or mounted drive"""
+    """Implementation of a Map-based dataset on local file system or mounted drive"""
 
     def __init__(
         self,

@@ -100,7 +100,7 @@ class FileSystemDataStorage(AbstractDataStorage):
         :param input_path: input file path on system
         :param local_prefix: local path that specifies where to download the file
         :param timeout_seconds: number of seconds till timing out on waiting for the file to be downloaded
-        :return: local path to the file on the local fs
+        :return: local path to the file on the local file system
         """
         local_full_path = os.path.join(local_prefix, os.path.basename(input_path))
         self.download_with_retries(input_path, local_full_path)
