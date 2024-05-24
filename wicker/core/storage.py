@@ -103,7 +103,9 @@ class FileSystemDataStorage(AbstractDataStorage):
         :return: local path to the file on the local file system
         """
         local_full_path = os.path.join(local_prefix, os.path.basename(input_path))
-        self.download_with_retries(input_path, local_full_path)
+        # for now assume if local file exists don't re-download, need to check file sum longer term
+        if not os.path.exists(local_full_path):
+            self.download_with_retries(input_path, local_full_path)
         return local_full_path
 
     def put_file(self, input_path: str, target_path: str) -> None:
@@ -214,22 +216,22 @@ class S3DataStorage(AbstractDataStorage):
         """
         bucket, key = self.bucket_key_from_s3_path(input_path)
         local_path = os.path.join(local_prefix, key)
+        if not os.path.exists(local_path):
+            lock_path = local_path + ".lock"
+            success_marker = local_path + ".success"
+            os.makedirs(os.path.dirname(local_path), exist_ok=True)
 
-        lock_path = local_path + ".lock"
-        success_marker = local_path + ".success"
-        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+            while not os.path.isfile(success_marker):
+                with SimpleUnixFileLock(lock_path, timeout_seconds=timeout_seconds):
+                    if not os.path.isfile(success_marker):
 
-        while not os.path.isfile(success_marker):
-            with SimpleUnixFileLock(lock_path, timeout_seconds=timeout_seconds):
-                if not os.path.isfile(success_marker):
-
-                    # For now, we will only download the file if it has not already been downloaded already.
-                    # Long term, we would also add a size check or md5sum comparison against the object in S3.
-                    filedir = os.path.split(local_path)[0]
-                    os.makedirs(filedir, exist_ok=True)
-                    self.download_with_retries(bucket=bucket, key=key, local_path=local_path)
-                    with open(success_marker, "w"):
-                        pass
+                        # For now, we will only download the file if it has not already been downloaded already.
+                        # Long term, we would also add a size check or md5sum comparison against the object in S3.
+                        filedir = os.path.split(local_path)[0]
+                        os.makedirs(filedir, exist_ok=True)
+                        self.download_with_retries(bucket=bucket, key=key, local_path=local_path)
+                        with open(success_marker, "w"):
+                            pass
 
         return local_path
 
