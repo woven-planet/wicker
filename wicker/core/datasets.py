@@ -40,27 +40,23 @@ class AbstractDataset(abc.ABC):
         pa_filesystem: pafs.FileSystem,
         path_factory: WickerPathFactory,
         columns_to_load: Optional[List[str]] = None,
-        local_cache_path_prefix: Optional[str] = os.getenv("TMPDIR", "/tmp"),
         filelock_timeout_seconds: int = FILE_LOCK_TIMEOUT_SECONDS,
+        local_cache_path_prefix: Optional[str] = os.getenv("TMPDIR", "/tmp"),
         treat_objects_as_bytes: bool = False,
     ) -> None:
         super().__init__()
-        self._columns_to_load = columns_to_load
-        self._treat_objects_as_bytes = treat_objects_as_bytes
         self._arrow_table: Optional[pyarrow.Table] = None
-
-        self._filelock_timeout_seconds = filelock_timeout_seconds
-        self._storage = storage
-        self._path_factory = path_factory
         self._column_bytes_file_cache = None
-
+        self._columns_to_load = columns_to_load
+        self._filelock_timeout_seconds = filelock_timeout_seconds
+        self._local_cache_path_prefix = local_cache_path_prefix
+        self._path_factory = path_factory
         self._pa_filesystem = pa_filesystem
+        self._storage = storage
+        self._treat_objects_as_bytes = treat_objects_as_bytes
 
         self._dataset_id = DatasetID(name=dataset_name, version=dataset_version)
         self._partition = DatasetPartition(dataset_id=self._dataset_id, partition=dataset_partition_name)
-        self._pa_filesystem = pa_filesystem
-
-        self._local_cache_path_prefix = local_cache_path_prefix
 
     @abc.abstractmethod
     def __getitem__(self, idx: int) -> Dict[str, Any]:
@@ -233,11 +229,11 @@ class S3Dataset(AbstractDataset):
             defaults to FILE_LOCK_TIMEOUT_SECONDS
         :param treat_objects_as_bytes: If set, don't try to decode ObjectFields and keep them as binary data.
         """
-        s3_path_factory = s3_path_factory if s3_path_factory is not None else S3PathFactory()
-        storage = storage if storage is not None else S3DataStorage()
         pa_filesystem = (
             pafs.S3FileSystem(region=get_config().aws_s3_config.region) if pa_filesystem is None else pa_filesystem
         )
+        s3_path_factory = s3_path_factory if s3_path_factory is not None else S3PathFactory()
+        storage = storage if storage is not None else S3DataStorage()
 
         super().__init__(
             dataset_name=dataset_name,
