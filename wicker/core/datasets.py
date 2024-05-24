@@ -261,7 +261,7 @@ class S3Dataset(AbstractDataset):
         )
 
     def arrow_table(self) -> pyarrow.Table:
-        path = self._path_factory.get_dataset_partition_path(self._partition, s3_prefix=False)
+        path = self._path_factory._get_dataset_partition_path(self._partition, prefix_to_trim="s3://")
         if not self._arrow_table:
             self._arrow_table = papq.read_table(path, columns=self._columns_to_load, filesystem=self._pa_filesystem)
         return self._arrow_table
@@ -287,7 +287,7 @@ class S3Dataset(AbstractDataset):
         # bytes size of arrow table not bytes in arrow table
         # bytes in arrow table is a method of arrow table but it doesn't
         # reflect the size of the file sizes stored on s3 just the loaded data
-        arrow_path = self._path_factory.get_dataset_partition_path(self._partition, s3_prefix=False)
+        arrow_path = self._path_factory._get_dataset_partition_path(self._partition, prefix_to_trim="s3://")
         bucket, key = arrow_path.replace("s3://", "").split("/", 1)
 
         def get_folder_size(bucket, prefix):
@@ -322,7 +322,9 @@ class S3Dataset(AbstractDataset):
         arrow_table = self.arrow_table()
 
         buckets_keys = set()
-        worker = ShuffleWorker(storage=self._storage)
+        # ignore typing to avoid changing the typing of Shuffle Worker yet
+        # ToDo: Change typing of ShuffleWorker and let it take local data storage
+        worker = ShuffleWorker(storage=self._storage)  # type: ignore
         print("Processing through heavy pointers")
         for heavy_pntr_col in heavy_pointer_cols:
             print(f"Evaulating {heavy_pntr_col} for column file locations")
