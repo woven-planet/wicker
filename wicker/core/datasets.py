@@ -129,8 +129,8 @@ class FileSystemDataset(AbstractDataset):
             if path_factory is not None
             else WickerPathFactory(root_path=filesystem_root_path)  # type: ignore
         )
-        storage = storage if storage is not None else FileSystemDataStorage()
         pa_filesystem = pafs.LocalFileSystem() if pa_filesystem is None else pa_filesystem
+        storage = storage if storage is not None else FileSystemDataStorage()
 
         super().__init__(
             dataset_name=dataset_name,
