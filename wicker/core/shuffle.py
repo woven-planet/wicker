@@ -230,7 +230,7 @@ def save_index(
             partition=partition_name,
         )
 
-        parquet_folder = s3_path_factory.get_dataset_partition_path(dataset_partition, s3_prefix=False)
+        parquet_folder = s3_path_factory.get_dataset_partition_path(dataset_partition, s3_prefix=True)
         parquet_path = os.path.join(parquet_folder, "part-0.parquet")
 
         # Write the Parquet file as one file locally, then upload to S3
@@ -246,7 +246,7 @@ def save_index(
                 # on the Parquet files that could make use of predicate push-down
                 write_statistics=False,
             )
-            s3_storage.put_file(
+            s3_storage.put_file_s3(
                 tmpfile.name,
                 parquet_path,
             )

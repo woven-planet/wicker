@@ -105,7 +105,7 @@ class DatasetWriterBackend:
         )
 
         # Persist data in datastore and in MetadataDatabase
-        self._s3_storage.put_object(pickled_row, row_s3_path)
+        self._s3_storage.put_object_s3(pickled_row, row_s3_path)
         self._metadata_db.save_row_metadata(dataset_id, key, row_s3_path, len(pickled_row))
 
     def commit_schema(
@@ -115,7 +115,7 @@ class DatasetWriterBackend:
         """Write the schema to the backend as part of the commit step."""
         schema_path = self._s3_path_factory.get_dataset_schema_path(dataset_definition.identifier)
         serialized_schema = serialization.dumps(dataset_definition.schema)
-        self._s3_storage.put_object(serialized_schema.encode(), schema_path)
+        self._s3_storage.put_object_s3(serialized_schema.encode(), schema_path)
 
 
 DEFAULT_BUFFER_SIZE_LIMIT = 1000
