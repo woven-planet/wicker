@@ -97,7 +97,9 @@ class FileSystemDataset(AbstractDataset):
         self._storage = storage if storage is not None else FileSystemDataStorage()
         # ignore type failure here as we handle the case where they're both none above
         self._path_factory = (
-            path_factory if path_factory is not None else WickerPathFactory(root_path=filesystem_root_path)  # type: ignore
+            path_factory
+            if path_factory is not None
+            else WickerPathFactory(root_path=filesystem_root_path)  # type: ignore
         )
         self._column_bytes_file_cache = None
         if self._local_cache_path_prefix:
