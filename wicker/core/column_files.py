@@ -189,7 +189,7 @@ class ColumnBytesFileCache:
         self,
         local_cache_path_prefix: str = "/tmp",
         filelock_timeout_seconds: int = -1,
-        path_factory: Union[WickerPathFactory, S3PathFactory] = S3PathFactory(),
+        path_factory: WickerPathFactory = S3PathFactory(),
         storage: Optional[AbstractDataStorage] = None,
         dataset_name: str = None,
     ):
