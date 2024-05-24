@@ -52,8 +52,8 @@ class FakeS3DataStorage(S3DataStorage):
         with open(full_tmp_path, "wb") as f:
             f.write(object_bytes)
 
-    def put_file_s3(self, local_path: str, s3_path: str) -> None:
-        full_tmp_path = self._get_local_path(s3_path)
+    def put_file(self, local_path: str, target_path: str) -> None:
+        full_tmp_path = self._get_local_path(target_path)
         os.makedirs(os.path.dirname(full_tmp_path), exist_ok=True)
         shutil.copy2(local_path, full_tmp_path)
 
