@@ -36,14 +36,28 @@ class AbstractDataset(abc.ABC):
         dataset_name: str,
         dataset_partition_name: str,
         dataset_version: str,
-        storage: AbstractDataStorage,
-        pa_filesystem: pafs.FileSystem,
         path_factory: WickerPathFactory,
+        pa_filesystem: pafs.FileSystem,
+        storage: AbstractDataStorage,
         columns_to_load: Optional[List[str]] = None,
         filelock_timeout_seconds: int = FILE_LOCK_TIMEOUT_SECONDS,
         local_cache_path_prefix: Optional[str] = os.getenv("TMPDIR", "/tmp"),
         treat_objects_as_bytes: bool = False,
     ) -> None:
+        """Init an AbstractDataset object.
+
+        :param dataset_name: name of the dataset
+        :param dataset_partition_name: partition name
+        :param dataset_version: version of the dataset
+        :param path_factory: WickerPathFactory for pulling consistent paths.
+        :param pa_filesystem: Pyarrow filesystem for reading the parquet files and tables.
+        :param storage: AbstractDataStorage for data access.
+        :param columns_to_load: list of columns to load, defaults to None which loads all columns
+        :param filelock_timeout_seconds: number of seconds after which to timeout on waiting for downloads,
+            defaults to FILE_LOCK_TIMEOUT_SECONDS
+        :param local_cache_path_prefix: Path to local cache path, if None don't create cache
+        :param treat_objects_as_bytes: If set, don't try to decode ObjectFields and keep them as binary data.
+        """
         super().__init__()
         self._arrow_table: Optional[pyarrow.Table] = None
         self._columns_to_load = columns_to_load
