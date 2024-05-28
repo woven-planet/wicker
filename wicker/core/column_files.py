@@ -213,7 +213,7 @@ class ColumnBytesFileReader(abc.ABC):
         example: validation.AvroRecord,
         schema: schema.DatasetSchema,
     ):
-        visitor = ResolvePointersVisitor(example, schema, lambda cbf_info: self.read(cbf_info))
+        visitor = ResolvePointersVisitor(self, example, schema)
         return visitor.resolve_pointers()
 
 
@@ -265,11 +265,11 @@ class ResolvePointersVisitor(schema.DatasetSchemaVisitor[Any]):
 
     def __init__(
         self,
+        cbf_reader: ColumnBytesFileReader,
         example: validation.AvroRecord,
         schema: schema.DatasetSchema,
-        object_read_routine: Callable[[ColumnBytesFileLocationV1], bytes],
     ):
-        self.object_read_routine = object_read_routine
+        self.cbf_reader = cbf_reader
 
         # Pointers to original data (data should be kept immutable)
         self._schema = schema
@@ -346,4 +346,4 @@ class ResolvePointersVisitor(schema.DatasetSchemaVisitor[Any]):
         if data is None:
             return data
         cbf_info = ColumnBytesFileLocationV1.from_bytes(data)
-        return self.object_read_routine(cbf_info)
+        return self.cbf_reader.read(cbf_info)

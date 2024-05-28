@@ -3,7 +3,7 @@ import logging
 import os
 from functools import cached_property
 from multiprocessing.pool import ThreadPool
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import boto3
 import pyarrow  # type: ignore
@@ -75,13 +75,11 @@ class AbstractDataset(abc.ABC):
         self._storage = storage
         self._treat_objects_as_bytes = treat_objects_as_bytes
 
-        self._column_bytes_file_reader: ColumnBytesFileReader = ColumnBytesFileReader(
-            column_bytes_root_path=path_factory._get_column_concatenated_bytes_files_path(dataset_name=dataset_name)
-        )
         # if we have a cache prefix create a cache
         if local_cache_path_prefix is not None:
             logging.info(f"Cache passed at path - {local_cache_path_prefix}, creating read through cache on top.")
-            self._column_bytes_file_reader = ColumnBytesFileCache(
+            # weird mypy problem, can't define baseclass and have it pick up the child correctly
+            self._column_bytes_file_reader: Union[ColumnBytesFileReader, ColumnBytesFileCache] = ColumnBytesFileCache(
                 column_root_path=path_factory._get_column_concatenated_bytes_files_path(dataset_name=dataset_name),
                 local_cache_path_prefix=local_cache_path_prefix,
                 filelock_timeout_seconds=filelock_timeout_seconds,
@@ -89,6 +87,10 @@ class AbstractDataset(abc.ABC):
             )
         else:
             logging.info("No cache passed, reading without caching.")
+            self._column_bytes_file_reader = ColumnBytesFileReader(
+                column_bytes_root_path=path_factory._get_column_concatenated_bytes_files_path(dataset_name=dataset_name)
+            )
+
         self._dataset_id = DatasetID(name=dataset_name, version=dataset_version)
         self._dataset_definition = DatasetDefinition(
             self._dataset_id,

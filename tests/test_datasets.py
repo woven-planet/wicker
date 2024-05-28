@@ -47,6 +47,20 @@ def cwd(path):
         os.chdir(oldpwd)
 
 
+def get_size(start_path="."):
+    total_byte_size = 0
+    for dir_path, dirnames, filenames in os.walk(start_path):
+        for filename in filenames:
+            # skip if lock, success, or avro file
+            if "lock" not in filename and "success" not in filename and "avro" not in filename:
+                file_path = os.path.join(dir_path, filename)
+                # skip any symlinks (not in wicker but still test)
+                if not os.path.islink(file_path):
+                    total_byte_size += os.path.getsize(file_path)
+
+    return total_byte_size
+
+
 class TestFileSystemDataset(unittest.TestCase):
     @contextmanager
     def _setup_storage(self) -> Iterator[Tuple[FakeFileSystemDataStorage, WickerPathFactory, str]]:
@@ -78,23 +92,54 @@ class TestFileSystemDataset(unittest.TestCase):
             )
             yield fake_local_fs_storage, fake_local_path_factory, tmpdir
 
-    def test_dataset(self):
+    def test_dataset_no_cache(self):
         with self._setup_storage() as (fake_local_storage, fake_local_path_factory, tmpdir):
-            ds = FileSystemDataset(
-                FAKE_NAME,
-                FAKE_PARTITION,
-                FAKE_VERSION,
-                local_cache_path_prefix=None,
-                columns_to_load=None,
-                storage=fake_local_storage,
-                path_factory=fake_local_path_factory,
-                pa_filesystem=pafs.LocalFileSystem(),
-            )
-            for i in range(len(FAKE_DATA)):
-                retrieved = ds[i]
-                reference = FAKE_DATA[i]
-                self.assertEqual(retrieved["foo"], reference["foo"])
-                np.testing.assert_array_equal(retrieved["np_arr"], reference["np_arr"])
+            with tempfile.TemporaryDirectory() as tmp_cache_dir:
+                ds = FileSystemDataset(
+                    FAKE_NAME,
+                    FAKE_PARTITION,
+                    FAKE_VERSION,
+                    local_cache_path_prefix=None,
+                    columns_to_load=None,
+                    storage=fake_local_storage,
+                    path_factory=fake_local_path_factory,
+                    pa_filesystem=pafs.LocalFileSystem(),
+                )
+                for i in range(len(FAKE_DATA)):
+                    retrieved = ds[i]
+                    reference = FAKE_DATA[i]
+                    self.assertEqual(retrieved["foo"], reference["foo"])
+                    np.testing.assert_array_equal(retrieved["np_arr"], reference["np_arr"])
+
+                # test that nothing got copied to the non passed cache dir
+                tmpdir_size = get_size(tmp_cache_dir)
+                # assert that nothing is copied to folder that would have been used as cache
+                assert tmpdir_size == 0
+
+    def test_dataset_cached(self):
+        with self._setup_storage() as (fake_local_storage, fake_local_path_factory, tmpdir):
+            with tempfile.TemporaryDirectory() as tmp_cache_dir:
+                ds = FileSystemDataset(
+                    FAKE_NAME,
+                    FAKE_PARTITION,
+                    FAKE_VERSION,
+                    local_cache_path_prefix=tmp_cache_dir,
+                    columns_to_load=None,
+                    storage=fake_local_storage,
+                    path_factory=fake_local_path_factory,
+                    pa_filesystem=pafs.LocalFileSystem(),
+                )
+                for i in range(len(FAKE_DATA)):
+                    retrieved = ds[i]
+                    reference = FAKE_DATA[i]
+                    self.assertEqual(retrieved["foo"], reference["foo"])
+                    np.testing.assert_array_equal(retrieved["np_arr"], reference["np_arr"])
+
+                # test that the dataset size in the tmpdir is the same as the starting dir
+                tmpdir_size = get_size(tmp_cache_dir)
+                expect_dir_size = get_size(os.path.join(tmpdir, "__COLUMN_CONCATENATED_FILES__"))
+                # test that all column files are copied over that are meant to be
+                assert tmpdir_size == expect_dir_size
 
 
 class TestS3Dataset(unittest.TestCase):
