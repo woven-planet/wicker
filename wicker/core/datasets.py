@@ -108,7 +108,7 @@ class AbstractDataset(abc.ABC):
         """Returns the length of the dataset/version/partition"""
         pass
 
-    @property
+    @cached_property
     def schema(self) -> DatasetSchema:
         """Return the schema of the dataset."""
         schema_data = None
