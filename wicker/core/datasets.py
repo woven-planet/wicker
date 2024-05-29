@@ -70,8 +70,8 @@ class AbstractDataset(abc.ABC):
         self._columns_to_load = columns_to_load
         self._filelock_timeout_seconds = filelock_timeout_seconds
         self._local_cache_path_prefix = local_cache_path_prefix
-        self._path_factory = path_factory
         self._pa_filesystem = pa_filesystem
+        self._path_factory = path_factory
         self._storage = storage
         self._treat_objects_as_bytes = treat_objects_as_bytes
 
@@ -176,15 +176,15 @@ class FileSystemDataset(AbstractDataset):
         storage = storage if storage is not None else FileSystemDataStorage()
 
         super().__init__(
+            columns_to_load=columns_to_load,
             dataset_name=dataset_name,
             dataset_partition_name=dataset_partition_name,
             dataset_version=dataset_version,
-            storage=storage,
-            pa_filesystem=pa_filesystem,
-            path_factory=path_factory,
-            columns_to_load=columns_to_load,
             filelock_timeout_seconds=filelock_timeout_seconds,
             local_cache_path_prefix=local_cache_path_prefix,
+            path_factory=path_factory,
+            pa_filesystem=pa_filesystem,
+            storage=storage,
             treat_objects_as_bytes=treat_objects_as_bytes,
         )
 
@@ -261,15 +261,15 @@ class S3Dataset(AbstractDataset):
         storage = storage if storage is not None else S3DataStorage()
 
         super().__init__(
+            columns_to_load=columns_to_load,
             dataset_name=dataset_name,
             dataset_partition_name=dataset_partition_name,
             dataset_version=dataset_version,
-            storage=storage,
-            pa_filesystem=pa_filesystem,
-            path_factory=s3_path_factory,
-            columns_to_load=columns_to_load,
-            local_cache_path_prefix=local_cache_path_prefix,
             filelock_timeout_seconds=filelock_timeout_seconds,
+            local_cache_path_prefix=local_cache_path_prefix,
+            path_factory=s3_path_factory,
+            pa_filesystem=pa_filesystem,
+            storage=storage,
             treat_objects_as_bytes=treat_objects_as_bytes,
         )
 

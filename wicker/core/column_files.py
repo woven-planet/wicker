@@ -14,7 +14,7 @@ import struct
 import tempfile
 import uuid
 from types import TracebackType
-from typing import IO, Any, Callable, Dict, List, Literal, Optional, Tuple, Type
+from typing import IO, Any, Dict, List, Literal, Optional, Tuple, Type
 
 from wicker.core.storage import (
     AbstractDataStorage,

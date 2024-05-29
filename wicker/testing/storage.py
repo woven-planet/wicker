@@ -5,12 +5,7 @@ from typing import Any, Dict
 
 import pyarrow.fs as pafs
 
-from wicker.core.storage import FileSystemDataStorage, S3DataStorage
-
-
-class FakeFileSystemDataStorage(FileSystemDataStorage):
-    def __init__(self, tmpdir: str = "/tmp") -> None:
-        super().__init__()
+from wicker.core.storage import S3DataStorage
 
 
 class FakeS3DataStorage(S3DataStorage):

@@ -127,14 +127,14 @@ class FileSystemDataStorage(AbstractDataStorage):
         os.makedirs(Path(target_path).parent, exist_ok=True)
         shutil.copy2(input_path, target_path)
 
-    def put_object(self, object_bytes: bytes, path: str) -> None:
+    def put_object(self, object_bytes: bytes, target_path: str) -> None:
         """Put object on data storage
 
         :param object_bytes: bytes to write to path
-        :param path: path to write object
+        :param target_path: path to write object
         """
-        os.makedirs(Path(path).parent, exist_ok=True)
-        with open(path, "wb") as binary_file:
+        os.makedirs(Path(target_path).parent, exist_ok=True)
+        with open(target_path, "wb") as binary_file:
             binary_file.write(object_bytes)
 
 
@@ -263,8 +263,8 @@ class S3DataStorage(AbstractDataStorage):
 
         :param object_bytes: the object to upload to S3
         :type object_bytes: bytes
-        :param path: path to the file in S3
-        :type path: str
+        :param target_path: path to the file in S3
+        :type target_path: str
         """
         # Long term, we would add an md5sum check and short-circuit the upload if they are the same
         bucket, key = self.bucket_key_from_s3_path(target_path)

@@ -13,9 +13,9 @@ import pyarrow.parquet as papq  # type: ignore
 from wicker.core.column_files import ColumnBytesFileWriter
 from wicker.core.datasets import FileSystemDataset, S3Dataset
 from wicker.core.definitions import DatasetID, DatasetPartition
-from wicker.core.storage import S3PathFactory, WickerPathFactory
+from wicker.core.storage import FileSystemDataStorage, S3PathFactory, WickerPathFactory
 from wicker.schema import schema, serialization
-from wicker.testing.storage import FakeFileSystemDataStorage, FakeS3DataStorage
+from wicker.testing.storage import FakeS3DataStorage
 
 FAKE_NAME = "dataset_name"
 FAKE_VERSION = "0.0.1"
@@ -63,9 +63,9 @@ def get_size(start_path="."):
 
 class TestFileSystemDataset(unittest.TestCase):
     @contextmanager
-    def _setup_storage(self) -> Iterator[Tuple[FakeFileSystemDataStorage, WickerPathFactory, str]]:
+    def _setup_storage(self) -> Iterator[Tuple[FileSystemDataStorage, WickerPathFactory, str]]:
         with tempfile.TemporaryDirectory() as tmpdir, cwd(tmpdir):
-            fake_local_fs_storage = FakeFileSystemDataStorage(tmpdir=tmpdir)
+            fake_local_fs_storage = FileSystemDataStorage()
             fake_local_path_factory = WickerPathFactory(root_path=tmpdir)
             with ColumnBytesFileWriter(
                 storage=fake_local_fs_storage,
