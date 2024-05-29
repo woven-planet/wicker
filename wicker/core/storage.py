@@ -103,7 +103,19 @@ class FileSystemDataStorage(AbstractDataStorage):
         :return: local path to the file on the local file system
         """
         local_full_path = os.path.join(local_prefix, os.path.basename(input_path))
-        self.download_with_retries(input_path, local_full_path)
+
+        # for now assume if local file exists don't re-download, need to check file sum longer term
+        lock_path = local_full_path + ".lock"
+        success_marker = local_full_path + ".success"
+        while not os.path.isfile(success_marker):
+            with SimpleUnixFileLock(lock_path, timeout_seconds=timeout_seconds):
+                if not os.path.isfile(success_marker):
+                    filedir = os.path.split(local_full_path)[0]
+                    os.makedirs(filedir, exist_ok=True)
+                    self.download_with_retries(input_path, local_full_path)
+                    with open(success_marker, "w"):
+                        pass
+
         return local_full_path
 
     def put_file(self, input_path: str, target_path: str) -> None:
@@ -214,7 +226,6 @@ class S3DataStorage(AbstractDataStorage):
         """
         bucket, key = self.bucket_key_from_s3_path(input_path)
         local_path = os.path.join(local_prefix, key)
-
         lock_path = local_path + ".lock"
         success_marker = local_path + ".success"
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
@@ -222,7 +233,6 @@ class S3DataStorage(AbstractDataStorage):
         while not os.path.isfile(success_marker):
             with SimpleUnixFileLock(lock_path, timeout_seconds=timeout_seconds):
                 if not os.path.isfile(success_marker):
-
                     # For now, we will only download the file if it has not already been downloaded already.
                     # Long term, we would also add a size check or md5sum comparison against the object in S3.
                     filedir = os.path.split(local_path)[0]
