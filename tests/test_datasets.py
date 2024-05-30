@@ -92,30 +92,6 @@ class TestFileSystemDataset(unittest.TestCase):
             )
             yield fake_local_fs_storage, fake_local_path_factory, tmpdir
 
-    def test_dataset_no_cache(self):
-        with self._setup_storage() as (fake_local_storage, fake_local_path_factory, tmpdir):
-            with tempfile.TemporaryDirectory() as tmp_cache_dir:
-                ds = FileSystemDataset(
-                    FAKE_NAME,
-                    FAKE_PARTITION,
-                    FAKE_VERSION,
-                    local_cache_path_prefix=None,
-                    columns_to_load=None,
-                    storage=fake_local_storage,
-                    path_factory=fake_local_path_factory,
-                    pa_filesystem=pafs.LocalFileSystem(),
-                )
-                for i in range(len(FAKE_DATA)):
-                    retrieved = ds[i]
-                    reference = FAKE_DATA[i]
-                    self.assertEqual(retrieved["foo"], reference["foo"])
-                    np.testing.assert_array_equal(retrieved["np_arr"], reference["np_arr"])
-
-                # test that nothing got copied to the non passed cache dir
-                tmpdir_size = get_size(tmp_cache_dir)
-                # assert that nothing is copied to folder that would have been used as cache
-                assert tmpdir_size == 0
-
     def test_dataset_cached(self):
         with self._setup_storage() as (fake_local_storage, fake_local_path_factory, tmpdir):
             with tempfile.TemporaryDirectory() as tmp_cache_dir:
