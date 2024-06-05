@@ -44,9 +44,7 @@ class GCloudConfig:
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> GCloudConfig:
-        return cls(
-            dataset_bucket=data["dataset_bucket"]
-        )
+        return cls(dataset_bucket=data["dataset_bucket"])
 
 
 @dataclasses.dataclass(frozen=True)

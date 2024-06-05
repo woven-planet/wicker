@@ -17,6 +17,8 @@
     "timeout": 150,
     "retry_backoff":5,
     "retry_delay_s": 4
-  }
-  
+  },
+  "gcloud": {
+    "gcloud_bucket": "fake_bucket"
+  } 
 }
