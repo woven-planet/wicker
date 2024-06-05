@@ -1,8 +1,11 @@
 import abc
+import logging
 import os
+import subprocess
 from functools import cached_property
+from multiprocessing import Lock, Manager, Pool, Value, cpu_count
 from multiprocessing.pool import ThreadPool
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import boto3
 import pyarrow  # type: ignore
@@ -10,20 +13,130 @@ import pyarrow.fs as pafs  # type: ignore
 import pyarrow.parquet as papq  # type: ignore
 import tqdm  # type: ignore
 
-from wicker.core.column_files import ColumnBytesFileCache, ColumnBytesFileLocationV1
+from wicker.core.column_files import (
+    ColumnBytesFileCache,
+    ColumnBytesFileLocationV1,
+    ColumnBytesFileReader,
+)
 from wicker.core.config import get_config  # type: ignore
 from wicker.core.definitions import DatasetDefinition, DatasetID, DatasetPartition
 from wicker.core.shuffle import ShuffleWorker
-from wicker.core.storage import S3DataStorage, S3PathFactory
+from wicker.core.storage import (
+    AbstractDataStorage,
+    FileSystemDataStorage,
+    S3DataStorage,
+    S3PathFactory,
+    WickerPathFactory,
+)
 from wicker.schema import dataloading, serialization
 from wicker.schema.schema import DatasetSchema
 
 # How long to wait before timing out on filelocks in seconds
 FILE_LOCK_TIMEOUT_SECONDS = 300
 
+logger = logging.getLogger(__name__)
+
+
+def get_file_size_s3(input_tuple: Tuple[List[Tuple[str, str]], Value, Lock, bool]):
+    buckets_keys_chunks_local, sum_value, lock, move_to_destination = input_tuple
+    s3 = boto3.resource("s3")
+    session = boto3.session.Session()
+    client = session.client("s3")
+    local_chunks = []
+    local_chunk_nums = 500
+    local_chunk_size = len(buckets_keys_chunks_local) // local_chunk_nums
+    for i in range(0, local_chunk_nums):
+        chunk = buckets_keys_chunks_local[i * local_chunk_size : (i + 1) * local_chunk_size]
+        local_chunks.append(chunk)
+
+    last_chunk_size = len(buckets_keys_chunks_local) - (local_chunk_nums * local_chunk_size)
+    last_chunk = buckets_keys_chunks_local[-last_chunk_size:]
+    local_chunks.append(last_chunk)
+
+    def iterate_proc_chunk(chunk_list, move_to_destination):
+        local_len = 0
+        for bucket_key_loc in chunk_list:
+            bucket_loc, key_loc = bucket_key_loc
+            byte_length = s3.Object(bucket_loc, key_loc).content_length
+            if move_to_destination:
+                common_output_loc = f"/tmp/datasets/{key_loc}"
+                if not os.path.exists(common_output_loc):
+                    # download and then push to gcloud
+                    local_path = client.download_file(bucket_loc, key_loc, common_output_loc)
+                    subprocess.run(f"gcloud storage cp -n {local_path} gs://adas-ml-data/__COLUMN_CONCATENATED_FILES__")
+                    # delete file locally to not blow up size
+                    subprocess.run(f"rm {local_path}")
+            local_len += byte_length
+        return local_len
+
+    thread_pool = ThreadPool()
+    result = sum(list(tqdm.tqdm(thread_pool.map(iterate_proc_chunk, local_chunks))))
+    with lock:
+        sum_value.value += result
+
 
 class AbstractDataset(abc.ABC):
     """Interface for a Map-style (non-streaming) Dataset"""
+
+    def __init__(
+        self,
+        dataset_name: str,
+        dataset_partition_name: str,
+        dataset_version: str,
+        path_factory: WickerPathFactory,
+        pa_filesystem: pafs.FileSystem,
+        storage: AbstractDataStorage,
+        columns_to_load: Optional[List[str]] = None,
+        filelock_timeout_seconds: int = FILE_LOCK_TIMEOUT_SECONDS,
+        local_cache_path_prefix: Optional[str] = os.getenv("TMPDIR", "/tmp"),
+        treat_objects_as_bytes: bool = False,
+    ) -> None:
+        """Init an AbstractDataset object.
+
+        :param dataset_name: name of the dataset
+        :param dataset_partition_name: partition name
+        :param dataset_version: version of the dataset
+        :param path_factory: WickerPathFactory for pulling consistent paths.
+        :param pa_filesystem: Pyarrow filesystem for reading the parquet files and tables.
+        :param storage: AbstractDataStorage for data access.
+        :param columns_to_load: list of columns to load, defaults to None which loads all columns
+        :param filelock_timeout_seconds: number of seconds after which to timeout on waiting for downloads,
+            defaults to FILE_LOCK_TIMEOUT_SECONDS
+        :param local_cache_path_prefix: Path to local cache path, if None don't create cache
+        :param treat_objects_as_bytes: If set, don't try to decode ObjectFields and keep them as binary data.
+        """
+        super().__init__()
+        self._arrow_table: Optional[pyarrow.Table] = None
+        self._columns_to_load = columns_to_load
+        self._filelock_timeout_seconds = filelock_timeout_seconds
+        self._local_cache_path_prefix = local_cache_path_prefix
+        self._pa_filesystem = pa_filesystem
+        self._path_factory = path_factory
+        self._storage = storage
+        self._treat_objects_as_bytes = treat_objects_as_bytes
+
+        # if we have a cache prefix create a cache
+        if local_cache_path_prefix is not None:
+            logging.info(f"Cache passed at path - {local_cache_path_prefix}, creating read through cache on top.")
+            # weird mypy problem, can't define baseclass and have it pick up the child correctly
+            self._column_bytes_file_reader: Union[ColumnBytesFileReader, ColumnBytesFileCache] = ColumnBytesFileCache(
+                column_root_path=path_factory._get_column_concatenated_bytes_files_path(dataset_name=dataset_name),
+                local_cache_path_prefix=local_cache_path_prefix,
+                filelock_timeout_seconds=filelock_timeout_seconds,
+                storage=self._storage,
+            )
+        else:
+            logging.info("No cache passed, reading without caching.")
+            self._column_bytes_file_reader = ColumnBytesFileReader(
+                column_bytes_root_path=path_factory._get_column_concatenated_bytes_files_path(dataset_name=dataset_name)
+            )
+
+        self._dataset_id = DatasetID(name=dataset_name, version=dataset_version)
+        self._dataset_definition = DatasetDefinition(
+            self._dataset_id,
+            schema=self.schema,
+        )
+        self._partition = DatasetPartition(dataset_id=self._dataset_id, partition=dataset_partition_name)
 
     @abc.abstractmethod
     def __getitem__(self, idx: int) -> Dict[str, Any]:
@@ -35,15 +148,123 @@ class AbstractDataset(abc.ABC):
         """Returns the length of the dataset/version/partition"""
         pass
 
-    @abc.abstractmethod
+    @cached_property
     def schema(self) -> DatasetSchema:
         """Return the schema of the dataset."""
-        pass
+        schema_data = None
+        schema_path = self._path_factory._get_dataset_schema_path(self._dataset_id)
+        local_path = schema_path
+        # only fetch the file locally if we have a cache prefix
+        if self._local_cache_path_prefix is not None:
+            local_path = self._storage.fetch_file(
+                schema_path, self._local_cache_path_prefix, timeout_seconds=self._filelock_timeout_seconds
+            )
+        with open(local_path, "rb") as f:
+            schema_data = serialization.loads(
+                f.read().decode("utf-8"), treat_objects_as_bytes=self._treat_objects_as_bytes
+            )
+        return schema_data
 
     @abc.abstractmethod
     def arrow_table(self) -> pyarrow.Table:
         """Return the pyarrow table with all the metadata fields and pointers of the dataset."""
         pass
+
+
+class FileSystemDataset(AbstractDataset):
+    """Implementation of a Map-based dataset on local file system or mounted drive"""
+
+    def __init__(
+        self,
+        dataset_name: str,
+        dataset_partition_name: str,
+        dataset_version: str,
+        columns_to_load: Optional[List[str]] = None,
+        filelock_timeout_seconds: int = FILE_LOCK_TIMEOUT_SECONDS,
+        filesystem_root_path: Optional[str] = None,
+        local_cache_path_prefix: Optional[str] = os.getenv("TMPDIR", "/tmp"),
+        pa_filesystem: Optional[pafs.LocalFileSystem] = None,
+        path_factory: Optional[WickerPathFactory] = None,
+        storage: Optional[FileSystemDataStorage] = None,
+        treat_objects_as_bytes: bool = False,
+    ):
+        """Initializes a FileSystemDataset.
+
+        :param dataset_name: name of the dataset
+        :param dataset_partition_name: partition name
+        :param dataset_version: version of the dataset
+        :param columns_to_load: list of columns to load, defaults to None which loads all columns
+        :param filelock_timeout_seconds: number of seconds after which to timeout on waiting for downloads,
+            defaults to FILE_LOCK_TIMEOUT_SECONDS
+        :param filesystem_root_path: path to the root of the wicker file system. If path factory is none,
+            this must be set.
+        :param local_cache_path_prefix: Path to local cache path, if None don't create cache
+        :param pa_filesystem: Pyarrow filesystem for reading the parquet files and tables.
+        :param path_factory: Optional WickerPathFactory for pulling consistent paths.
+        :param storage: Optional FileSystemDataStorage object for pulling files from filesystem
+        :param treat_objects_as_bytes: If set, don't try to decode ObjectFields and keep them as binary data.
+        """
+        if path_factory is None and filesystem_root_path is None:
+            raise ValueError("Need to pass either path factory of wicker dataset or root of the tree.")
+        # ignore type failure here as we handle the case where they're both none above
+        path_factory = (
+            path_factory
+            if path_factory is not None
+            else WickerPathFactory(root_path=filesystem_root_path)  # type: ignore
+        )
+        pa_filesystem = pafs.LocalFileSystem() if pa_filesystem is None else pa_filesystem
+        storage = storage if storage is not None else FileSystemDataStorage()
+
+        super().__init__(
+            columns_to_load=columns_to_load,
+            dataset_name=dataset_name,
+            dataset_partition_name=dataset_partition_name,
+            dataset_version=dataset_version,
+            filelock_timeout_seconds=filelock_timeout_seconds,
+            local_cache_path_prefix=local_cache_path_prefix,
+            path_factory=path_factory,
+            pa_filesystem=pa_filesystem,
+            storage=storage,
+            treat_objects_as_bytes=treat_objects_as_bytes,
+        )
+
+    def arrow_table(self) -> pyarrow.Table:
+        """Grab and load arrow table from expected path.
+
+        Returns:
+            pyarrow.Table: Arrow table object for the loaded dataset.
+        """
+        path = self._path_factory._get_dataset_partition_path(self._partition)
+        if not self._arrow_table:
+            self._arrow_table = papq.read_table(path, columns=self._columns_to_load, filesystem=self._pa_filesystem)
+        return self._arrow_table
+
+    def __len__(self) -> int:
+        """Get length of arrow table inferring it is the same as the dataset.
+
+        Returns:
+            int: length of arrow table.
+        """
+        return len(self.arrow_table())
+
+    def __getitem__(self, idx: int) -> Dict[str, Any]:
+        """Get data item at index within arrow table.
+
+        Pulls from either cache or data store the item in the dataset at index specified.
+
+        Args:
+            idx (int): idx in arrow table to grab data.
+
+        Returns:
+            Dict[str, Any]: Row of data defined through schema object.
+        """
+        tbl = self.arrow_table()
+        columns = self._columns_to_load if self._columns_to_load is not None else tbl.column_names
+        row = {col: tbl[col][idx].as_py() for col in columns}
+        return dataloading.load_example(
+            self._column_bytes_file_reader.resolve_pointers(row, self.schema),
+            self.schema,
+        )
 
 
 class S3Dataset(AbstractDataset):
@@ -73,48 +294,27 @@ class S3Dataset(AbstractDataset):
             defaults to FILE_LOCK_TIMEOUT_SECONDS
         :param treat_objects_as_bytes: If set, don't try to decode ObjectFields and keep them as binary data.
         """
-        super().__init__()
-        self._columns_to_load: Optional[List[str]] = columns_to_load
-        self._treat_objects_as_bytes = treat_objects_as_bytes
-        self._schema: Optional[DatasetSchema] = None
-        self._arrow_table: Optional[pyarrow.Table] = None
-
-        self._local_cache_path_prefix = local_cache_path_prefix
-        self._filelock_timeout_seconds = filelock_timeout_seconds
-        self._storage = storage if storage is not None else S3DataStorage()
-        self._s3_path_factory = s3_path_factory if s3_path_factory is not None else S3PathFactory()
-        self._column_bytes_file_cache = ColumnBytesFileCache(
-            local_cache_path_prefix=local_cache_path_prefix,
-            filelock_timeout_seconds=filelock_timeout_seconds,
-            path_factory=self._s3_path_factory,
-            storage=self._storage,
-            dataset_name=dataset_name,
-        )
-        self._pa_filesystem = (
+        pa_filesystem = (
             pafs.S3FileSystem(region=get_config().aws_s3_config.region) if pa_filesystem is None else pa_filesystem
         )
+        s3_path_factory = s3_path_factory if s3_path_factory is not None else S3PathFactory()
+        storage = storage if storage is not None else S3DataStorage()
 
-        self._dataset_id = DatasetID(name=dataset_name, version=dataset_version)
-        self._partition = DatasetPartition(dataset_id=self._dataset_id, partition=dataset_partition_name)
-        self._dataset_definition = DatasetDefinition(
-            self._dataset_id,
-            schema=self.schema(),
+        super().__init__(
+            columns_to_load=columns_to_load,
+            dataset_name=dataset_name,
+            dataset_partition_name=dataset_partition_name,
+            dataset_version=dataset_version,
+            filelock_timeout_seconds=filelock_timeout_seconds,
+            local_cache_path_prefix=local_cache_path_prefix,
+            path_factory=s3_path_factory,
+            pa_filesystem=pa_filesystem,
+            storage=storage,
+            treat_objects_as_bytes=treat_objects_as_bytes,
         )
 
-    def schema(self) -> DatasetSchema:
-        if self._schema is None:
-            schema_path = self._s3_path_factory.get_dataset_schema_path(self._dataset_id)
-            local_path = self._storage.fetch_file(
-                schema_path, self._local_cache_path_prefix, timeout_seconds=self._filelock_timeout_seconds
-            )
-            with open(local_path, "rb") as f:
-                self._schema = serialization.loads(
-                    f.read().decode("utf-8"), treat_objects_as_bytes=self._treat_objects_as_bytes
-                )
-        return self._schema
-
     def arrow_table(self) -> pyarrow.Table:
-        path = self._s3_path_factory.get_dataset_partition_path(self._partition, s3_prefix=False)
+        path = self._path_factory._get_dataset_partition_path(self._partition, prefix_to_trim="s3://")
         if not self._arrow_table:
             self._arrow_table = papq.read_table(path, columns=self._columns_to_load, filesystem=self._pa_filesystem)
         return self._arrow_table
@@ -127,8 +327,8 @@ class S3Dataset(AbstractDataset):
         columns = self._columns_to_load if self._columns_to_load is not None else tbl.column_names
         row = {col: tbl[col][idx].as_py() for col in columns}
         return dataloading.load_example(
-            self._column_bytes_file_cache.resolve_pointers(row, self.schema()),
-            self.schema(),
+            self._column_bytes_file_reader.resolve_pointers(row, self.schema),
+            self.schema,
         )
 
     def _get_parquet_dir_size(self) -> int:
@@ -140,7 +340,7 @@ class S3Dataset(AbstractDataset):
         # bytes size of arrow table not bytes in arrow table
         # bytes in arrow table is a method of arrow table but it doesn't
         # reflect the size of the file sizes stored on s3 just the loaded data
-        arrow_path = self._s3_path_factory.get_dataset_partition_path(self._partition, s3_prefix=False)
+        arrow_path = self._path_factory._get_dataset_partition_path(self._partition, prefix_to_trim="s3://")
         bucket, key = arrow_path.replace("s3://", "").split("/", 1)
 
         def get_folder_size(bucket, prefix):
@@ -151,7 +351,7 @@ class S3Dataset(AbstractDataset):
 
         return get_folder_size(bucket, key)
 
-    def _get_dataset_size(self):
+    def _get_dataset_size(self, move_to_destination: bool = False):
         """Gets total size of the dataset in bits
 
         Returns:
@@ -162,7 +362,7 @@ class S3Dataset(AbstractDataset):
 
         # need to know which columns are heavy pntr columns we go to for
         # byte adding
-        schema = self.schema()
+        schema = self.schema
         heavy_pointer_cols = []
         for col_name in schema.get_all_column_names():
             if schema.get_column(col_name).is_heavy_pointer:
@@ -175,7 +375,9 @@ class S3Dataset(AbstractDataset):
         arrow_table = self.arrow_table()
 
         buckets_keys = set()
-        worker = ShuffleWorker(storage=self._storage)
+        # ignore typing to avoid changing the typing of Shuffle Worker yet
+        # ToDo: Change typing of ShuffleWorker and let it take local data storage
+        worker = ShuffleWorker(storage=self._storage)  # type: ignore
         print("Processing through heavy pointers")
         for heavy_pntr_col in heavy_pointer_cols:
             print(f"Evaulating {heavy_pntr_col} for column file locations")
@@ -187,19 +389,27 @@ class S3Dataset(AbstractDataset):
                 bucket, key = path.replace("s3://", "").split("/", 1)
                 buckets_keys.add((bucket, key))
 
-        # we use existing shuffle worker here to grab the column file from
-        # know location.
-        def get_file_size_s3(bucket_key: Tuple[str, str]) -> int:
-            s3 = boto3.resource("s3")
-            bucket, key = bucket_key
-            bucket, key = path.replace("s3://", "").split("/", 1)
-            byte_length = s3.Object(bucket, key).content_length
-            return byte_length
+        buckets_keys_chunks = []
+        manager = Manager()
+        total_size = manager.Value("i", 0)
+        lock = manager.Lock()
+        buckets_keys = list(buckets_keys)
+        chunk_size = 500
+        total_len_chunks = len(buckets_keys) // chunk_size
+        for i in range(0, total_len_chunks):
+            chunk = buckets_keys[i * chunk_size : (i + 1) * chunk_size]
+            buckets_keys_chunks.append((chunk, total_size, lock, move_to_destination))
+
+        last_chunk_size = len(buckets_keys_chunks) - (total_len_chunks * chunk_size)
+        last_chunk = buckets_keys[-last_chunk_size:]
+        buckets_keys_chunks.append((last_chunk, total_size, lock, move_to_destination))
 
         print("Grabbing file information from s3 heads")
-        with ThreadPool() as pool:
-            results = list(tqdm.tqdm(pool.imap(get_file_size_s3, buckets_keys), total=len(buckets_keys)))
-        return sum(results) + par_dir_bytes
+        pool = Pool(cpu_count() - 1)
+        pool.map(get_file_size_s3, buckets_keys_chunks)
+        pool.close()
+        pool.join()
+        return total_size.value + par_dir_bytes
 
     @cached_property
     def dataset_size(self) -> int:
