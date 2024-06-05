@@ -24,8 +24,8 @@ from wicker.schema.schema import DatasetSchema
 # How long to wait before timing out on filelocks in seconds
 FILE_LOCK_TIMEOUT_SECONDS = 300
 
-def get_file_size_s3(input_tuple: Tuple[List[Tuple[str, str]], Value, Lock, bool]):
-    buckets_keys_chunks_local, sum_value, lock, move_to_destination = input_tuple
+def get_file_size_s3_optional_copy_gcloud(input_tuple: Tuple[List[Tuple[str, str]], Value, Lock, bool, str, str]):
+    buckets_keys_chunks_local, sum_value, lock, move_to_destination, local_output_loc, gcloud_output_loc = input_tuple
     s3 = boto3.resource("s3")
     session = boto3.session.Session()
     client = session.client("s3")
@@ -47,13 +47,16 @@ def get_file_size_s3(input_tuple: Tuple[List[Tuple[str, str]], Value, Lock, bool
             bucket_loc, key_loc = bucket_key_loc
             byte_length = s3.Object(bucket_loc, key_loc).content_length
             if move_to_destination_loc:
-                common_output_loc = f"/tmp/datasets/{key_loc}"
-                if not os.path.exists(common_output_loc):
+                output_loc = os.path.join(local_output_loc, key_loc)
+                if not os.path.exists(os.path.dirname(output_loc)):
+                    os.makedirs(os.path.dirname(output_loc), exist_ok=True)
+                if not os.path.exists(output_loc):
                     # download and then push to gcloud
-                    local_path = client.download_file(bucket_loc, key_loc, common_output_loc)
-                    subprocess.run(f"gcloud storage cp -n {local_path} gs://adas-ml-data/__COLUMN_CONCATENATED_FILES__")
+                    local_path = client.download_file(bucket_loc, key_loc, output_loc)
+                    gcloud_path = f"gs://{os.path.join(gcloud_output_loc, '__COLUMN_CONCATENATED_FILES__')}"
+                    subprocess.run(f"gcloud storage cp -n {output_loc} {gcloud_path}", shell=True)
                     # delete file locally to not blow up size
-                    subprocess.run(f"rm {local_path}")
+                    subprocess.run(f"rm {output_loc}", shell=True)
             local_len += byte_length
         return local_len
 
@@ -172,8 +175,34 @@ class S3Dataset(AbstractDataset):
             self.schema(),
         )
 
+    def _copy_parquet_dir_gcloud(self, config) -> None:
+        """Copy the parquet path to gcloud.
+        """
+        # copy the arrow table and the parquet files
+        parquet_partition_path = self._s3_path_factory.get_dataset_partition_path(self._partition, s3_prefix=False)
+        
+        # have to cut off the end because we want entire dir size not just one partition
+        # the entire dataset is all parquet files
+        bucket_dataset, key_dataset = parquet_partition_path.replace("s3://", "").split("/", 1)
+        key_dataset = key_dataset[::-1].split("/", 1)[1][::-1]
+        s3_resource = boto3.resource('s3')
+        bucket = s3_resource.Bucket(bucket_dataset) 
+        for obj in bucket.objects.filter(Prefix = key_dataset):
+            if "lock" not in obj.key and "success" not in obj.key:
+                dest_path = os.path.join(self._local_cache_path_prefix, obj.key)
+                if not os.path.exists(os.path.dirname(dest_path)):
+                    os.makedirs(os.path.dirname(dest_path))
+                bucket.download_file(obj.key, dest_path) # save to same path
+        
+        # upload dir to gcloud
+        # hacky because we don't want "l5ml_datasets" present
+        gcloud_key = key_dataset.split("/", 1)[1]
+        gcloud_dest = f"gs://{config.gcloud_config.dataset_bucket}/{gcloud_key}"
+        local_path = os.path.join(self._local_cache_path_prefix, key_dataset)
+        subprocess.run(f"gcloud storage cp -r -n {local_path} {gcloud_dest}", shell=True)
+    
     def _get_parquet_dir_size(self) -> int:
-        """Get the arrow path and find all the files within, count their bytes
+        """Get the parquet path and find all the files within, count their bytes
 
         Returns:
             int: bytes in parquet directory
@@ -182,11 +211,15 @@ class S3Dataset(AbstractDataset):
         # bytes in arrow table is a method of arrow table but it doesn't
         # reflect the size of the file sizes stored on s3 just the loaded data
         arrow_path = self._s3_path_factory.get_dataset_partition_path(self._partition, s3_prefix=False)
+        
+        # have to cut off the end because we want entire dir size not just one partition
+        # the entire dataset is all parquet files
         bucket, key = arrow_path.replace("s3://", "").split("/", 1)
-
+        key = key[::-1].split("/", 1)[1][::-1]
         def get_folder_size(bucket, prefix):
             total_size = 0
             for obj in boto3.resource("s3").Bucket(bucket).objects.filter(Prefix=prefix):
+                
                 total_size += obj.size
             return total_size
 
@@ -198,8 +231,17 @@ class S3Dataset(AbstractDataset):
         Returns:
             int: total dataset size in bits
         """
+        config = get_config()
+        gcloud_upload_location = config.gcloud_config.dataset_bucket
+
         # intialize with size of parquet dir
+        print("Parsing parquet and arrow dir for size.")
         par_dir_bytes = self._get_parquet_dir_size()
+
+        # copy the folder if move_to_destination is true
+        if move_to_destination:
+            print("Transferring parquet and arrow dir to gcloud.")
+            self._copy_parquet_dir_gcloud(config)
 
         # need to know which columns are heavy pntr columns we go to for
         # byte adding
@@ -239,15 +281,15 @@ class S3Dataset(AbstractDataset):
         total_len_chunks = len(buckets_keys) // chunk_size
         for i in range(0, total_len_chunks):
             chunk = buckets_keys[i * chunk_size : (i + 1) * chunk_size]
-            buckets_keys_chunks.append((chunk, total_size, lock, move_to_destination))
+            buckets_keys_chunks.append((chunk, total_size, lock, move_to_destination, self._local_cache_path_prefix, config.gcloud_config.dataset_bucket))
 
         last_chunk_size = len(buckets_keys_chunks) - (total_len_chunks * chunk_size)
         last_chunk = buckets_keys[-last_chunk_size:]
-        buckets_keys_chunks.append((last_chunk, total_size, lock, move_to_destination))
+        buckets_keys_chunks.append((last_chunk, total_size, lock, move_to_destination, self._local_cache_path_prefix, config.gcloud_config.dataset_bucket))
 
         print("Grabbing file information from s3 heads")
         pool = Pool(cpu_count() - 1)
-        pool.map(get_file_size_s3, buckets_keys_chunks)
+        pool.map(get_file_size_s3_optional_copy_gcloud, buckets_keys_chunks)
         pool.close()
         pool.join()
         return total_size.value + par_dir_bytes
