@@ -26,9 +26,7 @@ from wicker.schema.schema import DatasetSchema
 FILE_LOCK_TIMEOUT_SECONDS = 300
 
 
-def get_file_size_s3_optional_copy_gcloud(
-    input_tuple: Tuple[List[Tuple[str, str]], ValueProxy, Lock, bool, str, str]
-):
+def get_file_size_s3_optional_copy_gcloud(input_tuple: Tuple[List[Tuple[str, str]], ValueProxy, Lock, bool, str, str]):
     """Get file size of a list of s3 paths. Optionally copy to gcloud if specified
 
     Tuple structure - The tuple contains 5 parts denoted below.
