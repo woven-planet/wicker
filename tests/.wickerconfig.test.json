@@ -19,6 +19,6 @@
     "retry_delay_s": 4
   },
   "gcloud": {
-    "gcloud_bucket": "fake_bucket"
+    "dataset_bucket": "fake_bucket"
   } 
 }
