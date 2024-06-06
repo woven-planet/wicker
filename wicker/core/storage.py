@@ -480,6 +480,26 @@ class S3PathFactory(WickerPathFactory):
                     - _SUCCESS
                     - part-0-attempt-1234.parquet
                     - part-1-attempt-2345.parquet
+    
+    If you supply a mount path your file paths will look like below
+
+            <mount_path>/<root_path>
+            /dataset_name_1
+            /dataset_name_2
+                /__COLUMN_CONCATENATED_FILES__
+                    - file1
+                    - file2
+                /0.0.1
+                /0.0.2
+                - avro_schema.json
+                / assets
+                    - files added by users
+                / partition_1.parquet
+                / partition_2.parquet
+                    - _l5ml_dataset_partition_metadata.json
+                    - _SUCCESS
+                    - part-0-attempt-1234.parquet
+                    - part-1-attempt-2345.parquet
     """
 
     def __init__(self, s3_root_path: Optional[str] = None, mount_path: Optional[str] = None) -> None:
