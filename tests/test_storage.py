@@ -216,3 +216,17 @@ class TestS3PathFactory(TestCase):
         # dataset_name, raise ValueError
         with self.assertRaises(ValueError):
             S3PathFactory().get_column_concatenated_bytes_files_path()
+
+        # Test the remove s3 prefix option in the get_column_concatenated_bytes_files_path function
+        self.assertEqual(
+            S3PathFactory().get_column_concatenated_bytes_files_path(dataset_name=dataset_name, s3_prefix=False),
+            f"dummy_bucket/wicker/{dataset_name}/__COLUMN_CONCATENATED_FILES__",
+        )
+
+        # Test if the mount path eliminates the s3 prefix and adds the mount path
+        self.assertEqual(
+            S3PathFactory(mount_path="/test_mount_path").get_column_concatenated_bytes_files_path(
+                dataset_name=dataset_name
+            ),
+            f"/test_mount_path/dummy_bucket/wicker/{dataset_name}/__COLUMN_CONCATENATED_FILES__",
+        )
