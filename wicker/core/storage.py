@@ -480,10 +480,10 @@ class S3PathFactory(WickerPathFactory):
                     - _SUCCESS
                     - part-0-attempt-1234.parquet
                     - part-1-attempt-2345.parquet
-    
+
     If you supply a mount path your file paths will look like below
 
-            <mount_path>/<root_path>
+            <optional_mount_path>/<root_path>
             /dataset_name_1
             /dataset_name_2
                 /__COLUMN_CONCATENATED_FILES__
