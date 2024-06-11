@@ -291,7 +291,8 @@ class S3Dataset(AbstractDataset):
         print("Grabbing file information from s3 heads")
         # set the proc pool up and distribute the data between
         # along with shared values
-        pool = Pool(1)
+        # reserve one cpu for other operations
+        pool = Pool(cpu_count() - 1)
         pool.map(get_file_size_s3, buckets_keys_chunks)
         pool.close()
         pool.join()
