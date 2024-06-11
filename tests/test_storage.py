@@ -193,7 +193,7 @@ class TestS3PathFactory(TestCase):
                 "timeout": 150,
                 "retry_backoff": 5,
                 "retry_delay_s": 4,
-            }
+            },
         }
         mock_get_config.return_value = WickerConfig.from_json(dummy_config)
 

@@ -41,7 +41,7 @@ def iterate_bucket_key_chunk_for_size(input_tuple: Tuple[List[Tuple[str, str]], 
     for bucket_key_loc in chunk_list:
         bucket_loc, key_loc = bucket_key_loc
         # get the byte length for the object
-        byte_length = s3_resource(bucket_loc, key_loc).content_length
+        byte_length = s3_resource.Object(bucket_loc, key_loc).content_length
         local_len += byte_length
     return local_len
 
@@ -82,12 +82,11 @@ def get_file_size_s3(input_tuple: Tuple[List[Tuple[str, str]], ValueProxy, Lock]
     # form and add in the last chunk
     last_chunk_size = len(buckets_keys_chunks_local) - (local_chunk_nums * local_chunk_size)
     last_chunk = buckets_keys_chunks_local[-last_chunk_size:]
-    local_chunks.append((last_chunk,s3))
+    local_chunks.append((last_chunk, s3))
 
     # set up thread pool with max threads
     thread_pool = ThreadPool()
     # run the threads and sum the results together
-    # could use shared memory again but not worth it imo
     result = sum(list(tqdm.tqdm(thread_pool.map(iterate_bucket_key_chunk_for_size, local_chunks))))
     with lock:
         sum_value.value += result
@@ -227,7 +226,7 @@ class S3Dataset(AbstractDataset):
         return get_folder_size(bucket, key)
 
     def _get_dataset_size(self):
-        """Gets total size of the dataset in bits. 
+        """Gets total size of the dataset in bits.
 
         Returns:
             int: total dataset size in bits
@@ -283,24 +282,12 @@ class S3Dataset(AbstractDataset):
         # iterate through the chunks and form each chunk
         for i in range(0, total_len_chunks):
             chunk = buckets_keys_list[i * chunk_size : (i + 1) * chunk_size]
-            buckets_keys_chunks.append(
-                (
-                    chunk,
-                    total_size,
-                    lock
-                )
-            )
+            buckets_keys_chunks.append((chunk, total_size, lock))
 
         # form the last chunk based on what data is left
         last_chunk_size = len(buckets_keys_chunks) - (total_len_chunks * chunk_size)
         last_chunk = buckets_keys_list[-last_chunk_size:]
-        buckets_keys_chunks.append(
-            (
-                last_chunk,
-                total_size,
-                lock
-            )
-        )
+        buckets_keys_chunks.append((last_chunk, total_size, lock))
 
         print("Grabbing file information from s3 heads")
         # set the proc pool up and distribute the data between
