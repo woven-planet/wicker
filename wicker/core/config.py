@@ -39,15 +39,6 @@ class BotoS3Config:
 
 
 @dataclasses.dataclass(frozen=True)
-class GCloudConfig:
-    dataset_bucket: str
-
-    @classmethod
-    def from_json(cls, data: Dict[str, Any]) -> GCloudConfig:
-        return cls(dataset_bucket=data["dataset_bucket"])
-
-
-@dataclasses.dataclass(frozen=True)
 class WickerAwsS3Config:
     s3_datasets_path: str
     region: str
@@ -85,7 +76,6 @@ class StorageDownloadConfig:
 class WickerConfig:
     raw: Dict[str, Any]
     aws_s3_config: WickerAwsS3Config
-    gcloud_config: GCloudConfig
     storage_download_config: StorageDownloadConfig
     wandb_config: WickerWandBConfig
 
@@ -94,7 +84,6 @@ class WickerConfig:
         return cls(
             raw=data,
             aws_s3_config=WickerAwsS3Config.from_json(data["aws_s3_config"]),
-            gcloud_config=GCloudConfig.from_json(data["gcloud"]),
             storage_download_config=StorageDownloadConfig.from_json(data["storage_download_config"]),
             wandb_config=WickerWandBConfig.from_json(data.get("wandb_config", {})),
         )

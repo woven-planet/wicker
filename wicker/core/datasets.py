@@ -26,8 +26,28 @@ from wicker.schema.schema import DatasetSchema
 FILE_LOCK_TIMEOUT_SECONDS = 300
 
 
-def get_file_size_s3_optional_copy_gcloud(input_tuple: Tuple[List[Tuple[str, str]], ValueProxy, Lock, bool, str, str]):
-    """Get file size of a list of s3 paths. Optionally copy to gcloud if specified
+def iterate_bucket_key_chunk_for_size(input_tuple: Tuple[List[Tuple[str, str]], Any]) -> int:
+    """Iterate on chunk of s3 files to get local length of bytes.
+
+    input_tuple structure:
+        chunk_list: List of tuples of str, str containing bucket and keys for files on s3 to get byte length.
+        s3_resource: Resource on s3 shared between threads for getting s3 file size. Can make concurrent calls on
+            multiple threads for efficiency so okay to pass between.
+    Args:
+        input_tuple (Tuple[List[Tuple[str, str]], Any]): input tuple containing required data, described above.
+    """
+    local_len = 0
+    chunk_list, s3_resource = input_tuple
+    for bucket_key_loc in chunk_list:
+        bucket_loc, key_loc = bucket_key_loc
+        # get the byte length for the object
+        byte_length = s3_resource(bucket_loc, key_loc).content_length
+        local_len += byte_length
+    return local_len
+
+
+def get_file_size_s3(input_tuple: Tuple[List[Tuple[str, str]], ValueProxy, Lock]):
+    """Get file size of a list of s3 paths.
 
     Tuple structure - The tuple contains 5 parts denoted below.
 
@@ -38,19 +58,15 @@ def get_file_size_s3_optional_copy_gcloud(input_tuple: Tuple[List[Tuple[str, str
 
         lock - A shared memory lock for locking the sum_value during write procedure.
 
-        local_output_loc - The local location to store files during transfer as intermediary.
-
-        gcloud_output_loc - The output loc of where to put data on gcloud.
-
     Args:
-        input_tuple: A tuple containing the relevant pieces of data used to grab, copy, and store byte size.
+        input_tuple: A tuple containing the relevant pieces of data used to grab and store byte size.
             Works across procs so needs a lock and shared memory space.
 
     Returns:
         Void function - does all modifications in place on the shared memory value.
 
     """
-    buckets_keys_chunks_local, sum_value, lock, move_to_destination, local_output_loc, gcloud_output_loc = input_tuple
+    buckets_keys_chunks_local, sum_value, lock = input_tuple
     # set up the s3 resource and client
     s3 = boto3.resource("s3")
 
@@ -61,42 +77,18 @@ def get_file_size_s3_optional_copy_gcloud(input_tuple: Tuple[List[Tuple[str, str
     local_chunk_size = len(buckets_keys_chunks_local) // local_chunk_nums
     for i in range(0, local_chunk_nums):
         chunk = buckets_keys_chunks_local[i * local_chunk_size : (i + 1) * local_chunk_size]
-        local_chunks.append((chunk, move_to_destination))
+        local_chunks.append((chunk, s3))
 
     # form and add in the last chunk
     last_chunk_size = len(buckets_keys_chunks_local) - (local_chunk_nums * local_chunk_size)
     last_chunk = buckets_keys_chunks_local[-last_chunk_size:]
-    local_chunks.append((last_chunk, move_to_destination))
-
-    def iterate_proc_chunk(input_tuple):
-        local_len = 0
-        chunk_list, move_to_destination_loc = input_tuple
-        for bucket_key_loc in chunk_list:
-            bucket_loc, key_loc = bucket_key_loc
-            # get the byte length for the object
-            byte_length = s3.Object(bucket_loc, key_loc).content_length
-            if move_to_destination_loc:
-                # establish session to copy data over to the host
-                session = boto3.session.Session()
-                client = session.client("s3")
-                output_loc = os.path.join(local_output_loc, key_loc)
-                if not os.path.exists(os.path.dirname(output_loc)):
-                    os.makedirs(os.path.dirname(output_loc), exist_ok=True)
-                if not os.path.exists(output_loc):
-                    # download and then push to gcloud
-                    client.download_file(bucket_loc, key_loc, output_loc)
-                    gcloud_path = f"gs://{os.path.join(gcloud_output_loc, '__COLUMN_CONCATENATED_FILES__')}"
-                    subprocess.run(f"gcloud storage cp -n {output_loc} {gcloud_path}", shell=True)
-                    # delete file locally to not blow up size
-                    subprocess.run(f"rm {output_loc}", shell=True)
-            local_len += byte_length
-        return local_len
+    local_chunks.append((last_chunk,s3))
 
     # set up thread pool with max threads
     thread_pool = ThreadPool()
     # run the threads and sum the results together
     # could use shared memory again but not worth it imo
-    result = sum(list(tqdm.tqdm(thread_pool.map(iterate_proc_chunk, local_chunks))))
+    result = sum(list(tqdm.tqdm(thread_pool.map(iterate_bucket_key_chunk_for_size, local_chunks))))
     with lock:
         sum_value.value += result
 
@@ -210,31 +202,6 @@ class S3Dataset(AbstractDataset):
             self.schema(),
         )
 
-    def _copy_parquet_dir_gcloud(self, config) -> None:
-        """Copy the parquet path to gcloud."""
-        # copy the arrow table and the parquet files
-        parquet_partition_path = self._s3_path_factory.get_dataset_partition_path(self._partition, s3_prefix=False)
-
-        # have to cut off the end because we want entire dir size not just one partition
-        # the entire dataset is all parquet files
-        bucket_dataset, key_dataset = parquet_partition_path.replace("s3://", "").split("/", 1)
-        key_dataset = key_dataset[::-1].split("/", 1)[1][::-1]
-        s3_resource = boto3.resource("s3")
-        bucket = s3_resource.Bucket(bucket_dataset)
-        for obj in bucket.objects.filter(Prefix=key_dataset):
-            if "lock" not in obj.key and "success" not in obj.key:
-                dest_path = os.path.join(self._local_cache_path_prefix, obj.key)
-                if not os.path.exists(os.path.dirname(dest_path)):
-                    os.makedirs(os.path.dirname(dest_path))
-                bucket.download_file(obj.key, dest_path)  # save to same path
-
-        # upload dir to gcloud
-        # hacky because we don't want "l5ml_datasets" present
-        gcloud_key = key_dataset.split("/", 1)[1]
-        gcloud_dest = f"gs://{config.gcloud_config.dataset_bucket}/{gcloud_key}"
-        local_path = os.path.join(self._local_cache_path_prefix, key_dataset)
-        subprocess.run(f"gcloud storage cp -r -n {local_path} {gcloud_dest}", shell=True)
-
     def _get_parquet_dir_size(self) -> int:
         """Get the parquet path and find all the files within, count their bytes
 
@@ -254,33 +221,21 @@ class S3Dataset(AbstractDataset):
         def get_folder_size(bucket, prefix):
             total_size = 0
             for obj in boto3.resource("s3").Bucket(bucket).objects.filter(Prefix=prefix):
-
                 total_size += obj.size
             return total_size
 
         return get_folder_size(bucket, key)
 
-    def _get_dataset_size(self, move_to_destination: bool = False):
-        """Gets total size of the dataset in bits. Optinally copy files to gcloud,
-        based on config location.
-
-        Args:
-            move_to_destination: Bool denoting if the data should be moved
-                to gcloud during size parsing.
+    def _get_dataset_size(self):
+        """Gets total size of the dataset in bits. 
 
         Returns:
             int: total dataset size in bits
         """
-        config = get_config()
 
         # intialize with size of parquet dir
         print("Parsing parquet and arrow dir for size.")
         par_dir_bytes = self._get_parquet_dir_size()
-
-        # copy the parquet folder if move_to_destination is true
-        if move_to_destination:
-            print("Transferring parquet and arrow dir to gcloud.")
-            self._copy_parquet_dir_gcloud(config)
 
         # need to know which columns are heavy pntr columns we go to for
         # byte adding, parse which are heavy pointers based off metadata
@@ -332,10 +287,7 @@ class S3Dataset(AbstractDataset):
                 (
                     chunk,
                     total_size,
-                    lock,
-                    move_to_destination,
-                    self._local_cache_path_prefix,
-                    config.gcloud_config.dataset_bucket,
+                    lock
                 )
             )
 
@@ -346,18 +298,15 @@ class S3Dataset(AbstractDataset):
             (
                 last_chunk,
                 total_size,
-                lock,
-                move_to_destination,
-                self._local_cache_path_prefix,
-                config.gcloud_config.dataset_bucket,
+                lock
             )
         )
 
         print("Grabbing file information from s3 heads")
         # set the proc pool up and distribute the data between
         # along with shared values
-        pool = Pool(cpu_count() - 1)
-        pool.map(get_file_size_s3_optional_copy_gcloud, buckets_keys_chunks)
+        pool = Pool(1)
+        pool.map(get_file_size_s3, buckets_keys_chunks)
         pool.close()
         pool.join()
         # add the value of the shared memory and the parquet dir bytes
