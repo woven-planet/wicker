@@ -1,6 +1,5 @@
 import abc
 import os
-import subprocess
 from functools import cached_property
 from multiprocessing import Manager, Pool, cpu_count
 from multiprocessing.managers import ValueProxy
@@ -26,18 +25,20 @@ from wicker.schema.schema import DatasetSchema
 FILE_LOCK_TIMEOUT_SECONDS = 300
 
 
-def iterate_bucket_key_chunk_for_size(input_tuple: Tuple[List[Tuple[str, str]], Any]) -> int:
+def iterate_bucket_key_chunk_for_size(chunk_list: List[Tuple[str, str]]) -> int:
     """Iterate on chunk of s3 files to get local length of bytes.
 
-    input_tuple structure:
-        chunk_list: List of tuples of str, str containing bucket and keys for files on s3 to get byte length.
-        s3_resource: Resource on s3 shared between threads for getting s3 file size. Can make concurrent calls on
-            multiple threads for efficiency so okay to pass between.
     Args:
-        input_tuple (Tuple[List[Tuple[str, str]], Any]): input tuple containing required data, described above.
+        chunk_list: List of tuples of str, str containing bucket and keys for files on s3 to get byte length.
+
+    Returns:
+        int: total amount of bytes in the file chunk list
+
     """
     local_len = 0
-    chunk_list, s3_resource = input_tuple
+    # create the s3 resource locally and don't pass in. Boto3 docs state to do this in each thread
+    # and not pass around.
+    s3_resource = boto3.resource("s3")
     for bucket_key_loc in chunk_list:
         bucket_loc, key_loc = bucket_key_loc
         # get the byte length for the object
@@ -67,8 +68,6 @@ def get_file_size_s3(input_tuple: Tuple[List[Tuple[str, str]], ValueProxy, Lock]
 
     """
     buckets_keys_chunks_local, sum_value, lock = input_tuple
-    # set up the s3 resource and client
-    s3 = boto3.resource("s3")
 
     # chunk the process again between multiple threads on each proc
     # done to reduce i/o wait on each individual proc
@@ -77,12 +76,12 @@ def get_file_size_s3(input_tuple: Tuple[List[Tuple[str, str]], ValueProxy, Lock]
     local_chunk_size = len(buckets_keys_chunks_local) // local_chunk_nums
     for i in range(0, local_chunk_nums):
         chunk = buckets_keys_chunks_local[i * local_chunk_size : (i + 1) * local_chunk_size]
-        local_chunks.append((chunk, s3))
+        local_chunks.append(chunk)
 
     # form and add in the last chunk
     last_chunk_size = len(buckets_keys_chunks_local) - (local_chunk_nums * local_chunk_size)
     last_chunk = buckets_keys_chunks_local[-last_chunk_size:]
-    local_chunks.append((last_chunk, s3))
+    local_chunks.append(last_chunk)
 
     # set up thread pool with max threads
     thread_pool = ThreadPool()
