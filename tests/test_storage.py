@@ -223,10 +223,10 @@ class TestS3PathFactory(TestCase):
             f"dummy_bucket/wicker/{dataset_name}/__COLUMN_CONCATENATED_FILES__",
         )
 
-        # Test if the mount path eliminates the s3 prefix and adds the mount path
+        # Test if the s3 prefix remove bool is not passed the prefix isn't eliminated.
         self.assertEqual(
-            S3PathFactory(mount_path="/test_mount_path").get_column_concatenated_bytes_files_path(
+            S3PathFactory(prefix_replace_path="/test_mount_path").get_column_concatenated_bytes_files_path(
                 dataset_name=dataset_name
             ),
-            f"/test_mount_path/dummy_bucket/wicker/{dataset_name}/__COLUMN_CONCATENATED_FILES__",
+            f"s3://dummy_bucket/wicker/{dataset_name}/__COLUMN_CONCATENATED_FILES__",
         )

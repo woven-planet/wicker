@@ -12,6 +12,7 @@ import os
 import shutil
 import uuid
 from abc import ABC, abstractmethod
+from string import printable
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
@@ -275,23 +276,46 @@ class WickerPathFactory:
                     - _SUCCESS
                     - part-0-attempt-1234.parquet
                     - part-1-attempt-2345.parquet
+
+    When a prefix_replace_path is passed the paths of each location are already such that
+    the prefix_to_trim is replaced with prefix_replace_path. This generally done in the case
+    of mounted buckets where the fully-qualified posix path is required.
     """
 
-    def __init__(self, root_path: str, store_concatenated_bytes_files_in_dataset: bool = False) -> None:
+    def __init__(
+        self, root_path: str, prefix_replace_path: str = "", store_concatenated_bytes_files_in_dataset: bool = False
+    ) -> None:
         """Init the path factory.
 
         Object to form the expected paths and return them to the user based of root path and storage bool.
 
-        Args:.
+        Args:
             root_path (str): File system location of the root of the wicker file structure.
+            prefix_replace_path (str, optional): Prefix to replace designated prefixes passed to functions.
             store_concatenated_bytes_files_in_dataset (bool, optional): Whether to assume concatenated bytes files
                 are stored in the dataset folder. Defaults to False
         """
+        self._prefix_replace_path = prefix_replace_path
         self.root_path: str = root_path
         self.store_concatenated_bytes_files_in_dataset = store_concatenated_bytes_files_in_dataset
 
     def __eq__(self, other: Any) -> bool:
         return super().__eq__(other) and type(self) == type(other) and self.root_path == other.root_path
+
+    @staticmethod
+    def __format_pathing(input_path: str, prefix_replace_path: str = "", prefix_to_trim: Optional[str] = None) -> str:
+        """Format path, replace prefix to trime with prefix_replace_path
+
+        Args:
+            input_path (str): input path to format.
+            prefix_replace_path (str, optional): value to insert in place of prefix on the output path. Defaults to ''
+            prefix_to_trim (Optional[str], optional): prefix to trim off the path. Defaults to None.
+
+        Returns:
+            str: formatted path.
+        """
+        output_path = input_path if prefix_to_trim is None else input_path.replace(prefix_to_trim, prefix_replace_path)
+        return output_path
 
     def _get_dataset_assets_path(self, dataset_id: DatasetID, prefix_to_trim: Optional[str] = None) -> str:
         """Get the asset path in known file structure.
@@ -309,9 +333,9 @@ class WickerPathFactory:
             dataset_id.version,
             "assets",
         )
-        if prefix_to_trim:
-            return full_path.replace(prefix_to_trim, "")
-        return full_path
+        return self.__format_pathing(
+            input_path=full_path, prefix_replace_path=self._prefix_replace_path, prefix_to_trim=prefix_to_trim
+        )
 
     def _get_dataset_partition_metadata_path(
         self, data_partition: DatasetPartition, prefix_to_trim: Optional[str] = None
@@ -329,9 +353,9 @@ class WickerPathFactory:
             self._get_dataset_partition_path(data_partition),
             "_l5ml_dataset_partition_metadata.json",
         )
-        if prefix_to_trim:
-            return full_path.replace(prefix_to_trim, "")
-        return full_path
+        return self.__format_pathing(
+            input_path=full_path, prefix_replace_path=self._prefix_replace_path, prefix_to_trim=prefix_to_trim
+        )
 
     def _get_dataset_partition_path(
         self, data_partition: DatasetPartition, prefix_to_trim: Optional[str] = None
@@ -354,9 +378,9 @@ class WickerPathFactory:
             f"{data_partition.partition}.parquet",
         )
 
-        if prefix_to_trim:
-            return full_path.replace(prefix_to_trim, "")
-        return full_path
+        return self.__format_pathing(
+            input_path=full_path, prefix_replace_path=self._prefix_replace_path, prefix_to_trim=prefix_to_trim
+        )
 
     def _get_dataset_schema_path(self, dataset_id: DatasetID, prefix_to_trim: Optional[str] = None) -> str:
         """Get the dataset schema path.
@@ -376,9 +400,9 @@ class WickerPathFactory:
             dataset_id.version,
             "avro_schema.json",
         )
-        if prefix_to_trim:
-            return full_path.replace(prefix_to_trim, "")
-        return full_path
+        return self.__format_pathing(
+            input_path=full_path, prefix_replace_path=self._prefix_replace_path, prefix_to_trim=prefix_to_trim
+        )
 
     def _get_column_concatenated_bytes_files_path(
         self, dataset_name: Optional[str] = None, prefix_to_trim: Optional[str] = None
@@ -396,9 +420,10 @@ class WickerPathFactory:
             full_path = os.path.join(self.root_path, dataset_name, "__COLUMN_CONCATENATED_FILES__")
         else:
             full_path = os.path.join(self.root_path, "__COLUMN_CONCATENATED_FILES__")
-        if prefix_to_trim:
-            return full_path.replace(prefix_to_trim, "")
-        return full_path
+
+        return self.__format_pathing(
+            input_path=full_path, prefix_replace_path=self._prefix_replace_path, prefix_to_trim=prefix_to_trim
+        )
 
     def get_temporary_row_files_path(self, dataset_id: DatasetID) -> str:
         """Get path to temporary rows file path.
@@ -463,17 +488,19 @@ class S3PathFactory(WickerPathFactory):
                     - part-1-attempt-2345.parquet
     """
 
-    def __init__(self, s3_root_path: Optional[str] = None) -> None:
+    def __init__(self, s3_root_path: Optional[str] = None, prefix_replace_path: str = "") -> None:
         """Init S3PathFactory.
 
         Args:
             s3_root_path (Optional[str], optional): path to s3 root path. Defaults to None.
+            prefix_replace_pathm (str, optional): path to replace for given prefix. In this class this is generally
+                replacing s3 when a bucket is mounted to instance. Defaults to "".
         """
         s3_config = get_config().aws_s3_config
         store_concatenated_bytes_files_in_dataset = s3_config.store_concatenated_bytes_files_in_dataset
         s3_root_path = s3_root_path if s3_root_path is not None else s3_config.s3_datasets_path
         # ignore type as we already handled none case above
-        super().__init__(s3_root_path, store_concatenated_bytes_files_in_dataset)  # type: ignore
+        super().__init__(prefix_replace_path=prefix_replace_path, root_path=s3_root_path, store_concatenated_bytes_files_in_dataset=store_concatenated_bytes_files_in_dataset)  # type: ignore
 
     def get_dataset_assets_path(self, dataset_id: DatasetID, s3_prefix: bool = True) -> str:
         """Get path to data assets folder.
@@ -540,15 +567,20 @@ class S3PathFactory(WickerPathFactory):
         prefix_to_trim = "s3://" if not s3_prefix else None
         return self._get_column_concatenated_bytes_files_path(dataset_name=dataset_name, prefix_to_trim=prefix_to_trim)
 
-    def get_column_concatenated_bytes_s3path_from_uuid(self, file_uuid: bytes, dataset_name: str = None) -> str:
+    def get_column_concatenated_bytes_s3path_from_uuid(
+        self, file_uuid: bytes, dataset_name: str = None, s3_prefix: bool = True
+    ) -> str:
         """Public gettr for column concat bytes with uuid
 
         Args:
             file_uuid (bytes): uuid of the file
             dataset_name (str, optional): Name of the dataset to gather. Defaults to None.
+            s3 (bool, optional): whether to return the s3:// prefix, defaults to True.
 
         Returns:
             str: _description_
         """
-        columns_root_path = self.get_column_concatenated_bytes_files_path(dataset_name=dataset_name)
+        columns_root_path = self.get_column_concatenated_bytes_files_path(
+            dataset_name=dataset_name, s3_prefix=s3_prefix
+        )
         return os.path.join(columns_root_path, str(uuid.UUID(bytes=file_uuid)))
