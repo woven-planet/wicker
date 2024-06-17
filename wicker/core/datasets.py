@@ -1,7 +1,7 @@
 import abc
 import os
 from functools import cached_property
-from multiprocessing import Manager, Pool, cpu_count
+from multiprocessing import Manager, Pool
 from multiprocessing.managers import ValueProxy
 from multiprocessing.pool import ThreadPool
 from threading import Lock
@@ -58,7 +58,7 @@ def get_file_size_s3_proced(buckets_keys: List[Tuple[int, int]]) -> int:
     # set the proc pool up and distribute the data between
     # along with shared values
     # reserve one cpu for other operations
-    pool = Pool(1)
+    pool = Pool(cpu_count() - 1)
     # arbitrary chunking breaks typing here, still keep typing on function
     # for documentation
     pool.map(get_file_size_s3_threaded, buckets_keys_chunks)  # type: ignore
