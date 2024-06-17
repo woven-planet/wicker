@@ -71,12 +71,12 @@ def get_file_size_s3_threaded(input_tuple: Tuple[List[Tuple[str, str]], ValuePro
     """Get file size of a list of s3 paths.
 
     This function takes the input in the form of a tuple for efficient passing in a mutli
-    processing setting. THe input buckets_keys_chunks_local are a list of tuples that is split
+    processing setting. The input buckets_keys_chunks_local are a list of tuples that is split
     out across multiple threads to reduce the i/o wait to minimum on one single processor.
     The general use case is for saturating the i/o from s3 in order to most efficiently caclulate
     the size of the file tuple list in bytes.
 
-    Tuple structure - The tuple contains 5 parts denoted below.
+    Tuple structure - The tuple contains 3 parts denoted below.
 
         buckets_keys_chunks_local - The list of tuples denoting bucket and key of files on s3 to
         parse. Generally column files but will work with any data.
@@ -130,8 +130,6 @@ def chunk_data_for_split(
         List[Tuple[Any, ...]]: Tuples of chunks, first index is subset of passed data
         other indices correspond to in order additions. Size of each tuple is len(chunk_additions) + 1
     """
-    # chunk the process again between multiple threads on each proc
-    # done to reduce i/o wait on each individual proc
     local_chunks = []
     local_chunk_size = len(chunkable_data) // chunk_number
     for i in range(0, chunk_number - 1):
