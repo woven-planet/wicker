@@ -505,7 +505,17 @@ class S3PathFactory(WickerPathFactory):
             store_concatenated_bytes_files_in_dataset=store_concatenated_bytes_files_in_dataset,
         )  # type: ignore
 
-    def get_dataset_assets_path(self, dataset_id: DatasetID, s3_prefix: bool = True) -> str:
+    @staticmethod
+    def __determine_cut_prefix(s3_prefix: bool, cut_prefix_override: Optional[str]):
+        # keep original logic
+        prefix_to_trim = "s3://" if not s3_prefix else None
+        # if the cut_prefix_override is not none we prefer that to None or "s3://"
+        prefix_to_trim = prefix_to_trim if not cut_prefix_override else cut_prefix_override
+        return prefix_to_trim
+
+    def get_dataset_assets_path(
+        self, dataset_id: DatasetID, s3_prefix: bool = True, cut_prefix_override: Optional[str] = None
+    ) -> str:
         """Get path to data assets folder.
 
         Public getter for data asset folder path logic.
@@ -517,10 +527,12 @@ class S3PathFactory(WickerPathFactory):
         Returns:
             str: Path to data assets folder.
         """
-        prefix_to_trim = "s3://" if not s3_prefix else None
+        prefix_to_trim = self.__determine_cut_prefix(s3_prefix, cut_prefix_override)
         return self._get_dataset_assets_path(dataset_id=dataset_id, prefix_to_trim=prefix_to_trim)
 
-    def get_dataset_partition_metadata_path(self, data_partition: DatasetPartition, s3_prefix: bool = True) -> str:
+    def get_dataset_partition_metadata_path(
+        self, data_partition: DatasetPartition, s3_prefix: bool = True, cut_prefix_override: Optional[str] = None
+    ) -> str:
         """Get metadata file path for partition.
 
         Args:
@@ -530,10 +542,12 @@ class S3PathFactory(WickerPathFactory):
         Returns:
             str: Path to dataset partition metadata file.
         """
-        prefix_to_trim = "s3://" if not s3_prefix else None
+        prefix_to_trim = self.__determine_cut_prefix(s3_prefix, cut_prefix_override)
         return self._get_dataset_partition_metadata_path(data_partition, prefix_to_trim)
 
-    def get_dataset_partition_path(self, data_partition: DatasetPartition, s3_prefix: bool = True) -> str:
+    def get_dataset_partition_path(
+        self, data_partition: DatasetPartition, s3_prefix: bool = True, cut_prefix_override: Optional[str] = None
+    ) -> str:
         """Get path to dataset partition data file.
 
         Args:
@@ -543,10 +557,12 @@ class S3PathFactory(WickerPathFactory):
         Returns:
             str: Path to dataset partition data file.
         """
-        prefix_to_trim = "s3://" if not s3_prefix else None
+        prefix_to_trim = self.__determine_cut_prefix(s3_prefix, cut_prefix_override)
         return self._get_dataset_partition_path(data_partition=data_partition, prefix_to_trim=prefix_to_trim)
 
-    def get_dataset_schema_path(self, dataset_id: DatasetID, s3_prefix: bool = True) -> str:
+    def get_dataset_schema_path(
+        self, dataset_id: DatasetID, s3_prefix: bool = True, cut_prefix_override: Optional[str] = None
+    ) -> str:
         """Get path to the dataset schema.
 
         Args:
@@ -556,10 +572,12 @@ class S3PathFactory(WickerPathFactory):
         Returns:
             str: Path to dataset schema.
         """
-        prefix_to_trim = "s3://" if not s3_prefix else None
+        prefix_to_trim = self.__determine_cut_prefix(s3_prefix, cut_prefix_override)
         return self._get_dataset_schema_path(dataset_id=dataset_id, prefix_to_trim=prefix_to_trim)
 
-    def get_column_concatenated_bytes_files_path(self, s3_prefix: bool = True, dataset_name: str = None) -> str:
+    def get_column_concatenated_bytes_files_path(
+        self, s3_prefix: bool = True, dataset_name: str = None, cut_prefix_override: Optional[str] = None
+    ) -> str:
         """Gets the path to the root of all column_concatenated_bytes files
 
         :param s3_prefix: whether to return the s3:// prefix, defaults to True
@@ -567,11 +585,15 @@ class S3PathFactory(WickerPathFactory):
             it requires dataset name, defaults to None
         :return: path to the column_concatenated_bytes file with the file_id
         """
-        prefix_to_trim = "s3://" if not s3_prefix else None
+        prefix_to_trim = self.__determine_cut_prefix(s3_prefix, cut_prefix_override)
         return self._get_column_concatenated_bytes_files_path(dataset_name=dataset_name, prefix_to_trim=prefix_to_trim)
 
     def get_column_concatenated_bytes_s3path_from_uuid(
-        self, file_uuid: bytes, dataset_name: str = None, s3_prefix: bool = True
+        self,
+        file_uuid: bytes,
+        dataset_name: str = None,
+        s3_prefix: bool = True,
+        cut_prefix_override: Optional[str] = None,
     ) -> str:
         """Public gettr for column concat bytes with uuid
 

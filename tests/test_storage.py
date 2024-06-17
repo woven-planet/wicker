@@ -230,3 +230,10 @@ class TestS3PathFactory(TestCase):
             ),
             f"s3://dummy_bucket/wicker/{dataset_name}/__COLUMN_CONCATENATED_FILES__",
         )
+
+        self.assertEqual(
+            S3PathFactory(prefix_replace_path="/test_mount_path/").get_column_concatenated_bytes_files_path(
+                dataset_name=dataset_name, s3_prefix=False
+            ),
+            f"/test_mount_path/dummy_bucket/wicker/{dataset_name}/__COLUMN_CONCATENATED_FILES__",
+        )
