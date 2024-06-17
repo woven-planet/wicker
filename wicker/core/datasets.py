@@ -1,7 +1,7 @@
 import abc
 import os
 from functools import cached_property
-from multiprocessing import Manager, Pool
+from multiprocessing import Manager, Pool, cpu_count
 from multiprocessing.managers import ValueProxy
 from multiprocessing.pool import ThreadPool
 from threading import Lock
