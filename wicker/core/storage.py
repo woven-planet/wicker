@@ -276,8 +276,8 @@ class WickerPathFactory:
                     - part-0-attempt-1234.parquet
                     - part-1-attempt-2345.parquet
 
-    When a prefix_replace_path is passed the paths of each location are already such that
-    the prefix_to_trim is replaced with prefix_replace_path. This generally done in the case
+    When a prefix_replace_path is passed the paths of each location are altered such that
+    the prefix_to_trim is replaced with prefix_replace_path. This is generally done in the case
     of mounted buckets where the fully-qualified posix path is required.
     """
 
@@ -492,7 +492,7 @@ class S3PathFactory(WickerPathFactory):
 
         Args:
             s3_root_path (Optional[str], optional): path to s3 root path. Defaults to None.
-            prefix_replace_pathm (str, optional): path to replace for given prefix. In this class this is generally
+            prefix_replace_path (str, optional): path to replace for given prefix. In this class this is generally
                 replacing s3 when a bucket is mounted to instance. Defaults to "".
         """
         s3_config = get_config().aws_s3_config
@@ -500,8 +500,8 @@ class S3PathFactory(WickerPathFactory):
         s3_root_path = s3_root_path if s3_root_path is not None else s3_config.s3_datasets_path
         # ignore type as we already handled none case above
         super().__init__(
-            prefix_replace_path=prefix_replace_path,
             root_path=s3_root_path,
+            prefix_replace_path=prefix_replace_path,
             store_concatenated_bytes_files_in_dataset=store_concatenated_bytes_files_in_dataset,
         )  # type: ignore
 
