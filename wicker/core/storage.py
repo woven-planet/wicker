@@ -507,6 +507,16 @@ class S3PathFactory(WickerPathFactory):
 
     @staticmethod
     def __determine_cut_prefix(s3_prefix: bool, cut_prefix_override: Optional[str]):
+        """Determine the cut prefix by using default logic and if override provided preferring.
+
+        Args:
+            s3_prefix (bool, optional): Whehter to keep the s3 prefix or not.
+            cut_prefix_override (str, optional): Optional arbitrary prefix to prefer over s3 prefix.
+                used if provided.
+
+        Returns:
+            str: Prefix to trim off front of path.
+        """
         # keep original logic
         prefix_to_trim = "s3://" if not s3_prefix else None
         # if the cut_prefix_override is not none we prefer that to None or "s3://"
@@ -523,6 +533,7 @@ class S3PathFactory(WickerPathFactory):
         Args:
             dataset_id (DatasetID): ID to gather file path.
             s3_prefix (bool, optional): Whether to keep the s3 prefix or not. Defaults to True.
+            cut_prefix_override (str, optional): whether to use an arbitrary prefix to cut off path. Defaults to None.
 
         Returns:
             str: Path to data assets folder.
@@ -538,6 +549,7 @@ class S3PathFactory(WickerPathFactory):
         Args:
             data_partition (DatasetPartition): Partition to gather file path.
             s3_prefix (bool, optional): Whether to keep the s3 prefix or not. Defaults to True.
+            cut_prefix_override (str, optional): whether to use an arbitrary prefix to cut off path. Defaults to None.
 
         Returns:
             str: Path to dataset partition metadata file.
@@ -553,6 +565,7 @@ class S3PathFactory(WickerPathFactory):
         Args:
             data_partition (DatasetPartition): Partition to gather file path.
             s3_prefix (bool, optional): Whether to keep the s3 prefix or not. Defaults to True.
+            cut_prefix_override (str, optional): whether to use an arbitrary prefix to cut off path. Defaults to None.
 
         Returns:
             str: Path to dataset partition data file.
@@ -568,7 +581,7 @@ class S3PathFactory(WickerPathFactory):
         Args:
             dataset_id (DatasetID): ID of the dataset.
             s3_prefix (bool, optional): Whether to keep the s3 prefix or not. Defaults to True.
-
+            cut_prefix_override (str, optional): whether to use an arbitrary prefix to cut off path. Defaults to None.
         Returns:
             str: Path to dataset schema.
         """
@@ -583,6 +596,8 @@ class S3PathFactory(WickerPathFactory):
         :param s3_prefix: whether to return the s3:// prefix, defaults to True
         :param dataset_name: if self.store_concatenated_bytes_files_in_dataset is True,
             it requires dataset name, defaults to None
+        :param cut_prefix_override (str, optional): whether to use an arbitrary prefix to cut off path.
+            Defaults to None.
         :return: path to the column_concatenated_bytes file with the file_id
         """
         prefix_to_trim = self.__determine_cut_prefix(s3_prefix, cut_prefix_override)
@@ -601,6 +616,7 @@ class S3PathFactory(WickerPathFactory):
             file_uuid (bytes): uuid of the file
             dataset_name (str, optional): Name of the dataset to gather. Defaults to None.
             s3 (bool, optional): whether to return the s3:// prefix, defaults to True.
+            cut_prefix_override (str, optional): whether to use an arbitrary prefix to cut off path. Defaults to None.
 
         Returns:
             str: _description_
