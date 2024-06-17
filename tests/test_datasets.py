@@ -173,5 +173,4 @@ class TestS3Dataset(unittest.TestCase):
                     return total
 
                 expected_bytes = get_dir_size(fake_s3_storage._tmpdir)
-                print(expected_bytes, dataset_size)
                 assert expected_bytes == dataset_size

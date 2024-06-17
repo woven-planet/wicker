@@ -103,7 +103,7 @@ def get_file_size_s3_threaded(input_tuple: Tuple[List[Tuple[str, str]], ValuePro
 
     # run the threads and sum the results together
     # same as with multi proc, arbitrary chunking breaks typing, keep for docs
-    result = sum(list(tqdm.tqdm(thread_pool.map(iterate_bucket_key_chunk_for_size, local_chunks[0]))))  # type: ignore
+    result = sum(list(tqdm.tqdm(thread_pool.map(iterate_bucket_key_chunk_for_size, local_chunks))))  # type: ignore
     with lock:
         sum_value.value += result
 
@@ -149,7 +149,7 @@ def chunk_data_for_split(
     return local_chunks
 
 
-def iterate_bucket_key_chunk_for_size(chunk_tuple: List[Tuple[str, str]]) -> int:  # type: ignore
+def iterate_bucket_key_chunk_for_size(chunk_tuple: Tuple[List[Tuple[str, str]], ...]) -> int:  # type: ignore
     """Iterate on chunk of s3 files to get local length of bytes.
 
     Args:
@@ -166,7 +166,7 @@ def iterate_bucket_key_chunk_for_size(chunk_tuple: List[Tuple[str, str]]) -> int
     # create the s3 resource locally and don't pass in. Boto3 docs state to do this in each thread
     # and not pass around.
     s3_resource = boto3.resource("s3")
-    for bucket_key_loc in chunk_tuple:
+    for bucket_key_loc in chunk_tuple[0]:
         bucket_loc, key_loc = bucket_key_loc
         # get the byte length for the object
         byte_length = s3_resource.Object(bucket_loc, key_loc).content_length
