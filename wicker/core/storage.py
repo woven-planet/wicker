@@ -622,6 +622,6 @@ class S3PathFactory(WickerPathFactory):
             str: _description_
         """
         columns_root_path = self.get_column_concatenated_bytes_files_path(
-            dataset_name=dataset_name, s3_prefix=s3_prefix
+            dataset_name=dataset_name, s3_prefix=s3_prefix, cut_prefix_override=cut_prefix_override
         )
         return os.path.join(columns_root_path, str(uuid.UUID(bytes=file_uuid)))

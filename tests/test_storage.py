@@ -237,3 +237,17 @@ class TestS3PathFactory(TestCase):
             ),
             f"/test_mount_path/dummy_bucket/wicker/{dataset_name}/__COLUMN_CONCATENATED_FILES__",
         )
+
+        self.assertEqual(
+            S3PathFactory(prefix_replace_path="/test_mount_path/").get_column_concatenated_bytes_files_path(
+                dataset_name=dataset_name, s3_prefix=False, cut_prefix_override="s3://dummy_bucket/"
+            ),
+            f"/test_mount_path/wicker/{dataset_name}/__COLUMN_CONCATENATED_FILES__",
+        )
+
+        self.assertEqual(
+            S3PathFactory(prefix_replace_path="/test_mount_path/").get_column_concatenated_bytes_files_path(
+                dataset_name=dataset_name, s3_prefix=True, cut_prefix_override="s3://dummy_bucket/"
+            ),
+            f"/test_mount_path/wicker/{dataset_name}/__COLUMN_CONCATENATED_FILES__",
+        )
