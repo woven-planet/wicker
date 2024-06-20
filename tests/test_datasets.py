@@ -5,13 +5,16 @@ from contextlib import contextmanager
 from typing import Any, Iterator, NamedTuple, Tuple
 from unittest.mock import patch
 
+import boto3
 import numpy as np
 import pyarrow as pa  # type: ignore
 import pyarrow.fs as pafs  # type: ignore
 import pyarrow.parquet as papq  # type: ignore
+from google.cloud import storage
+from moto import mock_aws
 
 from wicker.core.column_files import ColumnBytesFileWriter
-from wicker.core.datasets import S3Dataset
+from wicker.core.datasets import S3Dataset, copy_file_to_gcloud
 from wicker.core.definitions import DatasetID, DatasetPartition
 from wicker.core.storage import S3PathFactory
 from wicker.schema import schema, serialization
@@ -45,6 +48,19 @@ def cwd(path):
         yield
     finally:
         os.chdir(oldpwd)
+
+
+class MockedGCloudBlob:
+    def __init__(self, bucket: str, name: str):
+        pass
+
+    def exists(self, file_path: str) -> bool:
+        return False
+
+    def upload_from_filename(self, file_path: str) -> bool:
+        if os.path.exists(file_path):
+            return True
+        return False
 
 
 class TestS3Dataset(unittest.TestCase):
@@ -174,3 +190,35 @@ class TestS3Dataset(unittest.TestCase):
 
                 expected_bytes = get_dir_size(fake_s3_storage._tmpdir)
                 assert expected_bytes == dataset_size
+
+
+@mock_aws
+class TestDatasetUtils(unittest.TestCase):
+
+    bucket_name = "test-bucket"
+
+    def setUp(self):
+        s3_resource = boto3.resource("s3", region_name="us-east-1")
+        s3_resource.create_bucket(Bucket="test-bucket")
+
+    @patch("google.cloud.storage")
+    @patch("wicker.core.datasets.storage.Blob", MockedGCloudBlob)
+    def test_gcloud_copy(self, mock_storage):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            s3_resource = boto3.resource("s3", region_name="us-east-1")
+
+            s3_bucket_resource = s3_resource.Bucket(self.bucket_name)
+            test_file_path = os.path.join(tmpdir, "test_file.txt")
+            test_key = os.path.join("test_dir", "test_file.txt")
+            with open(test_file_path, "w+") as open_file:
+                open_file.write("test")
+            s3_bucket_resource.upload_file(test_file_path, test_key)
+
+            gcloud_client = mock_storage.Client()
+            gcloud_bucket = gcloud_client.Bucket("adas-ml-data")
+            copy_file_to_gcloud(
+                gcloud_bucket=gcloud_bucket,
+                gcloud_client=gcloud_client,
+                s3_bucket_resource=s3_bucket_resource,
+                s3_key=test_key,
+            )
