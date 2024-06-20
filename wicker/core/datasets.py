@@ -227,14 +227,13 @@ def iterate_bucket_key_chunk_for_size(chunk_tuple: Tuple[List[Tuple[str, str]], 
     gcloud_bucket: Optional[storage.Bucket] = None
     gcloud_client: Optional[storage.Client] = None
     if copy_to_gcloud:
-        gcloud_bucket, gcloud_client = chunk_tuple[2]
+        gcloud_bucket, gcloud_client = chunk_tuple[2], chunk_tuple[3]
 
     for bucket_key_loc in chunk_tuple[0]:
         bucket_loc, key_loc = bucket_key_loc
         # get the byte length for the object
         byte_length = s3_resource.Object(bucket_loc, key_loc).content_length
         local_len += byte_length
-        """
         if copy_to_gcloud:
             s3_bucket_resource = s3_resource.Bucket(bucket_loc)
             copy_file_to_gcloud(
@@ -243,7 +242,6 @@ def iterate_bucket_key_chunk_for_size(chunk_tuple: Tuple[List[Tuple[str, str]], 
                 s3_bucket_resource=s3_bucket_resource,
                 s3_key=key_loc,
             )
-        """
     return local_len
 
 
