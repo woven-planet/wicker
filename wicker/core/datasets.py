@@ -147,8 +147,9 @@ def get_file_size_s3_threaded(input_tuple: Tuple[List[Tuple[str, str]], ValuePro
     # these objects are thread safe.
     chunk_additions = [copy_to_gcloud]
     if copy_to_gcloud:
+        config = get_config()
         gcloud_client = storage.Client()
-        gcloud_bucket = gcloud_client.bucket("adas-ml-data")
+        gcloud_bucket = gcloud_client.bucket(config.gcloud_storage_config.bucket)
         chunk_additions.extend([gcloud_client, gcloud_bucket])
 
     # chunk the process again between multiple threads on each proc

@@ -34,9 +34,9 @@ class GCloudStorageConfig:
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> GCloudStorageConfig:
         return cls(
-            aws_transfer_cut_prefix=data["aws_transfer_cut_prefix"],
-            bucket=data["bucket"],
-            bucket_data_path=data["bucket"],
+            aws_transfer_cut_prefix="" if "aws_transfer_cut_prefix" not in data else data["aws_transfer_cut_prefix"],
+            bucket=data["bucket"],  # only hard requirement is bucket,
+            bucket_data_path="" if "bucket_data_path" not in data else data["bucket_data_path"],
             local_gcloud_tmp_data_transfer_dir=os.getenv("TMPDIR", "tmp_datasets")
             if "local_gcloud_tmp_data_transfer_dir" not in data
             else data["local_gcloud_tmp_data_transfer_dir"],

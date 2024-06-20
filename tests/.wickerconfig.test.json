@@ -13,7 +13,7 @@
     "region": "us-west-2"
   },
   "gcloud_storage_config": {
-    "aws_transfer_cut_prefix": "l5ml_datasets",
+    "aws_transfer_cut_prefix": "test-cut-prefix/",
     "bucket": "fake-bucket",
     "bucket_data_path": ""
   },
