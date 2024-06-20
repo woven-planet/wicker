@@ -10,7 +10,6 @@ import numpy as np
 import pyarrow as pa  # type: ignore
 import pyarrow.fs as pafs  # type: ignore
 import pyarrow.parquet as papq  # type: ignore
-from google.cloud import storage
 from moto import mock_aws
 
 from wicker.core.column_files import ColumnBytesFileWriter
@@ -209,7 +208,7 @@ class TestDatasetUtils(unittest.TestCase):
 
             s3_bucket_resource = s3_resource.Bucket(self.bucket_name)
             test_file_path = os.path.join(tmpdir, "test_file.txt")
-            test_key = os.path.join("test_dir", "test_file.txt")
+            test_key = os.path.join("l5ml_datasets", "__COLUMN_CONCATENATED_FILES__", "test_file.txt")
             with open(test_file_path, "w+") as open_file:
                 open_file.write("test")
             s3_bucket_resource.upload_file(test_file_path, test_key)

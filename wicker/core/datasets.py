@@ -26,10 +26,6 @@ from wicker.schema.schema import DatasetSchema
 FILE_LOCK_TIMEOUT_SECONDS = 300
 
 
-LOCAL_GCLOUD_MOVEMENT_TMPDIR = f"tmp_datasets"
-GCLOUD_BUCKET_COMMON_PATH = "__COLUMN_CONCATENATED_FILES__"
-
-
 def copy_file_to_gcloud(
     gcloud_bucket: storage.Bucket, gcloud_client: storage.Client, s3_bucket_resource: Any, s3_key: str
 ) -> None:
@@ -48,18 +44,22 @@ def copy_file_to_gcloud(
     Returns:
         Void
     """
-    gcloud_file_path = os.path.join(GCLOUD_BUCKET_COMMON_PATH, os.path.basename(s3_key))
+    config = get_config()
+    gcloud_data_root = config.gcloud_storage_config.bucket_data_path
+    aws_cut_prefix = config.gcloud_storage_config.aws_transfer_cut_prefix
+    gcloud_file_path = s3_key.replace(aws_cut_prefix, "")
+    gcloud_file_path = os.path.join(gcloud_data_root, gcloud_file_path)
+
     gcloud_blob = storage.Blob(bucket=gcloud_bucket, name=gcloud_file_path)
     # if the file doesn't exist on gcloud proceed to move from aws to gcloud dumping ground
     if not gcloud_blob.exists(gcloud_client):
         logging.debug(f"File not found on gcloud at {gcloud_file_path}, uploading.")
-        local_file_path = os.path.join(LOCAL_GCLOUD_MOVEMENT_TMPDIR, s3_key)
+        local_transfer_tmp_dir = config.gcloud_storage_config.local_gcloud_tmp_data_transfer_dir
+        local_file_path = os.path.join(local_transfer_tmp_dir, s3_key)
         if not os.path.exists(os.path.dirname(local_file_path)):
             os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
 
         if not os.path.exists(local_file_path):
-            print(local_file_path)
-            print(type(s3_bucket_resource))
             s3_bucket_resource.download_file(s3_key, local_file_path)
 
         gcloud_blob.upload_from_filename(local_file_path)

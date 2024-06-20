@@ -12,6 +12,11 @@
     "table_name": "fake_db",
     "region": "us-west-2"
   },
+  "gcloud_storage_config": {
+    "aws_transfer_cut_prefix": "l5ml_datasets",
+    "bucket": "fake-bucket",
+    "bucket_data_path": ""
+  },
   "storage_download_config":{
     "retries": 2,
     "timeout": 150,
