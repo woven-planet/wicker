@@ -1,10 +1,9 @@
 import abc
 import os
 from functools import cached_property
-from multiprocessing import Manager, Pool, cpu_count
+from multiprocessing import Pool, cpu_count
 from multiprocessing.managers import ValueProxy
 from multiprocessing.pool import ThreadPool
-from threading import Lock
 from typing import Any, Dict, List, Optional, Tuple
 
 import boto3
@@ -24,7 +23,7 @@ from wicker.schema.schema import DatasetSchema
 FILE_LOCK_TIMEOUT_SECONDS = 300
 
 
-def get_file_size_s3_proced(buckets_keys: List[Tuple[int, int]]) -> int:
+def get_file_size_s3_multiproc(buckets_keys: List[Tuple[int, int]]) -> int:
     """Get file size of s3 files, most often column files.
 
     This works on any list of buckets and keys but is generally only
@@ -32,7 +31,7 @@ def get_file_size_s3_proced(buckets_keys: List[Tuple[int, int]]) -> int:
     s3 for Wicker. Wicker also stores parquet files on s3 but those are limited
     to one file per dataset and one schema file.
 
-    This splits your buckets_keys_list across mutliple processes on your local host
+    This splits your buckets_keys_list across multiple processes on your local host
     where each process is then multi threaded further. This reduces the i/o wait to
     what is assumed to be the absolute minimum that is possible.
 
@@ -43,128 +42,69 @@ def get_file_size_s3_proced(buckets_keys: List[Tuple[int, int]]) -> int:
     Returns:
         int size of file list in bytes.
     """
-    # declare the variables neccessary to split
-    # out between multiple procs
-    manager = Manager()
-    total_size = manager.Value("i", 0)
-    lock = manager.Lock()
-    buckets_keys_list = list(buckets_keys)
-
-    buckets_keys_chunks = chunk_data_for_split(
-        chunkable_data=buckets_keys_list, chunk_additions=[total_size, lock], chunk_number=200
-    )
+    buckets_keys_chunks = chunk_data_for_split(chunkable_data=buckets_keys, chunk_number=200)
 
     print("Grabbing file information from s3 heads")
-    # set the proc pool up and distribute the data between
-    # along with shared values
-    # reserve one cpu for other operations
     pool = Pool(cpu_count() - 1)
-    # arbitrary chunking breaks typing here, still keep typing on function
-    # for documentation
-    pool.map(get_file_size_s3_threaded, buckets_keys_chunks)  # type: ignore
-    pool.close()
-    pool.join()
-    return total_size.value
+    return sum(list(tqdm.tqdm(pool.map(get_file_size_s3_threaded, buckets_keys_chunks))))
 
 
-def get_file_size_s3_threaded(input_tuple: Tuple[List[Tuple[str, str]], ValueProxy, Lock]):
+def get_file_size_s3_threaded(buckets_keys_chunks_local: List[Tuple[str, str]]) -> int:
     """Get file size of a list of s3 paths.
 
-    This function takes the input in the form of a tuple for efficient passing in a mutli
-    processing setting. The input buckets_keys_chunks_local are a list of tuples that is split
-    out across multiple threads to reduce the i/o wait to minimum on one single processor.
-    The general use case is for saturating the i/o from s3 in order to most efficiently caclulate
-    the size of the file tuple list in bytes.
-
-    Tuple structure - The tuple contains 3 parts denoted below.
-
+    Args:
         buckets_keys_chunks_local - The list of tuples denoting bucket and key of files on s3 to
         parse. Generally column files but will work with any data.
 
-        sum_value - A python shared memory object (ctype) for storing the byte sum across all processes.
-
-        lock - A shared memory lock for locking the sum_value during write procedure.
-
-    Args:
-        input_tuple: A tuple containing the relevant pieces of data used to grab and store byte size.
-            Works across procs so needs a lock and shared memory space.
-
     Returns:
-        Void function - does all modifications in place on the shared memory value.
-
+        int: size of the set of files in bytes
     """
-    buckets_keys_chunks_local, sum_value, lock = input_tuple
-
-    # chunk the process again between multiple threads on each proc
-    # done to reduce i/o wait on each individual proc
     local_chunks = chunk_data_for_split(chunkable_data=buckets_keys_chunks_local, chunk_number=200)
-    # set up thread pool with max threads
     thread_pool = ThreadPool()
 
-    # run the threads and sum the results together
-    # same as with multi proc, arbitrary chunking breaks typing, keep for docs
-    result = sum(list(tqdm.tqdm(thread_pool.map(iterate_bucket_key_chunk_for_size, local_chunks))))  # type: ignore
-    with lock:
-        sum_value.value += result
+    return sum(list(tqdm.tqdm(thread_pool.map(iterate_bucket_key_chunk_for_size, local_chunks))))  # type: ignore
 
 
-# ToDo (pickles-bread-and-butter): Imo it's generally bad practice to take or return arbitrary length
-# data structs. Fix this function to somehow return fixed sized data structures.
-def chunk_data_for_split(
-    chunkable_data: List[Any], chunk_additions: List[Any] = [], chunk_number: int = 500
-) -> List[Tuple[Any, ...]]:
-    """Chunk data into a user specified number of chunks and add on additions to each specified in the list.
-
-    This function is for chunking data into a specific number of chunks that the user specified.
-    It's meant to be an abstraction upon the chunking logic allowing users to specify the args
-    that are desired to be shared across all chunks for the case of shared memory pointers in multi
-    proc and thread use cases.
+def chunk_data_for_split(chunkable_data: List[Any], chunk_number: int = 500) -> List[List[Any]]:
+    """Chunk data into a user specified number of chunks.
 
     Args:
         chunkable_data (List[Any]): Data to be chunked into smaller pieces.
-        chunk_additions (List[Any]): Objects to be append to the end of the chunks
-            placed in order of passing.
         chunk_number (int): Number of chunks to form.
 
     Returns:
-        List[Tuple[Any, ...]]: Tuples of chunks, first index is subset of passed data
-        other indices correspond to in order additions. Size of each tuple is len(chunk_additions) + 1
+        List[List[Any]]: List of subsets of input data.
     """
     local_chunks = []
     local_chunk_size = len(chunkable_data) // chunk_number
     for i in range(0, chunk_number - 1):
-        chunk = [chunkable_data[i * local_chunk_size : (i + 1) * local_chunk_size]]
-        chunk.extend(chunk_additions)
-        local_chunks.append(tuple(chunk))
+        chunk = chunkable_data[i * local_chunk_size : (i + 1) * local_chunk_size]
+        local_chunks.append(chunk)
 
-    # form and add in the last chunk
     last_chunk_size = len(chunkable_data) - (chunk_number * local_chunk_size)
     if last_chunk_size > 0:
-        last_chunk = [chunkable_data[-last_chunk_size:]]
-        last_chunk.extend(chunk_additions)
-        local_chunks.append(tuple(last_chunk))
+        last_chunk = chunkable_data[-last_chunk_size:]
+        local_chunks.append(last_chunk)
 
     return local_chunks
 
 
-def iterate_bucket_key_chunk_for_size(chunk_tuple: Tuple[List[Tuple[str, str]], ...]) -> int:  # type: ignore
+def iterate_bucket_key_chunk_for_size(bucket_key_locs: List[Tuple[str, str]]) -> int:  # type: ignore
     """Iterate on chunk of s3 files to get local length of bytes.
 
     Args:
-        chunk_tuple: A tuple containing the list of chunks as the first index, other non important
-            values in the tuple. Reasoning tuple is passed here is because the arbitrary chunking
-            function used to construct input returns a list of tuples in order to pass multiple
-            pieces of data in each chunk. This tuple is used as input here generally.
+        bucket_key_locs: List of Tuple[str, str] containing the s3 bucket and key to check size.
 
     Returns:
         int: total amount of bytes in the file chunk list
 
     """
     local_len = 0
+
     # create the s3 resource locally and don't pass in. Boto3 docs state to do this in each thread
     # and not pass around.
     s3_resource = boto3.resource("s3")
-    for bucket_key_loc in chunk_tuple[0]:
+    for bucket_key_loc in bucket_key_locs:
         bucket_loc, key_loc = bucket_key_loc
         # get the byte length for the object
         byte_length = s3_resource.Object(bucket_loc, key_loc).content_length
@@ -348,7 +288,7 @@ class S3Dataset(AbstractDataset):
                 buckets_keys.add((bucket, key))
 
         # pass the data to the multi proc management function
-        column_files_byte_size = get_file_size_s3_proced(buckets_keys)
+        column_files_byte_size = get_file_size_s3_multiproc(list(buckets_keys))
         return column_files_byte_size + par_dir_bytes
 
     @cached_property
