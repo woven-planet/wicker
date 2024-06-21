@@ -2,7 +2,6 @@ import abc
 import os
 from functools import cached_property
 from multiprocessing import Pool, cpu_count
-from multiprocessing.managers import ValueProxy
 from multiprocessing.pool import ThreadPool
 from typing import Any, Dict, List, Optional, Tuple
 
