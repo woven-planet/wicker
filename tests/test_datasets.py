@@ -144,7 +144,7 @@ class TestS3Dataset(unittest.TestCase):
                 )
 
                 # sub this in to get the local size of the parquet dir
-                def _get_parquet_dir_size_mocked():
+                def _get_parquet_dir_size_mocked(entire_dataset_parquet_dir_size: bool = False):
                     def get_parquet_size(path="."):
                         total = 0
                         with os.scandir(path) as it:

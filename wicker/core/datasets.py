@@ -22,7 +22,7 @@ from wicker.schema.schema import DatasetSchema
 FILE_LOCK_TIMEOUT_SECONDS = 300
 
 
-def get_file_size_s3_multiproc(buckets_keys: List[Tuple[int, int]]) -> int:
+def get_file_size_s3_multiproc(buckets_keys: List[Tuple[str, str]]) -> int:
     """Get file size of s3 files, most often column files.
 
     This works on any list of buckets and keys but is generally only
@@ -220,8 +220,12 @@ class S3Dataset(AbstractDataset):
             self.schema(),
         )
 
-    def _get_parquet_dir_size(self) -> int:
+    def _get_parquet_dir_size(self, entire_dataset_parquet_dir_size: bool = False) -> int:
         """Get the parquet path and find all the files within, count their bytes
+
+        Args:
+            entire_dataset_parquet_dir_size (bool): Whether to get the entire parquet dir or just
+                the given partition dir size.
 
         Returns:
             int: bytes in parquet directory
@@ -234,7 +238,8 @@ class S3Dataset(AbstractDataset):
         # have to cut off the end because we want entire dir size not just one partition
         # the entire dataset is all parquet files
         bucket, key = arrow_path.replace("s3://", "").split("/", 1)
-        key = key[::-1].split("/", 1)[1][::-1]
+        if entire_dataset_parquet_dir_size:
+            key = key[::-1].split("/", 1)[1][::-1]
 
         def get_folder_size(bucket, prefix):
             total_size = 0
@@ -244,8 +249,12 @@ class S3Dataset(AbstractDataset):
 
         return get_folder_size(bucket, key)
 
-    def _get_dataset_size(self):
+    def _get_dataset_size(self, entire_dataset_parquet_dir_size: bool = False):
         """Gets total size of the dataset in bits.
+
+        Args:
+            entire_dataset_parquet_dir_size (bool): Whether to get the entire parquet dir or just
+                the given partition dir size.
 
         Returns:
             int: total dataset size in bits
@@ -253,7 +262,7 @@ class S3Dataset(AbstractDataset):
 
         # intialize with size of parquet dir
         print("Parsing parquet and arrow dir for size.")
-        par_dir_bytes = self._get_parquet_dir_size()
+        par_dir_bytes = self._get_parquet_dir_size(entire_dataset_parquet_dir_size=entire_dataset_parquet_dir_size)
 
         # need to know which columns are heavy pntr columns we go to for
         # byte adding, parse which are heavy pointers based off metadata
@@ -262,9 +271,8 @@ class S3Dataset(AbstractDataset):
         heavy_pointer_cols = []
         for col_name in schema.get_all_column_names():
             column = schema.get_column(col_name)
-            if column is not None:
-                if column.is_heavy_pointer:
-                    heavy_pointer_cols.append(col_name)
+            if column is not None and column.is_heavy_pointer:
+                heavy_pointer_cols.append(col_name)
 
         # create arrow table for parsing
         print("Creating arrow table")
@@ -287,7 +295,8 @@ class S3Dataset(AbstractDataset):
                 buckets_keys.add((bucket, key))
 
         # pass the data to the multi proc management function
-        column_files_byte_size = get_file_size_s3_multiproc(list(buckets_keys))
+        buckets_keys_list = list(buckets_keys)
+        column_files_byte_size = get_file_size_s3_multiproc(buckets_keys_list)
         return column_files_byte_size + par_dir_bytes
 
     @cached_property
