@@ -1,4 +1,5 @@
 import abc
+import logging
 import os
 from functools import cached_property
 from multiprocessing import Pool, cpu_count
@@ -31,8 +32,8 @@ def get_file_size_s3_multiproc(buckets_keys: List[Tuple[str, str]]) -> int:
     to one file per dataset and one schema file.
 
     This splits your buckets_keys_list across multiple processes on your local host
-    where each process is then multi threaded further. This reduces the i/o wait to
-    what is assumed to be the absolute minimum that is possible.
+    where each process is then multi threaded further. This reduces the i/o wait by
+    parellelizing across all available procs and threads on a single machine.
 
     Args:
         buckets_keys: (List[Tuple[str, str]]): A list of buckets and keys for which
@@ -43,7 +44,7 @@ def get_file_size_s3_multiproc(buckets_keys: List[Tuple[str, str]]) -> int:
     """
     buckets_keys_chunks = chunk_data_for_split(chunkable_data=buckets_keys, chunk_number=200)
 
-    print("Grabbing file information from s3 heads")
+    logging.info("Grabbing file information from s3 heads")
     pool = Pool(cpu_count() - 1)
     return sum(list(tqdm.tqdm(pool.map(get_file_size_s3_threaded, buckets_keys_chunks))))
 
@@ -220,11 +221,11 @@ class S3Dataset(AbstractDataset):
             self.schema(),
         )
 
-    def _get_parquet_dir_size(self, entire_dataset_parquet_dir_size: bool = False) -> int:
+    def _get_parquet_dir_size(self, should_compute_entire_parquet_dir_size: bool = False) -> int:
         """Get the parquet path and find all the files within, count their bytes
 
         Args:
-            entire_dataset_parquet_dir_size (bool): Whether to get the entire parquet dir or just
+            should_compute_entire_parquet_dir_size (bool): Whether to get the entire parquet dir or just
                 the given partition dir size.
 
         Returns:
@@ -238,7 +239,7 @@ class S3Dataset(AbstractDataset):
         # have to cut off the end because we want entire dir size not just one partition
         # the entire dataset is all parquet files
         bucket, key = arrow_path.replace("s3://", "").split("/", 1)
-        if entire_dataset_parquet_dir_size:
+        if should_compute_entire_parquet_dir_size:
             key = key[::-1].split("/", 1)[1][::-1]
 
         def get_folder_size(bucket, prefix):
@@ -249,11 +250,11 @@ class S3Dataset(AbstractDataset):
 
         return get_folder_size(bucket, key)
 
-    def _get_dataset_size(self, entire_dataset_parquet_dir_size: bool = False):
+    def _get_dataset_size(self, should_compute_entire_parquet_dir_size: bool = False):
         """Gets total size of the dataset in bits.
 
         Args:
-            entire_dataset_parquet_dir_size (bool): Whether to get the entire parquet dir or just
+            should_compute_entire_parquet_dir_size (bool): Whether to get the entire parquet dir or just
                 the given partition dir size.
 
         Returns:
@@ -261,8 +262,10 @@ class S3Dataset(AbstractDataset):
         """
 
         # intialize with size of parquet dir
-        print("Parsing parquet and arrow dir for size.")
-        par_dir_bytes = self._get_parquet_dir_size(entire_dataset_parquet_dir_size=entire_dataset_parquet_dir_size)
+        logging.info("Parsing parquet and arrow dir for size.")
+        par_dir_bytes = self._get_parquet_dir_size(
+            should_compute_entire_parquet_dir_size=should_compute_entire_parquet_dir_size
+        )
 
         # need to know which columns are heavy pntr columns we go to for
         # byte adding, parse which are heavy pointers based off metadata
@@ -275,14 +278,14 @@ class S3Dataset(AbstractDataset):
                 heavy_pointer_cols.append(col_name)
 
         # create arrow table for parsing
-        print("Creating arrow table")
+        logging.info("Creating arrow table")
         arrow_table = self.arrow_table()
 
         buckets_keys = set()
 
-        print("Processing through heavy pointers")
+        logging.info("Processing through heavy pointers")
         for heavy_pntr_col in heavy_pointer_cols:
-            print(f"Evaulating {heavy_pntr_col} for column file locations")
+            logging.info(f"Evaulating {heavy_pntr_col} for column file locations")
             # Each individual row only knows which column file it goes to, so we have to
             # neccesarily parse all rows :( to get the column files. This should be cached
             # as metadata but that would require re-curating the datasets.
