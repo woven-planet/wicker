@@ -194,7 +194,7 @@ class ColumnBytesFileReader(abc.ABC):
     ) -> None:
         super().__init__()
         self._column_bytes_root_path = column_bytes_root_path
-        self._datasent_name = dataset_name
+        self._dataset_name = dataset_name
         self._path_factory = path_factory
 
     def _read_column_bytes_file(
