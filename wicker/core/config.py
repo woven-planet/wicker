@@ -10,20 +10,6 @@ from typing import Any, Dict
 
 
 @dataclasses.dataclass(frozen=True)
-class WickerWandBConfig:
-    wandb_base_url: str
-    wandb_api_key: str
-
-    @classmethod
-    def from_json(cls, data: Dict[str, Any]) -> WickerWandBConfig:
-        # only load them if they exist, otherwise leave out
-        return cls(
-            wandb_api_key=data.get("wandb_api_key", None),
-            wandb_base_url=data.get("wandb_base_url", None),
-        )
-
-
-@dataclasses.dataclass(frozen=True)
 class BotoS3Config:
     max_pool_connections: int
     read_timeout_s: int
@@ -39,19 +25,21 @@ class BotoS3Config:
 
 
 @dataclasses.dataclass(frozen=True)
-class WickerAwsS3Config:
-    s3_datasets_path: str
-    region: str
-    boto_config: BotoS3Config
-    store_concatenated_bytes_files_in_dataset: bool = False
+class GCloudStorageConfig:
+    bucket: str
+    aws_transfer_cut_prefix: str = ""
+    bucket_data_path: str = ""
+    local_gcloud_tmp_data_transfer_dir: str = ""
 
     @classmethod
-    def from_json(cls, data: Dict[str, Any]) -> WickerAwsS3Config:
+    def from_json(cls, data: Dict[str, Any]) -> GCloudStorageConfig:
         return cls(
-            s3_datasets_path=data["s3_datasets_path"],
-            region=data["region"],
-            boto_config=BotoS3Config.from_json(data["boto_config"]),
-            store_concatenated_bytes_files_in_dataset=data.get("store_concatenated_bytes_files_in_dataset", False),
+            aws_transfer_cut_prefix="" if "aws_transfer_cut_prefix" not in data else data["aws_transfer_cut_prefix"],
+            bucket=data["bucket"],  # only hard requirement is bucket,
+            bucket_data_path="" if "bucket_data_path" not in data else data["bucket_data_path"],
+            local_gcloud_tmp_data_transfer_dir=os.getenv("TMPDIR", "tmp_datasets")
+            if "local_gcloud_tmp_data_transfer_dir" not in data
+            else data["local_gcloud_tmp_data_transfer_dir"],
         )
 
 
@@ -73,9 +61,41 @@ class StorageDownloadConfig:
 
 
 @dataclasses.dataclass(frozen=True)
+class WickerAwsS3Config:
+    s3_datasets_path: str
+    region: str
+    boto_config: BotoS3Config
+    store_concatenated_bytes_files_in_dataset: bool = False
+
+    @classmethod
+    def from_json(cls, data: Dict[str, Any]) -> WickerAwsS3Config:
+        return cls(
+            s3_datasets_path=data["s3_datasets_path"],
+            region=data["region"],
+            boto_config=BotoS3Config.from_json(data["boto_config"]),
+            store_concatenated_bytes_files_in_dataset=data.get("store_concatenated_bytes_files_in_dataset", False),
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class WickerWandBConfig:
+    wandb_base_url: str
+    wandb_api_key: str
+
+    @classmethod
+    def from_json(cls, data: Dict[str, Any]) -> WickerWandBConfig:
+        # only load them if they exist, otherwise leave out
+        return cls(
+            wandb_api_key=data.get("wandb_api_key", None),
+            wandb_base_url=data.get("wandb_base_url", None),
+        )
+
+
+@dataclasses.dataclass(frozen=True)
 class WickerConfig:
     raw: Dict[str, Any]
     aws_s3_config: WickerAwsS3Config
+    gcloud_storage_config: GCloudStorageConfig
     storage_download_config: StorageDownloadConfig
     wandb_config: WickerWandBConfig
 
@@ -84,6 +104,7 @@ class WickerConfig:
         return cls(
             raw=data,
             aws_s3_config=WickerAwsS3Config.from_json(data["aws_s3_config"]),
+            gcloud_storage_config=GCloudStorageConfig.from_json(data["gcloud_storage_config"]),
             storage_download_config=StorageDownloadConfig.from_json(data["storage_download_config"]),
             wandb_config=WickerWandBConfig.from_json(data.get("wandb_config", {})),
         )
