@@ -74,22 +74,13 @@ class AbstractDataset(abc.ABC):
         self._path_factory = path_factory
         self._storage = storage
         self._treat_objects_as_bytes = treat_objects_as_bytes
-
-        # if we have a cache prefix create a cache
-        if local_cache_path_prefix is not None:
-            logging.info(f"Cache passed at path - {local_cache_path_prefix}, creating read through cache on top.")
-            # weird mypy problem, can't define baseclass and have it pick up the child correctly
-            self._column_bytes_file_reader: Union[ColumnBytesFileReader, ColumnBytesFileCache] = ColumnBytesFileCache(
-                column_root_path=path_factory._get_column_concatenated_bytes_files_path(dataset_name=dataset_name),
-                local_cache_path_prefix=local_cache_path_prefix,
-                filelock_timeout_seconds=filelock_timeout_seconds,
-                storage=self._storage,
-            )
-        else:
-            logging.info("No cache passed, reading without caching.")
-            self._column_bytes_file_reader = ColumnBytesFileReader(
-                column_bytes_root_path=path_factory._get_column_concatenated_bytes_files_path(dataset_name=dataset_name)
-            )
+        self._column_bytes_file_reader = self.__create_column_bytes_file_reader(
+            dataset_name=dataset_name,
+            filelock_timeout_seconds=filelock_timeout_seconds,
+            local_cache_path_prefix=local_cache_path_prefix,
+            path_factory=path_factory,
+            storage=storage,
+        )
 
         self._dataset_id = DatasetID(name=dataset_name, version=dataset_version)
         self._dataset_definition = DatasetDefinition(
@@ -106,6 +97,11 @@ class AbstractDataset(abc.ABC):
     @abc.abstractmethod
     def __len__(self) -> int:
         """Returns the length of the dataset/version/partition"""
+        pass
+
+    @abc.abstractmethod
+    def arrow_table(self) -> pyarrow.Table:
+        """Return the pyarrow table with all the metadata fields and pointers of the dataset."""
         pass
 
     @cached_property
@@ -125,10 +121,51 @@ class AbstractDataset(abc.ABC):
             )
         return schema_data
 
-    @abc.abstractmethod
-    def arrow_table(self) -> pyarrow.Table:
-        """Return the pyarrow table with all the metadata fields and pointers of the dataset."""
-        pass
+    @staticmethod
+    def __create_column_bytes_file_reader(
+        dataset_name: Optional[str],
+        filelock_timeout_seconds: int,
+        local_cache_path_prefix: Optional[str],
+        path_factory: WickerPathFactory,
+        storage: AbstractDataStorage,
+    ) -> Union[ColumnBytesFileCache, ColumnBytesFileReader]:
+        """Create a column bytes file reader class.
+
+        Creates an instance of a ColumnBytesFileReader or ColumnBytesFileCache
+        depending on whether a local_cache_path_prefix is not none. Access
+        pattern is the same between the two classes but one is a read through cache
+        and the other is not, usage dependent on if you need your own cache or rely
+        on bucket mount cache in GCSFuse or S3 Mount Point.
+
+        Args:
+            dataset_name (Optional[str]): Name of the dataset.
+            filelock_timeout_seconds (int): Time that you wait for file lock.
+            local_cache_path_prefix (Optional[str]): Optional path of the prefix, determines
+                if you use a cache or not. If specified as None no cache is used.
+            path_factory (WickerPathFactory): Path factory for locating column bytes files
+                in dataset path.
+            storage (AbstractDataStorage): Data storage to use for grabbing files.
+
+        Returns:
+            Union[ColumnBytesFileCache, ColumnBytesFileReader]: reader class for reading data
+            with or without cache.
+        """
+        # if we have a cache prefix create a cache
+        if local_cache_path_prefix is not None:
+            logging.info(f"Cache passed at path - {local_cache_path_prefix}, creating read through cache on top.")
+            # weird mypy problem, can't define baseclass and have it pick up the child correctly
+            column_bytes_file_class: Union[ColumnBytesFileCache, ColumnBytesFileReader] = ColumnBytesFileCache(
+                column_root_path=path_factory._get_column_concatenated_bytes_files_path(dataset_name=dataset_name),
+                local_cache_path_prefix=local_cache_path_prefix,
+                filelock_timeout_seconds=filelock_timeout_seconds,
+                storage=storage,
+            )
+        else:
+            logging.info("No cache passed, reading without caching.")
+            column_bytes_file_class = ColumnBytesFileReader(
+                column_bytes_root_path=path_factory._get_column_concatenated_bytes_files_path(dataset_name=dataset_name)
+            )
+        return column_bytes_file_class
 
 
 class FileSystemDataset(AbstractDataset):

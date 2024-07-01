@@ -189,9 +189,32 @@ class ColumnBytesFileReader(abc.ABC):
     def __init__(
         self,
         column_bytes_root_path: str,
+        dataset_name: Optional[str] = None,
+        path_factory: WickerPathFactory = S3PathFactory(),
     ) -> None:
         super().__init__()
         self._column_bytes_root_path = column_bytes_root_path
+        self._datasent_name = dataset_name
+        self._path_factory = path_factory
+
+    def _read_column_bytes_file(
+        self, column_bytes_file_info: ColumnBytesFileLocationV1, column_bytes_file_path: str
+    ) -> bytes:
+        """Read a column bytes file in a standard location.
+
+        Reads the column bytes file from the column bytes info class.
+
+        Args:
+            column_bytes_file_info (ColumnBytesFileLocationV1): Location info for a ColumnBytes
+            file.
+            column_bytes_file_path (str): Path where the ColumnBytes file is written from which to read.
+
+        Returns:
+            bytes: File bytes corresponding to column bytes data.
+        """
+        with open(column_bytes_file_path, "rb") as f:
+            f.seek(column_bytes_file_info.byte_offset)
+            return f.read(column_bytes_file_info.data_size)
 
     def read(self, column_bytes_file_info: ColumnBytesFileLocationV1) -> bytes:
         """Read data from column bytes file.
@@ -204,9 +227,9 @@ class ColumnBytesFileReader(abc.ABC):
             self._column_bytes_root_path, str(column_bytes_file_info.file_id)
         )
 
-        with open(column_concatenated_bytes_file_path, "rb") as f:
-            f.seek(column_bytes_file_info.byte_offset)
-            return f.read(column_bytes_file_info.data_size)
+        return self._read_column_bytes_file(
+            column_bytes_file_info=column_bytes_file_info, column_bytes_file_path=column_concatenated_bytes_file_path
+        )
 
     def resolve_pointers(
         self,
@@ -223,21 +246,29 @@ class ColumnBytesFileCache(ColumnBytesFileReader):
     def __init__(
         self,
         column_root_path: str,
-        local_cache_path_prefix: str = "/tmp",
+        dataset_name: Optional[str] = None,
         filelock_timeout_seconds: int = -1,
+        local_cache_path_prefix: str = "/tmp",
+        path_factory: WickerPathFactory = S3PathFactory(),
         storage: Optional[AbstractDataStorage] = None,
     ):
         """Initializes a ColumnBytesFileCache
 
-        :param local_cache_path_prefix: root to path on disk to use as a disk cache, defaults to "/tmp"
-        :type local_cache_path_prefix: str, optional
+        :param column_root_path: path to the root of the column file source
+        :type column_root_path: str, required
+        :param dataset_name: name of the dataset, defaults to None
+        :type dataset_name: str, optional
         :param filelock_timeout_seconds: number of seconds after which to timeout on waiting for downloads,
             defaults to -1 which indicates to wait forever
         :type filelock_timeout_seconds: int, optional
-        :param dataset_name: name of the dataset, defaults to None
-        :type dataset_name: str, optional
+        :param local_cache_path_prefix: root to path on disk to use as a disk cache, defaults to "/tmp"
+        :type local_cache_path_prefix: str, optional
+        :param path_factory: Path factory for determining paths to col files from root
+        :type path_factory: WickerPathFactory, defaults to S3PathFactory
+        :param storage: Storage used for grabbing files. Defaults to nont and creates S3DataStorage if none.
+        :type storage: Optional[AbstractDataStorage]
         """
-        super().__init__(column_bytes_root_path=column_root_path)
+        super().__init__(column_bytes_root_path=column_root_path, dataset_name=dataset_name, path_factory=path_factory)
         self._storage = storage if storage is not None else S3DataStorage()
         self._root_path = local_cache_path_prefix
         self._filelock_timeout_seconds = filelock_timeout_seconds
@@ -253,9 +284,9 @@ class ColumnBytesFileCache(ColumnBytesFileReader):
             timeout_seconds=self._filelock_timeout_seconds,
         )
 
-        with open(local_path, "rb") as f:
-            f.seek(column_bytes_file_info.byte_offset)
-            return f.read(column_bytes_file_info.data_size)
+        return self._read_column_bytes_file(
+            column_bytes_file_info=column_bytes_file_info, column_bytes_file_path=local_path
+        )
 
 
 class ResolvePointersVisitor(schema.DatasetSchemaVisitor[Any]):
