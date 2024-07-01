@@ -76,16 +76,16 @@ class StorageDownloadConfig:
 class WickerConfig:
     raw: Dict[str, Any]
     aws_s3_config: WickerAwsS3Config
-    wandb_config: WickerWandBConfig
     storage_download_config: StorageDownloadConfig
+    wandb_config: WickerWandBConfig
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> WickerConfig:
         return cls(
             raw=data,
             aws_s3_config=WickerAwsS3Config.from_json(data["aws_s3_config"]),
-            wandb_config=WickerWandBConfig.from_json(data.get("wandb_config", {})),
             storage_download_config=StorageDownloadConfig.from_json(data["storage_download_config"]),
+            wandb_config=WickerWandBConfig.from_json(data.get("wandb_config", {})),
         )
 
 
