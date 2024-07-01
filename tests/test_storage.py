@@ -188,6 +188,7 @@ class TestS3PathFactory(TestCase):
                 "boto_config": {"max_pool_connections": 10, "read_timeout_s": 140, "connect_timeout_s": 140},
             },
             "dynamodb_config": {"table_name": "fake-table-name", "region": "us-west-2"},
+            "gcloud_storage_config": {"bucket": "test-bucket"},
             "storage_download_config": {
                 "retries": 2,
                 "timeout": 150,
