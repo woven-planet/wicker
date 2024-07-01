@@ -194,6 +194,12 @@ class TestS3PathFactory(TestCase):
                 "retry_backoff": 5,
                 "retry_delay_s": 4,
             },
+            "gcloud_storage_config": {
+                "aws_transfer_cut_prefix": "test_prefix",
+                "bucket": "test_bucket",
+                "bucket_data_path": "",
+                "local_gcloud_tmp_data_transfer_dir": "/tmp"
+            }
         }
         mock_get_config.return_value = WickerConfig.from_json(dummy_config)
 
