@@ -34,12 +34,12 @@ class AbstractDataStorage(ABC):
     """Abstract data storage class that implements required methods for Column Bytes File Cache"""
 
     @abstractmethod
-    def download_with_retries(self, input_path: str, local_path: str) -> str:
-        """Download file from data source with retries.
+    def _download(self, input_path: str, local_dst_path: str) -> str:
+        """Download file from data source.
 
         Args:
             input_path (str): input path to file to download.
-            local_path (str): path to download location.
+            local_dst_path (str): path to download location.
 
         Returns:
             str: path file was downloaded.
@@ -80,35 +80,44 @@ class AbstractDataStorage(ABC):
         """
         pass
 
-    def _safe_file_download(self, input_path: str, local_dst_path: str, timeout_seconds: int = 120) -> str:
-        """Download file safely from s3 with locking.
+    def _safe_file_download(self, input_path: str, local_dst_path: str) -> str:
+        """Download file safely from data source with locking.
 
-        Locks the file path and creates success marker to indicate across processes
-        that the file download is successful. Uses the abstract implementation
-        of fetch file.
+        Locks the file path and downloads the file to the local system. Does not release the lock
+        until the file is downloaded fully.
 
         Args:
             input_path (str): path to file to download
             local_dst_path (str): path to save file at on local system
-            timeout_seconds (int): number of seconds till timing out on waiting for the file to be downloaded
 
         Returns:
             str: local path of the file when downloaded
         """
-        lock_path = local_dst_path + ".lock"
-        success_marker = local_dst_path + ".success"
         os.makedirs(os.path.dirname(local_dst_path), exist_ok=True)
 
-        while not os.path.isfile(success_marker):
-            with SimpleUnixFileLock(lock_path, timeout_seconds=timeout_seconds):
-                if not os.path.isfile(success_marker):
-                    # For now, we will only download the file if it has not already been downloaded already.
-                    # Long term, we would also add a size check or md5sum comparison against the object in S3.
-                    filedir = os.path.split(local_dst_path)[0]
-                    os.makedirs(filedir, exist_ok=True)
-                    self.download_with_retries(input_path=input_path, local_path=local_dst_path)
-                    with open(success_marker, "w"):
-                        pass
+        """
+        Put lock outside while to ensure we have blocking procs and threads.
+        If you don't lock here you have the potential where another proc has started
+        dl and the file technically 'exists' on the system but is not fully dl. Your
+        current proc would then access the file for reads before total download and get
+        corrupted or incomplete data.
+
+        Realisitcally you want a lock here anyway as file access in Unix systems is already
+        locking on I/O, the kernel only allows one proc access at a time so this is safe. It
+        does not slow down the kernel or proc because of this.
+        """
+        lock_path = local_dst_path + ".lock"
+        with SimpleUnixFileLock(lock_path):
+            while not os.path.isfile(local_dst_path):
+                # For now, we will only download the file if it has not already been downloaded already.
+                # Long term, we would also add a size check or md5sum comparison against the object in S3.
+                filedir = os.path.split(local_dst_path)[0]
+                os.makedirs(filedir, exist_ok=True)
+                try:
+                    shutil.copyfile(input_path, local_dst_path)
+                except Exception:
+                    logging.error(f"Failed to download/move object for file path: {input_path}")
+                    raise
 
         return local_dst_path
 
@@ -120,19 +129,8 @@ class FileSystemDataStorage(AbstractDataStorage):
         """Constructor for a file system storage instance."""
         pass
 
-    @retry(
-        Exception,
-        tries=get_config().storage_download_config.retries,
-        backoff=get_config().storage_download_config.retry_backoff,
-        delay=get_config().storage_download_config.retry_delay_s,
-        logger=logger,
-    )
-    def download_with_retries(self, input_path: str, local_path: str):
-        try:
-            shutil.copyfile(input_path, local_path)
-        except Exception as e:
-            logging.error(f"Failed to download/move object for file path: {input_path}")
-            raise e
+    def _download(self, input_path: str, local_dst_path: str) -> str:
+        return self._safe_file_download(input_path=input_path, local_dst_path=local_dst_path)
 
     def fetch_file(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
         """Fetches a file system, ie: gets the path to the file.
@@ -144,13 +142,13 @@ class FileSystemDataStorage(AbstractDataStorage):
 
         :param input_path: input file path on system
         :param local_prefix: local path that specifies where to download the file
-        :param timeout_seconds: number of seconds till timing out on waiting for the file to be downloaded
+        :param timeout_seconds: number of seconds till timing out on waiting for the file to be downloaded.
+            Kept so api's are identical between S3 storage and local storage, deprecated and unused.
         :return: local path to the file on the local file system
         """
         local_full_path = os.path.join(local_prefix, os.path.basename(input_path))
-        return self._safe_file_download(
-            input_path=input_path, local_dst_path=local_full_path, timeout_seconds=timeout_seconds
-        )
+        print(local_full_path)
+        return self._download(input_path=input_path, local_dst_path=local_full_path)
 
     def put_file(self, input_path: str, target_path: str) -> None:
         """Put file on local or mounted data storage.
@@ -228,6 +226,37 @@ class S3DataStorage(AbstractDataStorage):
         except ClientError:
             return False
 
+    def _download(self, input_path: str, local_dst_path: str) -> str:
+        """Download file from input path to local path.
+
+        Head on top of download_with_retries for backwards compatibility.
+
+        Args:
+            input_path (str): file input path to download.
+            local_dst_path (str): path to download file.
+
+        Returns:
+            str: local path to downloaded file
+        """
+        bucket, key = self.bucket_key_from_s3_path(input_path)
+        lock_path = local_dst_path + ".lock"
+        success_marker = local_dst_path + ".success"
+        os.makedirs(os.path.dirname(local_dst_path), exist_ok=True)
+
+        while not os.path.isfile(success_marker):
+            with SimpleUnixFileLock(lock_path, timeout_seconds=self.read_timeout):
+                if not os.path.isfile(success_marker):
+
+                    # For now, we will only download the file if it has not already been downloaded already.
+                    # Long term, we would also add a size check or md5sum comparison against the object in S3.
+                    filedir = os.path.split(local_dst_path)[0]
+                    os.makedirs(filedir, exist_ok=True)
+                    self._download_with_retries(bucket=bucket, key=key, local_path=local_dst_path)
+                    with open(success_marker, "w"):
+                        pass
+
+        return local_dst_path
+
     @retry(
         Exception,
         tries=get_config().storage_download_config.retries,
@@ -235,8 +264,7 @@ class S3DataStorage(AbstractDataStorage):
         delay=get_config().storage_download_config.retry_delay_s,
         logger=logger,
     )
-    def download_with_retries(self, input_path: str, local_path: str):
-        bucket, key = self.bucket_key_from_s3_path(input_path)
+    def _download_with_retries(self, bucket: str, key: str, local_path: str):
         try:
             with time_limit(
                 self.read_timeout, f"Timing out in trying to download object for bucket: {bucket}, key: {key}"
@@ -256,14 +284,13 @@ class S3DataStorage(AbstractDataStorage):
 
         :param input_path: input file path in S3
         :param local_prefix: local path that specifies where to download the file
-        :param timeout_seconds: number of seconds till timing out on waiting for the file to be downloaded
+        :param timeout_seconds: number of seconds till timing out on waiting for the file to be downloaded.
+            Deprecated in favor of the internal variable already assigned.
         :return: local path to the downloaded file
         """
         bucket, key = self.bucket_key_from_s3_path(input_path)
         local_path = os.path.join(local_prefix, key)
-        return self._safe_file_download(
-            input_path=input_path, local_dst_path=local_path, timeout_seconds=timeout_seconds
-        )
+        return self._download(input_path=input_path, local_dst_path=local_path)
 
     def fetch_file_s3(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
         """Deprecated fetch file access, function signature kept to preserve backwards compatibility."""
