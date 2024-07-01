@@ -112,6 +112,8 @@ def get_file_size_s3_threaded(buckets_keys_chunks_input_tuple: Tuple[List[Tuple[
         int: size of the set of files in bytes
     """
     buckets_keys_chunks_local, copy_to_gcloud = buckets_keys_chunks_input_tuple
+
+    gcloud_bucket, gcloud_client = None, None
     if copy_to_gcloud:
         config = get_config()
         gcloud_client = storage.Client()
@@ -119,9 +121,13 @@ def get_file_size_s3_threaded(buckets_keys_chunks_input_tuple: Tuple[List[Tuple[
 
     local_chunks = chunk_data_for_split(chunkable_data=buckets_keys_chunks_local, chunk_number=200)
 
+    local_thread_input_tuples = [
+        (local_chunk_blob, copy_to_gcloud, gcloud_client, gcloud_bucket) for local_chunk_blob in local_chunks
+    ]
+
     thread_pool = ThreadPool()
 
-    return sum(list(tqdm.tqdm(thread_pool.map(iterate_bucket_key_chunk_for_size, local_chunks))))  # type: ignore
+    return sum(list(tqdm.tqdm(thread_pool.map(iterate_bucket_key_chunk_for_size, local_thread_input_tuples))))  # type: ignore
 
 
 def chunk_data_for_split(chunkable_data: List[Any], chunk_number: int = 500) -> List[List[Any]]:
@@ -148,16 +154,25 @@ def chunk_data_for_split(chunkable_data: List[Any], chunk_number: int = 500) -> 
     return local_chunks
 
 
-def iterate_bucket_key_chunk_for_size(bucket_key_locs: List[Tuple[str, str]]) -> int:  # type: ignore
+def iterate_bucket_key_chunk_for_size(
+    input_tuple: Tuple[List[Tuple[str, str]], bool, Optional[storage.Client], Optional[storage.Bucket]]
+) -> int:  # type: ignore
     """Iterate on chunk of s3 files to get local length of bytes.
 
+    Input tuple has structure indicated below, contains the info required to get file and
+    optionally copy to gcloud. Structure is described below.
+
     Args:
-        bucket_key_locs: List of Tuple[str, str] containing the s3 bucket and key to check size.
+        bucket_key_locs List of Tuple[str, str]: containing the s3 bucket and key to check size.
+        copy_to_gcloud bool: bool specifying to copy to gcloud or not.
+        gcloud_client storage.Client: GCloud client for copying data or None if no copying
+        gcloud_bucket storage.Bucket: GCloud bucket object to copy data.
 
     Returns:
         int: total amount of bytes in the file chunk list
 
     """
+    bucket_key_locs, copy_to_gcloud, gcloud_client, gcloud_bucket = input_tuple
     local_len = 0
 
     # create the s3 resource locally and don't pass in. Boto3 docs state to do this in each thread
@@ -168,6 +183,15 @@ def iterate_bucket_key_chunk_for_size(bucket_key_locs: List[Tuple[str, str]]) ->
         # get the byte length for the object
         byte_length = s3_resource.Object(bucket_loc, key_loc).content_length
         local_len += byte_length
+
+        if copy_to_gcloud:
+            s3_bucket_resource = s3_resource.Bucket(bucket_loc)
+            copy_file_to_gcloud(
+                gcloud_bucket=gcloud_bucket,
+                gcloud_client=gcloud_client,
+                s3_bucket_resource=s3_bucket_resource,
+                s3_key=key_loc,
+            )
     return local_len
 
 
