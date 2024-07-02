@@ -106,6 +106,9 @@ class ColumnBytesFileWriter:
         :param dataset_name: dataset name, defaults to None
         """
         self.storage = storage
+        # Set an S3-specific reference to the path factory for backwards compatibility
+        # with previous versions of the class
+        self.s3_path_factory = path_factory if isinstance(path_factory, S3PathFactory) else None
         self.path_factory = path_factory
         # {column_name: (file_id, write_count, <filehandle_to_tmp_file>)}
         self.write_buffers: Dict[str, ColumnBytesFileWriteBuffer] = {}
@@ -188,12 +191,11 @@ class ColumnBytesFileReader(abc.ABC):
 
     def __init__(
         self,
-        column_bytes_root_path: str,
         dataset_name: Optional[str] = None,
         path_factory: WickerPathFactory = S3PathFactory(),
     ) -> None:
         super().__init__()
-        self._column_bytes_root_path = column_bytes_root_path
+        self._column_bytes_root_path = path_factory._get_column_concatenated_bytes_files_path(dataset_name=dataset_name)
         self._dataset_name = dataset_name
         self._path_factory = path_factory
 
@@ -245,7 +247,6 @@ class ColumnBytesFileCache(ColumnBytesFileReader):
 
     def __init__(
         self,
-        column_root_path: str,
         dataset_name: Optional[str] = None,
         filelock_timeout_seconds: int = -1,
         local_cache_path_prefix: str = "/tmp",
@@ -254,8 +255,6 @@ class ColumnBytesFileCache(ColumnBytesFileReader):
     ):
         """Initializes a ColumnBytesFileCache
 
-        :param column_root_path: path to the root of the column file source
-        :type column_root_path: str, required
         :param dataset_name: name of the dataset, defaults to None
         :type dataset_name: str, optional
         :param filelock_timeout_seconds: number of seconds after which to timeout on waiting for downloads,
@@ -268,7 +267,7 @@ class ColumnBytesFileCache(ColumnBytesFileReader):
         :param storage: Storage used for grabbing files. Defaults to nont and creates S3DataStorage if none.
         :type storage: Optional[AbstractDataStorage]
         """
-        super().__init__(column_bytes_root_path=column_root_path, dataset_name=dataset_name, path_factory=path_factory)
+        super().__init__(dataset_name=dataset_name, path_factory=path_factory)
         self._storage = storage if storage is not None else S3DataStorage()
         self._root_path = local_cache_path_prefix
         self._filelock_timeout_seconds = filelock_timeout_seconds

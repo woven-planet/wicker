@@ -155,16 +155,14 @@ class AbstractDataset(abc.ABC):
             logging.info(f"Cache passed at path - {local_cache_path_prefix}, creating read through cache on top.")
             # weird mypy problem, can't define baseclass and have it pick up the child correctly
             column_bytes_file_class: Union[ColumnBytesFileCache, ColumnBytesFileReader] = ColumnBytesFileCache(
-                column_root_path=path_factory._get_column_concatenated_bytes_files_path(dataset_name=dataset_name),
-                local_cache_path_prefix=local_cache_path_prefix,
                 filelock_timeout_seconds=filelock_timeout_seconds,
+                local_cache_path_prefix=local_cache_path_prefix,
+                path_factory=path_factory,
                 storage=storage,
             )
         else:
             logging.info("No cache passed, reading without caching.")
-            column_bytes_file_class = ColumnBytesFileReader(
-                column_bytes_root_path=path_factory._get_column_concatenated_bytes_files_path(dataset_name=dataset_name)
-            )
+            column_bytes_file_class = ColumnBytesFileReader(dataset_name=dataset_name, path_factory=path_factory)
         return column_bytes_file_class
 
 

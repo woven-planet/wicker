@@ -33,6 +33,9 @@ logger = logging.getLogger(__name__)
 class AbstractDataStorage(ABC):
     """Abstract data storage class that implements required methods for Column Bytes File Cache"""
 
+    def __init__(self):
+        self.read_timeout = get_config().storage_download_config.timeout
+
     @abstractmethod
     def _download(self, input_path: str, local_dst_path: str) -> str:
         """Download file from data source.
@@ -94,31 +97,20 @@ class AbstractDataStorage(ABC):
             str: local path of the file when downloaded
         """
         os.makedirs(os.path.dirname(local_dst_path), exist_ok=True)
-
-        """
-        Put lock outside while to ensure we have blocking procs and threads.
-        If you don't lock here you have the potential where another proc has started
-        dl and the file technically 'exists' on the system but is not fully dl. Your
-        current proc would then access the file for reads before total download and get
-        corrupted or incomplete data.
-
-        Realisitcally you want a lock here anyway as file access in Unix systems is already
-        locking on I/O, the kernel only allows one proc access at a time so this is safe. It
-        does not slow down the kernel or proc because of this.
-        """
         lock_path = local_dst_path + ".lock"
-        with SimpleUnixFileLock(lock_path):
-            while not os.path.isfile(local_dst_path):
-                # For now, we will only download the file if it has not already been downloaded already.
-                # Long term, we would also add a size check or md5sum comparison against the object in S3.
-                filedir = os.path.split(local_dst_path)[0]
-                os.makedirs(filedir, exist_ok=True)
-                try:
-                    shutil.copyfile(input_path, local_dst_path)
-                except Exception:
-                    logging.error(f"Failed to download/move object for file path: {input_path}")
-                    raise
-
+        success_marker = local_dst_path + ".success"
+        while not os.path.isfile(success_marker):
+            with SimpleUnixFileLock(lock_path, timeout_seconds=self.read_timeout):
+                if not os.path.isfile(success_marker):
+                    filedir = os.path.split(local_dst_path)[0]
+                    os.makedirs(filedir, exist_ok=True)
+                    try:
+                        shutil.copyfile(input_path, local_dst_path)
+                        with open(success_marker, "w"):
+                            pass
+                    except Exception:
+                        logging.error(f"Failed to download/move object for file path: {input_path}")
+                        raise
         return local_dst_path
 
 
@@ -127,7 +119,7 @@ class FileSystemDataStorage(AbstractDataStorage):
 
     def __init__(self) -> None:
         """Constructor for a file system storage instance."""
-        pass
+        super().__init__()
 
     def _download(self, input_path: str, local_dst_path: str) -> str:
         return self._safe_file_download(input_path=input_path, local_dst_path=local_dst_path)
@@ -147,7 +139,6 @@ class FileSystemDataStorage(AbstractDataStorage):
         :return: local path to the file on the local file system
         """
         local_full_path = os.path.join(local_prefix, os.path.basename(input_path))
-        print(local_full_path)
         return self._download(input_path=input_path, local_dst_path=local_full_path)
 
     def put_file(self, input_path: str, target_path: str) -> None:
@@ -180,6 +171,7 @@ class S3DataStorage(AbstractDataStorage):
         unit tests to easily mock / patch the S3 client or to utilize the S3 Stubber. Unit tests
         might also find it convenient to mock or patch member functions on instances of this class.
         """
+        super().__init__()
         boto_config = get_config().aws_s3_config.boto_config
         boto_client_config = botocore.config.Config(
             max_pool_connections=boto_config.max_pool_connections,
@@ -188,7 +180,6 @@ class S3DataStorage(AbstractDataStorage):
         )
         self.session = boto3.session.Session() if session is None else session
         self.client = self.session.client("s3", config=boto_client_config)
-        self.read_timeout = get_config().storage_download_config.timeout
 
     def __getstate__(self) -> Dict[Any, Any]:
         return {}
