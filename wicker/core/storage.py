@@ -251,7 +251,7 @@ class S3DataStorage(AbstractDataStorage):
                     # Long term, we would also add a size check or md5sum comparison against the object in S3.
                     filedir = os.path.split(local_dst_path)[0]
                     os.makedirs(filedir, exist_ok=True)
-                    self._download_with_retries(bucket=bucket, key=key, local_path=local_dst_path)
+                    self.download_with_retries(bucket=bucket, key=key, local_path=local_dst_path)
                     with open(success_marker, "w"):
                         pass
 
@@ -264,7 +264,7 @@ class S3DataStorage(AbstractDataStorage):
         delay=get_config().storage_download_config.retry_delay_s,
         logger=logger,
     )
-    def _download_with_retries(self, bucket: str, key: str, local_path: str):
+    def download_with_retries(self, bucket: str, key: str, local_path: str):
         try:
             with time_limit(
                 self.read_timeout, f"Timing out in trying to download object for bucket: {bucket}, key: {key}"
