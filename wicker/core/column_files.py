@@ -7,6 +7,7 @@ offsets to access the individual rows within the file.
 
 from __future__ import annotations
 
+import abc
 import dataclasses
 import os
 import struct
@@ -15,7 +16,12 @@ import uuid
 from types import TracebackType
 from typing import IO, Any, Dict, List, Literal, Optional, Tuple, Type
 
-from wicker.core.storage import S3DataStorage, S3PathFactory
+from wicker.core.storage import (
+    AbstractDataStorage,
+    S3DataStorage,
+    S3PathFactory,
+    WickerPathFactory,
+)
 from wicker.schema import schema, validation
 
 
@@ -85,8 +91,8 @@ class ColumnBytesFileWriter:
 
     def __init__(
         self,
-        storage: S3DataStorage = S3DataStorage(),
-        s3_path_factory: S3PathFactory = S3PathFactory(),
+        storage: AbstractDataStorage = S3DataStorage(),
+        path_factory: WickerPathFactory = S3PathFactory(),
         target_file_size: Optional[int] = None,
         target_file_rowgroup_size: Optional[int] = None,
         dataset_name: str = None,
@@ -94,13 +100,16 @@ class ColumnBytesFileWriter:
         """Create a ColumnBytesFileWriter
 
         :param storage: storage client to use, defaults to S3DataStorage()
-        :param s3_path_factory: path factory to use, defaults to S3PathFactory()
+        :param path_factory: path factory to use, defaults to S3PathFactory()
         :param target_file_size: If set, open a new binary file when a column file gets larger than this many bytes.
         :param target_file_rowgroup_size: If set, open a new binary file when a column file has more rows than this
         :param dataset_name: dataset name, defaults to None
         """
         self.storage = storage
-        self.s3_path_factory = s3_path_factory
+        # Set an S3-specific reference to the path factory for backwards compatibility
+        # with previous versions of the class
+        self.s3_path_factory = path_factory if isinstance(path_factory, S3PathFactory) else None
+        self.path_factory = path_factory
         # {column_name: (file_id, write_count, <filehandle_to_tmp_file>)}
         self.write_buffers: Dict[str, ColumnBytesFileWriteBuffer] = {}
         self.target_file_size = target_file_size
@@ -149,7 +158,7 @@ class ColumnBytesFileWriter:
         )
 
     def close(self) -> None:
-        """Writes the data in the buffer to S3"""
+        """Writes the data in the buffer to data store"""
         for column_name in self.write_buffers:
             self._write_column(column_name)
 
@@ -161,15 +170,14 @@ class ColumnBytesFileWriter:
         )
 
     def _write_column(self, column_name: str) -> None:
-        columns_root_path = self.s3_path_factory.get_column_concatenated_bytes_files_path(
-            dataset_name=self.dataset_name
-        )
+        # use the private function as this does not make use of s3 prefix cutting.
+        columns_root_path = self.path_factory._get_column_concatenated_bytes_files_path(dataset_name=self.dataset_name)
         write_buffer = self.write_buffers[column_name]
         path = os.path.join(columns_root_path, str(write_buffer.file_id))
         if write_buffer.buffer.tell() > 0:
             write_buffer.buffer.flush()
             write_buffer.buffer.seek(0)
-            self.storage.put_file_s3(
+            self.storage.put_file(
                 write_buffer.buffer.name,
                 path,
             )
@@ -178,55 +186,106 @@ class ColumnBytesFileWriter:
         self.write_buffers[column_name] = self._get_new_buffer()
 
 
-class ColumnBytesFileCache:
-    """A read-through caching abstraction for accessing ColumnBytesFiles"""
+class ColumnBytesFileReader(abc.ABC):
+    """A reader class for column bytes files to inherit upon for caches and cacheless"""
 
     def __init__(
         self,
-        local_cache_path_prefix: str = "/tmp",
-        filelock_timeout_seconds: int = -1,
-        path_factory: S3PathFactory = S3PathFactory(),
-        storage: Optional[S3DataStorage] = None,
-        dataset_name: str = None,
-    ):
-        """Initializes a ColumnBytesFileCache
+        dataset_name: Optional[str] = None,
+        path_factory: WickerPathFactory = S3PathFactory(),
+    ) -> None:
+        super().__init__()
+        self._column_bytes_root_path = path_factory._get_column_concatenated_bytes_files_path(dataset_name=dataset_name)
+        self._dataset_name = dataset_name
+        self._path_factory = path_factory
 
-        :param local_cache_path_prefix: root to path on disk to use as a disk cache, defaults to "/tmp"
-        :type local_cache_path_prefix: str, optional
-        :param filelock_timeout_seconds: number of seconds after which to timeout on waiting for downloads,
-            defaults to -1 which indicates to wait forever
-        :type filelock_timeout_seconds: int, optional
-        :param dataset_name: name of the dataset, defaults to None
-        :type dataset_name: str, optional
-        """
-        self._s3_storage = storage if storage is not None else S3DataStorage()
-        self._root_path = local_cache_path_prefix
-        self._filelock_timeout_seconds = filelock_timeout_seconds
-        self._columns_root_path = path_factory.get_column_concatenated_bytes_files_path(dataset_name=dataset_name)
-
-    def read(
-        self,
-        cbf_info: ColumnBytesFileLocationV1,
+    def _read_column_bytes_file(
+        self, column_bytes_file_info: ColumnBytesFileLocationV1, column_bytes_file_path: str
     ) -> bytes:
-        column_concatenated_bytes_file_path = os.path.join(self._columns_root_path, str(cbf_info.file_id))
+        """Read a column bytes file in a standard location.
 
-        local_path = self._s3_storage.fetch_file(
-            column_concatenated_bytes_file_path,
-            self._root_path,
-            timeout_seconds=self._filelock_timeout_seconds,
+        Reads the column bytes file from the column bytes info class.
+
+        Args:
+            column_bytes_file_info (ColumnBytesFileLocationV1): Location info for a ColumnBytes
+            file.
+            column_bytes_file_path (str): Path where the ColumnBytes file is written from which to read.
+
+        Returns:
+            bytes: File bytes corresponding to column bytes data.
+        """
+        with open(column_bytes_file_path, "rb") as f:
+            f.seek(column_bytes_file_info.byte_offset)
+            return f.read(column_bytes_file_info.data_size)
+
+    def read(self, column_bytes_file_info: ColumnBytesFileLocationV1) -> bytes:
+        """Read data from column bytes file.
+
+        :param column_bytes_file_info: Location object to column bytes file on data store
+        :type column_bytes_file_info: ColumnBytesFileLocationV1
+        :return: bytes read from the column bytes file
+        """
+        column_concatenated_bytes_file_path = os.path.join(
+            self._column_bytes_root_path, str(column_bytes_file_info.file_id)
         )
 
-        with open(local_path, "rb") as f:
-            f.seek(cbf_info.byte_offset)
-            return f.read(cbf_info.data_size)
+        return self._read_column_bytes_file(
+            column_bytes_file_info=column_bytes_file_info, column_bytes_file_path=column_concatenated_bytes_file_path
+        )
 
     def resolve_pointers(
         self,
         example: validation.AvroRecord,
         schema: schema.DatasetSchema,
-    ) -> validation.AvroRecord:
-        visitor = ResolvePointersVisitor(example, schema, self)
+    ):
+        visitor = ResolvePointersVisitor(self, example, schema)
         return visitor.resolve_pointers()
+
+
+class ColumnBytesFileCache(ColumnBytesFileReader):
+    """A read-through caching abstraction for accessing ColumnBytesFiles"""
+
+    def __init__(
+        self,
+        dataset_name: Optional[str] = None,
+        filelock_timeout_seconds: int = -1,
+        local_cache_path_prefix: str = "/tmp",
+        path_factory: WickerPathFactory = S3PathFactory(),
+        storage: Optional[AbstractDataStorage] = None,
+    ):
+        """Initializes a ColumnBytesFileCache
+
+        :param dataset_name: name of the dataset, defaults to None
+        :type dataset_name: str, optional
+        :param filelock_timeout_seconds: number of seconds after which to timeout on waiting for downloads,
+            defaults to -1 which indicates to wait forever
+        :type filelock_timeout_seconds: int, optional
+        :param local_cache_path_prefix: root to path on disk to use as a disk cache, defaults to "/tmp"
+        :type local_cache_path_prefix: str, optional
+        :param path_factory: Path factory for determining paths to col files from root
+        :type path_factory: WickerPathFactory, defaults to S3PathFactory
+        :param storage: Storage used for grabbing files. Defaults to nont and creates S3DataStorage if none.
+        :type storage: Optional[AbstractDataStorage]
+        """
+        super().__init__(dataset_name=dataset_name, path_factory=path_factory)
+        self._storage = storage if storage is not None else S3DataStorage()
+        self._root_path = local_cache_path_prefix
+        self._filelock_timeout_seconds = filelock_timeout_seconds
+
+    def read(self, column_bytes_file_info: ColumnBytesFileLocationV1) -> bytes:
+        column_concatenated_bytes_file_path = os.path.join(
+            self._column_bytes_root_path, str(column_bytes_file_info.file_id)
+        )
+
+        local_path = self._storage.fetch_file(
+            column_concatenated_bytes_file_path,
+            self._root_path,
+            timeout_seconds=self._filelock_timeout_seconds,
+        )
+
+        return self._read_column_bytes_file(
+            column_bytes_file_info=column_bytes_file_info, column_bytes_file_path=local_path
+        )
 
 
 class ResolvePointersVisitor(schema.DatasetSchemaVisitor[Any]):
@@ -236,11 +295,11 @@ class ResolvePointersVisitor(schema.DatasetSchemaVisitor[Any]):
 
     def __init__(
         self,
+        cbf_reader: ColumnBytesFileReader,
         example: validation.AvroRecord,
         schema: schema.DatasetSchema,
-        cbf_cache: ColumnBytesFileCache,
     ):
-        self.cbf_cache = cbf_cache
+        self.cbf_reader = cbf_reader
 
         # Pointers to original data (data should be kept immutable)
         self._schema = schema
@@ -317,4 +376,4 @@ class ResolvePointersVisitor(schema.DatasetSchemaVisitor[Any]):
         if data is None:
             return data
         cbf_info = ColumnBytesFileLocationV1.from_bytes(data)
-        return self.cbf_cache.read(cbf_info)
+        return self.cbf_reader.read(cbf_info)

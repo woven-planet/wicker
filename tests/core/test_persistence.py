@@ -13,7 +13,7 @@ from wicker.core.datasets import S3Dataset
 from wicker.core.persistance import BasicPersistor
 from wicker.core.storage import S3PathFactory
 from wicker.schema.schema import DatasetSchema
-from wicker.testing.storage import LocalDataStorage
+from wicker.testing.storage import TestS3LocalDataStorage
 
 DATASET_NAME = "dataset"
 DATASET_VERSION = "0.0.1"
@@ -42,7 +42,7 @@ EXAMPLES_DUPES = copy.deepcopy(EXAMPLES)
 
 @pytest.fixture
 def mock_basic_persistor(request, tmpdir) -> Tuple[BasicPersistor, str]:
-    storage = request.param.get("storage", LocalDataStorage(root_path=tmpdir))
+    storage = request.param.get("storage", TestS3LocalDataStorage(root_path=tmpdir))
     path_factory = request.param.get("path_factory", S3PathFactory(s3_root_path=os.path.join(tmpdir, "datasets")))
     return BasicPersistor(storage, path_factory), tmpdir
 
