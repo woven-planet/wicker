@@ -201,37 +201,6 @@ class S3DataStorage(AbstractDataStorage):
         except ClientError:
             return False
 
-    def _download(self, input_path: str, local_dst_path: str) -> str:
-        """Download file from input path to local path.
-
-        Head on top of download_with_retries for backwards compatibility.
-
-        Args:
-            input_path (str): file input path to download.
-            local_dst_path (str): path to download file.
-
-        Returns:
-            str: local path to downloaded file
-        """
-        bucket, key = self.bucket_key_from_s3_path(input_path)
-        lock_path = local_dst_path + ".lock"
-        success_marker = local_dst_path + ".success"
-        os.makedirs(os.path.dirname(local_dst_path), exist_ok=True)
-
-        while not os.path.isfile(success_marker):
-            with SimpleUnixFileLock(lock_path, timeout_seconds=self.read_timeout):
-                if not os.path.isfile(success_marker):
-
-                    # For now, we will only download the file if it has not already been downloaded already.
-                    # Long term, we would also add a size check or md5sum comparison against the object in S3.
-                    filedir = os.path.split(local_dst_path)[0]
-                    os.makedirs(filedir, exist_ok=True)
-                    self.download_with_retries(bucket=bucket, key=key, local_path=local_dst_path)
-                    with open(success_marker, "w"):
-                        pass
-
-        return local_dst_path
-
     @retry(
         Exception,
         tries=get_config().storage_download_config.retries,
