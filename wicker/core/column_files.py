@@ -7,7 +7,6 @@ offsets to access the individual rows within the file.
 
 from __future__ import annotations
 
-import abc
 import dataclasses
 import os
 import struct
@@ -186,7 +185,7 @@ class ColumnBytesFileWriter:
         self.write_buffers[column_name] = self._get_new_buffer()
 
 
-class ColumnBytesFileReader(abc.ABC):
+class ColumnBytesFileReader:
     """A reader class for column bytes files to inherit upon for caches and cacheless"""
 
     def __init__(
@@ -194,7 +193,6 @@ class ColumnBytesFileReader(abc.ABC):
         dataset_name: Optional[str] = None,
         path_factory: WickerPathFactory = S3PathFactory(),
     ) -> None:
-        super().__init__()
         self._column_bytes_root_path = path_factory._get_column_concatenated_bytes_files_path(dataset_name=dataset_name)
         self._dataset_name = dataset_name
         self._path_factory = path_factory

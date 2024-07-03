@@ -37,19 +37,6 @@ class AbstractDataStorage(ABC):
         self.read_timeout = get_config().storage_download_config.timeout
 
     @abstractmethod
-    def _download(self, input_path: str, local_dst_path: str) -> str:
-        """Download file from data source.
-
-        Args:
-            input_path (str): input path to file to download.
-            local_dst_path (str): path to download location.
-
-        Returns:
-            str: path file was downloaded.
-        """
-        pass
-
-    @abstractmethod
     def fetch_file(self, input_path: str, local_prefix: str, timeout_seconds: int) -> str:
         """Fetch file from chosen data storage method.
 
@@ -121,9 +108,6 @@ class FileSystemDataStorage(AbstractDataStorage):
         """Constructor for a file system storage instance."""
         super().__init__()
 
-    def _download(self, input_path: str, local_dst_path: str) -> str:
-        return self._safe_file_download(input_path=input_path, local_dst_path=local_dst_path)
-
     def fetch_file(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
         """Fetches a file system, ie: gets the path to the file.
 
@@ -139,7 +123,7 @@ class FileSystemDataStorage(AbstractDataStorage):
         :return: local path to the file on the local file system
         """
         local_full_path = os.path.join(local_prefix, os.path.basename(input_path))
-        return self._download(input_path=input_path, local_dst_path=local_full_path)
+        return self._safe_file_download(input_path=input_path, local_dst_path=local_full_path)
 
     def put_file(self, input_path: str, target_path: str) -> None:
         """Put file on local or mounted data storage.
@@ -275,13 +259,29 @@ class S3DataStorage(AbstractDataStorage):
 
         :param input_path: input file path in S3
         :param local_prefix: local path that specifies where to download the file
-        :param timeout_seconds: number of seconds till timing out on waiting for the file to be downloaded.
-            Deprecated in favor of the internal variable already assigned.
+        :param timeout_seconds: number of seconds till timing out on waiting for the file to be downloaded
         :return: local path to the downloaded file
         """
         bucket, key = self.bucket_key_from_s3_path(input_path)
         local_path = os.path.join(local_prefix, key)
-        return self._download(input_path=input_path, local_dst_path=local_path)
+
+        lock_path = local_path + ".lock"
+        success_marker = local_path + ".success"
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+
+        while not os.path.isfile(success_marker):
+            with SimpleUnixFileLock(lock_path, timeout_seconds=timeout_seconds):
+                if not os.path.isfile(success_marker):
+
+                    # For now, we will only download the file if it has not already been downloaded already.
+                    # Long term, we would also add a size check or md5sum comparison against the object in S3.
+                    filedir = os.path.split(local_path)[0]
+                    os.makedirs(filedir, exist_ok=True)
+                    self.download_with_retries(bucket=bucket, key=key, local_path=local_path)
+                    with open(success_marker, "w"):
+                        pass
+
+        return local_path
 
     def fetch_file_s3(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
         """Deprecated fetch file access, function signature kept to preserve backwards compatibility."""
