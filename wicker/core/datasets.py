@@ -224,10 +224,6 @@ class S3Dataset(AbstractDataset):
     def _get_parquet_dir_size(self, should_compute_entire_parquet_dir_size: bool = False) -> int:
         """Get the parquet path and find all the files within, count their bytes
 
-        Args:
-            should_compute_entire_parquet_dir_size (bool): Whether to get the entire parquet dir or just
-                the given partition dir size.
-
         Returns:
             int: bytes in parquet directory
         """
@@ -236,11 +232,7 @@ class S3Dataset(AbstractDataset):
         # reflect the size of the file sizes stored on s3 just the loaded data
         arrow_path = self._s3_path_factory.get_dataset_partition_path(self._partition, s3_prefix=False)
 
-        # have to cut off the end because we want entire dir size not just one partition
-        # the entire dataset is all parquet files
         bucket, key = arrow_path.replace("s3://", "").split("/", 1)
-        if should_compute_entire_parquet_dir_size:
-            key = key[::-1].split("/", 1)[1][::-1]
 
         def get_folder_size(bucket, prefix):
             total_size = 0
@@ -250,22 +242,16 @@ class S3Dataset(AbstractDataset):
 
         return get_folder_size(bucket, key)
 
-    def _get_dataset_size(self, should_compute_entire_parquet_dir_size: bool = False):
-        """Gets total size of the dataset in bits.
-
-        Args:
-            should_compute_entire_parquet_dir_size (bool): Whether to get the entire parquet dir or just
-                the given partition dir size.
+    def _get_dataset_partition_size(self) -> int:
+        """Gets total size of the dataset partition in bytes.
 
         Returns:
-            int: total dataset size in bits
+            int: total dataset partition size in bytes
         """
 
         # intialize with size of parquet dir
         logging.info("Parsing parquet and arrow dir for size.")
-        par_dir_bytes = self._get_parquet_dir_size(
-            should_compute_entire_parquet_dir_size=should_compute_entire_parquet_dir_size
-        )
+        par_dir_bytes = self._get_parquet_dir_size()
 
         # need to know which columns are heavy pntr columns we go to for
         # byte adding, parse which are heavy pointers based off metadata
@@ -278,6 +264,7 @@ class S3Dataset(AbstractDataset):
                 heavy_pointer_cols.append(col_name)
 
         # create arrow table for parsing
+        # only know the single partition arrow table loc so can only get one partition size
         logging.info("Creating arrow table")
         arrow_table = self.arrow_table()
 
@@ -304,9 +291,9 @@ class S3Dataset(AbstractDataset):
 
     @cached_property
     def dataset_size(self) -> int:
-        """Total dataset size in bits
+        """Total dataset partition size in bytes
 
         Returns:
-            int: total dataset size in bits
+            int: total dataset size in bytes
         """
-        return self._get_dataset_size()
+        return self._get_dataset_partition_size()
