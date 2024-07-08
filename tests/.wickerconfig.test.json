@@ -21,7 +21,7 @@
   "gcloud_storage_config": {
     "aws_transfer_cut_prefix": "test_prefix",
     "bucket": "test_bucket",
-    "bucket_data_path": "",
+    "bucket_wicker_data_head_path": "",
     "local_gcloud_tmp_data_transfer_dir": "/tmp"
   }
 }

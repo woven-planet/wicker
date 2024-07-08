@@ -218,6 +218,8 @@ class TestDatasetUtils(unittest.TestCase):
             copy_file_to_gcloud(
                 gcloud_bucket=gcloud_bucket,
                 gcloud_client=gcloud_client,
+                gcloud_wicker_root_path="",
                 s3_bucket_resource=s3_bucket_resource,
                 s3_key=test_key,
+                tmp_output_loc="tmp_datasets",
             )

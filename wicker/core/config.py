@@ -6,6 +6,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+from functools import lru_cache
 from typing import Any, Dict
 
 
@@ -28,7 +29,7 @@ class BotoS3Config:
 class GCloudStorageConfig:
     bucket: str
     aws_transfer_cut_prefix: str = ""
-    bucket_data_path: str = ""
+    bucket_wicker_data_head_path: str = ""
     local_gcloud_tmp_data_transfer_dir: str = ""
 
     @classmethod
@@ -36,7 +37,9 @@ class GCloudStorageConfig:
         return cls(
             aws_transfer_cut_prefix="" if "aws_transfer_cut_prefix" not in data else data["aws_transfer_cut_prefix"],
             bucket=data["bucket"],  # only hard requirement is bucket,
-            bucket_data_path="" if "bucket_data_path" not in data else data["bucket_data_path"],
+            bucket_wicker_data_head_path=""
+            if "bucket_wicker_data_head_path" not in data
+            else data["bucket_wicker_data_head_path"],
             local_gcloud_tmp_data_transfer_dir=os.getenv("TMPDIR", "tmp_datasets")
             if "local_gcloud_tmp_data_transfer_dir" not in data
             else data["local_gcloud_tmp_data_transfer_dir"],
@@ -110,8 +113,16 @@ class WickerConfig:
         )
 
 
+@lru_cache(maxsize=1)
 def get_config() -> WickerConfig:
-    """Retrieves the Wicker config for the current process"""
+    """Retrieves the Wicker config for the current process
+
+    Cached with lru size 1 so multiple threads can pull object without
+    re-opening and reading file.
+
+    Returns:
+        WickerConfig: dataset config file
+    """
 
     wicker_config_path = os.getenv("WICKER_CONFIG_PATH", os.path.expanduser("~/wickerconfig.json"))
     with open(wicker_config_path, "r") as f:

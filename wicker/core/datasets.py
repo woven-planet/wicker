@@ -4,6 +4,7 @@ import os
 from functools import cached_property
 from multiprocessing import Pool, cpu_count
 from multiprocessing.pool import ThreadPool
+from threading import Lock
 from typing import Any, Dict, List, Optional, Tuple
 
 import boto3
@@ -22,12 +23,15 @@ from wicker.schema.schema import DatasetSchema
 
 # How long to wait before timing out on filelocks in seconds
 FILE_LOCK_TIMEOUT_SECONDS = 300
-LOCAL_GCLOUD_MOVEMENT_TMPDIR = "tmp_datasets"
-GCLOUD_BUCKET_COMMON_PATH = "__COLUMN_CONCATENATED_FILES__"
 
 
 def copy_file_to_gcloud(
-    gcloud_bucket: storage.Bucket, gcloud_client: storage.Client, s3_bucket_resource: Any, s3_key: str
+    gcloud_bucket: storage.Bucket,
+    gcloud_client: storage.Client,
+    gcloud_wicker_root_path: str,
+    s3_bucket_resource: Any,
+    s3_key: str,
+    tmp_output_loc: str,
 ) -> None:
     """Copy file from AWS to GCloud Storage.
 
@@ -44,19 +48,18 @@ def copy_file_to_gcloud(
     Returns:
         Void
     """
-    gcloud_file_path = os.path.join(GCLOUD_BUCKET_COMMON_PATH, os.path.basename(s3_key))
+    gcloud_column_concat_path = os.path.join(gcloud_wicker_root_path, "__COLUMN_CONCATENATED_FILES__")
+    gcloud_file_path = os.path.join(gcloud_column_concat_path, os.path.basename(s3_key))
+
     gcloud_blob = storage.Blob(bucket=gcloud_bucket, name=gcloud_file_path)
     # if the file doesn't exist on gcloud proceed to move from aws to gcloud dumping ground
-    print("attempting gcloud upload")
     if not gcloud_blob.exists(gcloud_client):
         logging.debug(f"File not found on gcloud at {gcloud_file_path}, uploading.")
-        local_file_path = os.path.join(LOCAL_GCLOUD_MOVEMENT_TMPDIR, s3_key)
+        local_file_path = os.path.join(tmp_output_loc, s3_key)
         if not os.path.exists(os.path.dirname(local_file_path)):
             os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
 
         if not os.path.exists(local_file_path):
-            print(local_file_path)
-            print(type(s3_bucket_resource))
             s3_bucket_resource.download_file(s3_key, local_file_path)
 
         gcloud_blob.upload_from_filename(local_file_path)
@@ -83,7 +86,7 @@ def get_file_size_s3_multiproc(buckets_keys: List[Tuple[str, str]], copy_to_gclo
 
     Args:
         buckets_keys (List[Tuple[str, str]]): A list of buckets and keys for which
-        to fetch size in bytes on s3. Tuple index 0 is bucket and index 1 is key of the file.
+        to fetch size in bytes on s3. Tuple index 0 is bucket and index 1 is key of the file.a
         copy_to_gcloud (bool, True): A bool for defining if copying to gcloud or not.
 
     Returns:
@@ -181,6 +184,7 @@ def iterate_bucket_key_chunk_for_size(
     # create the s3 resource locally and don't pass in. Boto3 docs state to do this in each thread
     # and not pass around.
     s3_resource = boto3.resource("s3")
+    lock = Lock()
     for bucket_key_loc in bucket_key_locs:
         bucket_loc, key_loc = bucket_key_loc
         # get the byte length for the object
@@ -188,12 +192,20 @@ def iterate_bucket_key_chunk_for_size(
         local_len += byte_length
 
         if copy_to_gcloud:
+
+            with lock:
+                config = get_config()
+                tmp_output_loc = config.gcloud_storage_config.local_gcloud_tmp_data_transfer_dir
+                gcloud_wicker_root_path = config.gcloud_storage_config.bucket_wicker_data_head_path
+
             s3_bucket_resource = s3_resource.Bucket(bucket_loc)
             copy_file_to_gcloud(
                 gcloud_bucket=gcloud_bucket,
                 gcloud_client=gcloud_client,
+                gcloud_wicker_root_path=gcloud_wicker_root_path,
                 s3_bucket_resource=s3_bucket_resource,
                 s3_key=key_loc,
+                tmp_output_loc=tmp_output_loc,
             )
     return local_len
 
