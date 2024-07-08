@@ -221,7 +221,7 @@ class S3Dataset(AbstractDataset):
             self.schema(),
         )
 
-    def _get_parquet_dir_size(self, should_compute_entire_parquet_dir_size: bool = False) -> int:
+    def _get_parquet_dir_size(self) -> int:
         """Get the parquet path and find all the files within, count their bytes
 
         Returns:
