@@ -47,7 +47,7 @@ def copy_file_to_gcloud(
     gcloud_file_path = os.path.join(GCLOUD_BUCKET_COMMON_PATH, os.path.basename(s3_key))
     gcloud_blob = storage.Blob(bucket=gcloud_bucket, name=gcloud_file_path)
     # if the file doesn't exist on gcloud proceed to move from aws to gcloud dumping ground
-    print('attempting gcloud upload')
+    print("attempting gcloud upload")
     if not gcloud_blob.exists(gcloud_client):
         logging.debug(f"File not found on gcloud at {gcloud_file_path}, uploading.")
         local_file_path = os.path.join(LOCAL_GCLOUD_MOVEMENT_TMPDIR, s3_key)
@@ -128,7 +128,9 @@ def get_file_size_s3_threaded(buckets_keys_chunks_input_tuple: Tuple[List[Tuple[
 
     thread_pool = ThreadPool()
 
-    return sum(list(tqdm.tqdm(thread_pool.map(iterate_bucket_key_chunk_for_size, local_thread_input_tuples))))  # type: ignore
+    return sum(
+        list(tqdm.tqdm(thread_pool.map(iterate_bucket_key_chunk_for_size, local_thread_input_tuples)))
+    )  # type: ignore
 
 
 def chunk_data_for_split(chunkable_data: List[Any], chunk_number: int = 500) -> List[List[Any]]:
@@ -373,10 +375,7 @@ class S3Dataset(AbstractDataset):
 
         # pass the data to the multi proc management function
         buckets_keys_list = list(buckets_keys)
-        column_files_byte_size = get_file_size_s3_multiproc(
-            buckets_keys_list,
-            copy_to_gcloud=copy_to_gcloud
-        )
+        column_files_byte_size = get_file_size_s3_multiproc(buckets_keys_list, copy_to_gcloud=copy_to_gcloud)
         return column_files_byte_size + par_dir_bytes
 
     @cached_property
