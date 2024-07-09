@@ -44,6 +44,7 @@ class WickerAwsS3Config:
     region: str
     boto_config: BotoS3Config
     store_concatenated_bytes_files_in_dataset: bool = False
+    store_concatenated_bytes_files_in_dataset_version: bool = False
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> WickerAwsS3Config:
@@ -52,6 +53,9 @@ class WickerAwsS3Config:
             region=data["region"],
             boto_config=BotoS3Config.from_json(data["boto_config"]),
             store_concatenated_bytes_files_in_dataset=data.get("store_concatenated_bytes_files_in_dataset", False),
+            store_concatenated_bytes_files_in_dataset_version=data.get(
+                "store_concatenated_bytes_files_in_dataset_version", False
+            ),
         )
 
 

@@ -277,7 +277,12 @@ class WickerPathFactory:
                     - part-1-attempt-2345.parquet
     """
 
-    def __init__(self, root_path: str, store_concatenated_bytes_files_in_dataset: bool = False) -> None:
+    def __init__(
+        self,
+        root_path: str,
+        store_concatenated_bytes_files_in_dataset: bool = False,
+        store_concatenated_bytes_files_in_dataset_version: bool = False,
+    ) -> None:
         """Init the path factory.
 
         Object to form the expected paths and return them to the user based of root path and storage bool.
@@ -286,9 +291,12 @@ class WickerPathFactory:
             root_path (str): File system location of the root of the wicker file structure.
             store_concatenated_bytes_files_in_dataset (bool, optional): Whether to assume concatenated bytes files
                 are stored in the dataset folder. Defaults to False
+            store_concatenated_bytes_files_in_dataset_version (bool, optional): Whether to assume concatenated bytes
+                files are stored in the dataset and version folder. Defaults to False
         """
         self.root_path: str = root_path
         self.store_concatenated_bytes_files_in_dataset = store_concatenated_bytes_files_in_dataset
+        self.store_concatenated_bytes_files_in_dataset_version = store_concatenated_bytes_files_in_dataset_version
 
     def __eq__(self, other: Any) -> bool:
         return super().__eq__(other) and type(self) == type(other) and self.root_path == other.root_path
@@ -381,19 +389,31 @@ class WickerPathFactory:
         return full_path
 
     def _get_column_concatenated_bytes_files_path(
-        self, dataset_name: Optional[str] = None, prefix_to_trim: Optional[str] = None
+        self,
+        dataset_name: Optional[str] = None,
+        prefix_to_trim: Optional[str] = None,
+        dataset_version: Optional[str] = None,
     ) -> str:
         """Gets the path to the root of all column_concatenated_bytes files
 
-        :param dataset_name: if self.store_concatenated_bytes_files_in_dataset is True,
+        :param dataset_name: if self.store_concatenated_bytes_files_in_dataset or
+            self.store_concatenated_bytes_files_in_dataset_version is True,
             it requires dataset name, defaults to None
         :param prefix_to_trim: prefix to trim off path, if none skip
+        :param dataset_version: if self.store_concatenated_bytes_files_in_dataset_version is True,
+            ir requires dataset_name and dataset_version, defaults to None
         :return: path to the column_concatenated_bytes file with the file_id
         """
         if self.store_concatenated_bytes_files_in_dataset:
             if dataset_name is None:
                 raise ValueError("Must provide dataset_id if store_concatenated_bytes_files_in_dataset is True")
             full_path = os.path.join(self.root_path, dataset_name, "__COLUMN_CONCATENATED_FILES__")
+        elif self.store_concatenated_bytes_files_in_dataset_version:
+            if dataset_name is None or dataset_version is None:
+                raise ValueError(
+                    "Must provide dataset_id and version if store_concatenated_bytes_files_in_dataset_version is True"
+                )
+            full_path = os.path.join(self.root_path, dataset_name, dataset_version, "__COLUMN_CONCATENATED_FILES__")
         else:
             full_path = os.path.join(self.root_path, "__COLUMN_CONCATENATED_FILES__")
         if prefix_to_trim:
@@ -461,6 +481,27 @@ class S3PathFactory(WickerPathFactory):
                     - _SUCCESS
                     - part-0-attempt-1234.parquet
                     - part-1-attempt-2345.parquet
+
+    If store_concatenated_bytes_files_in_dataset_version is True, then the bucket structure will
+    be under the dataset directory:
+
+            s3://<root_path>
+            /dataset_name_1
+            /dataset_name_2
+                /0.0.1
+                /0.0.2
+                    /__COLUMN_CONCATENATED_FILES__
+                        - file1
+                        - file2
+                    - avro_schema.json
+                    / assets
+                        - files added by users
+                    / partition_1.parquet
+                    / partition_2.parquet
+                        - _l5ml_dataset_partition_metadata.json
+                        - _SUCCESS
+                        - part-0-attempt-1234.parquet
+                        - part-1-attempt-2345.parquet
     """
 
     def __init__(self, s3_root_path: Optional[str] = None) -> None:
@@ -471,9 +512,12 @@ class S3PathFactory(WickerPathFactory):
         """
         s3_config = get_config().aws_s3_config
         store_concatenated_bytes_files_in_dataset = s3_config.store_concatenated_bytes_files_in_dataset
+        store_concatenated_bytes_files_in_dataset_version = s3_config.store_concatenated_bytes_files_in_dataset_version
         s3_root_path = s3_root_path if s3_root_path is not None else s3_config.s3_datasets_path
         # ignore type as we already handled none case above
-        super().__init__(s3_root_path, store_concatenated_bytes_files_in_dataset)  # type: ignore
+        super().__init__(
+            s3_root_path, store_concatenated_bytes_files_in_dataset, store_concatenated_bytes_files_in_dataset_version
+        )  # type: ignore
 
     def get_dataset_assets_path(self, dataset_id: DatasetID, s3_prefix: bool = True) -> str:
         """Get path to data assets folder.
@@ -529,16 +573,22 @@ class S3PathFactory(WickerPathFactory):
         prefix_to_trim = "s3://" if not s3_prefix else None
         return self._get_dataset_schema_path(dataset_id=dataset_id, prefix_to_trim=prefix_to_trim)
 
-    def get_column_concatenated_bytes_files_path(self, s3_prefix: bool = True, dataset_name: str = None) -> str:
+    def get_column_concatenated_bytes_files_path(
+        self, s3_prefix: bool = True, dataset_name: str = None, dataset_version: str = None
+    ) -> str:
         """Gets the path to the root of all column_concatenated_bytes files
 
         :param s3_prefix: whether to return the s3:// prefix, defaults to True
         :param dataset_name: if self.store_concatenated_bytes_files_in_dataset is True,
             it requires dataset name, defaults to None
+        :param dataset_version: if self.store_concatenated_bytes_files_in_dataset_version is True,
+            it requires dataset version, defaults to None
         :return: path to the column_concatenated_bytes file with the file_id
         """
         prefix_to_trim = "s3://" if not s3_prefix else None
-        return self._get_column_concatenated_bytes_files_path(dataset_name=dataset_name, prefix_to_trim=prefix_to_trim)
+        return self._get_column_concatenated_bytes_files_path(
+            dataset_name=dataset_name, dataset_version=dataset_version, prefix_to_trim=prefix_to_trim
+        )
 
     def get_column_concatenated_bytes_s3path_from_uuid(self, file_uuid: bytes, dataset_name: str = None) -> str:
         """Public gettr for column concat bytes with uuid

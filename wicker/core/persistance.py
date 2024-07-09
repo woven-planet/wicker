@@ -88,6 +88,7 @@ class AbstractDataPersistor(abc.ABC):
         s3_storage: S3DataStorage,
         s3_path_factory: S3PathFactory,
         target_max_column_file_numrows: int = 50,
+        dataset_version: str = None,
     ) -> Iterable[Tuple[str, PointerParsedExample]]:
         """Persists a Spark partition of examples with parsed bytes into S3Storage as ColumnBytesFiles,
         returning a new Spark partition of examples with heavy-pointers and metadata only.
@@ -95,6 +96,7 @@ class AbstractDataPersistor(abc.ABC):
         :param spark_partition_iter: Spark partition of `(partition_str, example)`, where `example`
             is a dictionary of parsed bytes that needs to be uploaded to S3
         :param target_max_column_file_numrows: Maximum number of rows in column files. Defaults to 50.
+        :param dataset_version: Version of the dataset to persist. Defaults to None.
         :return: a Generator of `(partition_str, example)`, where `example` is a dictionary with heavy-pointers
             that point to ColumnBytesFiles in S3 in place of the parsed bytes
         """
@@ -110,6 +112,7 @@ class AbstractDataPersistor(abc.ABC):
                     s3_path_factory,
                     target_file_rowgroup_size=target_max_column_file_numrows,
                     dataset_name=dataset_name,
+                    dataset_version=dataset_version,
                 )
 
             # Write to ColumnBytesFileWriter and return only metadata + heavy-pointers
@@ -229,12 +232,13 @@ class BasicPersistor(AbstractDataPersistor):
 
         # 6. Persist the partitions to S3
         metadata_iterator = self.persist_wicker_partition(
-            dataset_name,
-            sorted_dataset_0,
-            dataset_schema,
-            self.s3_storage,
-            self.s3_path_factory,
-            MAX_COL_FILE_NUMROW,
+            dataset_name=dataset_name,
+            dataset_version=dataset_version,
+            schema=dataset_schema,
+            spark_partition_iter=sorted_dataset_0,
+            s3_path_factory=self.s3_path_factory,
+            s3_storage=self.s3_storage,
+            target_max_column_file_numrows=MAX_COL_FILE_NUMROW,
         )
 
         # 7. Create the parition table, need to combine keys in a way we can form table

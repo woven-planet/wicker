@@ -171,6 +171,49 @@ class TestColumnBytesFileWriter(unittest.TestCase):
                 self.assertEqual(info3.data_size, len(FAKE_BYTES2))
                 self.assertNotEqual(info2.file_id, info3.file_id)
 
+    def test_write_dataset_name_version(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dataset_name = "test_dataset"
+            dataset_version = "0.0.1"
+            path_factory = S3PathFactory()
+            path_factory.store_concatenated_bytes_files_in_dataset_version = True
+            storage = FakeS3DataStorage(tmpdir=tmpdir)
+            with ColumnBytesFileWriter(
+                dataset_name=dataset_name,
+                dataset_version=dataset_version,
+                storage=storage,
+                s3_path_factory=path_factory,
+                target_file_rowgroup_size=1,
+            ) as ccb:
+                info1 = ccb.add(FAKE_COL, FAKE_BYTES)
+                self.assertEqual(info1.byte_offset, 0)
+                self.assertEqual(info1.data_size, len(FAKE_BYTES))
+
+            expected_file_location_dir = os.path.join(
+                tmpdir,
+                "lyft-av-prod-pdx-ml-data",
+                "l5ml_datasets",
+                dataset_name,
+                dataset_version,
+                "__COLUMN_CONCATENATED_FILES__",
+            )
+
+            # ensure dir exists and is a dir
+            assert os.path.exists(expected_file_location_dir)
+            assert os.path.isdir(expected_file_location_dir)
+
+            # ensure that there is one file in the dir
+            assert len(os.listdir(expected_file_location_dir)) == 1
+
+            # read the file and ensure that it has the right bytes
+            file_path = os.path.join(expected_file_location_dir, os.listdir(expected_file_location_dir)[0])
+            assert os.path.exists(file_path)
+            with open(file_path, "rb") as open_column_concat_file:
+                stream = open_column_concat_file.read()
+
+            assert len(stream) == len(FAKE_BYTES)
+            assert stream == FAKE_BYTES
+
 
 class TestCCBInfo(unittest.TestCase):
     def test_to_string(self) -> None:

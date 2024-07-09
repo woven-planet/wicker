@@ -90,6 +90,7 @@ class ColumnBytesFileWriter:
         target_file_size: Optional[int] = None,
         target_file_rowgroup_size: Optional[int] = None,
         dataset_name: str = None,
+        dataset_version: str = None,
     ) -> None:
         """Create a ColumnBytesFileWriter
 
@@ -98,6 +99,7 @@ class ColumnBytesFileWriter:
         :param target_file_size: If set, open a new binary file when a column file gets larger than this many bytes.
         :param target_file_rowgroup_size: If set, open a new binary file when a column file has more rows than this
         :param dataset_name: dataset name, defaults to None
+        :param dataset_version: dataset version, defaults to None
         """
         self.storage = storage
         self.s3_path_factory = s3_path_factory
@@ -106,6 +108,7 @@ class ColumnBytesFileWriter:
         self.target_file_size = target_file_size
         self.target_file_rowgroup_size = target_file_rowgroup_size
         self.dataset_name = dataset_name
+        self.dataset_version = dataset_version
 
     def __enter__(self) -> ColumnBytesFileWriter:
         return self
@@ -162,7 +165,7 @@ class ColumnBytesFileWriter:
 
     def _write_column(self, column_name: str) -> None:
         columns_root_path = self.s3_path_factory.get_column_concatenated_bytes_files_path(
-            dataset_name=self.dataset_name
+            dataset_name=self.dataset_name, dataset_version=self.dataset_version
         )
         write_buffer = self.write_buffers[column_name]
         path = os.path.join(columns_root_path, str(write_buffer.file_id))
@@ -188,6 +191,7 @@ class ColumnBytesFileCache:
         path_factory: S3PathFactory = S3PathFactory(),
         storage: Optional[S3DataStorage] = None,
         dataset_name: str = None,
+        dataset_version: str = None,
     ):
         """Initializes a ColumnBytesFileCache
 
@@ -202,7 +206,9 @@ class ColumnBytesFileCache:
         self._s3_storage = storage if storage is not None else S3DataStorage()
         self._root_path = local_cache_path_prefix
         self._filelock_timeout_seconds = filelock_timeout_seconds
-        self._columns_root_path = path_factory.get_column_concatenated_bytes_files_path(dataset_name=dataset_name)
+        self._columns_root_path = path_factory.get_column_concatenated_bytes_files_path(
+            dataset_name=dataset_name, dataset_version=dataset_version
+        )
 
     def read(
         self,

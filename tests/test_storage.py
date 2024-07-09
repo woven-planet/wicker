@@ -216,3 +216,16 @@ class TestS3PathFactory(TestCase):
         # dataset_name, raise ValueError
         with self.assertRaises(ValueError):
             S3PathFactory().get_column_concatenated_bytes_files_path()
+
+        # If store_concatenated_bytes_files_in_dataset_version is True, return the dataset-specific path
+        dummy_config["aws_s3_config"]["store_concatenated_bytes_files_in_dataset"] = False
+        dummy_config["aws_s3_config"]["store_concatenated_bytes_files_in_dataset_version"] = True
+        mock_get_config.return_value = WickerConfig.from_json(dummy_config)
+        dataset_name = "dummy_dataset"
+        dataset_version = "0.0.1"
+        self.assertEqual(
+            S3PathFactory().get_column_concatenated_bytes_files_path(
+                dataset_name=dataset_name, dataset_version=dataset_version
+            ),
+            f"s3://dummy_bucket/wicker/{dataset_name}/{dataset_version}/__COLUMN_CONCATENATED_FILES__",
+        )

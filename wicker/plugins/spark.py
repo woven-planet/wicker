@@ -163,11 +163,12 @@ class SparkPersistor(AbstractDataPersistor):
 
         rdd4 = rdd3.mapPartitions(
             lambda spark_iterator: persist_wicker_partition(
-                dataset_name,
-                spark_iterator,
-                schema,
-                s3_storage,
-                s3_path_factory,
+                dataset_name=dataset_name,
+                dataset_version=dataset_version,
+                schema=schema,
+                spark_partition_iter=spark_iterator,
+                s3_path_factory=s3_path_factory,
+                s3_storage=s3_storage,
                 target_max_column_file_numrows=MAX_COL_FILE_NUMROW,
             )
         )
