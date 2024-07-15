@@ -10,7 +10,6 @@ import boto3
 import pyarrow  # type: ignore
 import pyarrow.fs as pafs  # type: ignore
 import pyarrow.parquet as papq  # type: ignore
-import tqdm  # type: ignore
 
 from wicker.core.column_files import ColumnBytesFileCache, ColumnBytesFileLocationV1
 from wicker.core.config import get_config  # type: ignore
@@ -46,7 +45,7 @@ def get_file_size_s3_multiproc(buckets_keys: List[Tuple[str, str]]) -> int:
 
     logging.info("Grabbing file information from s3 heads")
     pool = Pool(cpu_count() - 1)
-    return sum(list(tqdm.tqdm(pool.map(get_file_size_s3_threaded, buckets_keys_chunks))))
+    return sum(list(pool.map(get_file_size_s3_threaded, buckets_keys_chunks)))
 
 
 def get_file_size_s3_threaded(buckets_keys_chunks_local: List[Tuple[str, str]]) -> int:
@@ -62,7 +61,7 @@ def get_file_size_s3_threaded(buckets_keys_chunks_local: List[Tuple[str, str]]) 
     local_chunks = chunk_data_for_split(chunkable_data=buckets_keys_chunks_local, chunk_number=200)
     thread_pool = ThreadPool()
 
-    return sum(list(tqdm.tqdm(thread_pool.map(iterate_bucket_key_chunk_for_size, local_chunks))))  # type: ignore
+    return sum(list(thread_pool.map(iterate_bucket_key_chunk_for_size, local_chunks)))  # type: ignore
 
 
 def chunk_data_for_split(chunkable_data: List[Any], chunk_number: int = 500) -> List[List[Any]]:
@@ -276,7 +275,7 @@ class S3Dataset(AbstractDataset):
             # Each individual row only knows which column file it goes to, so we have to
             # neccesarily parse all rows :( to get the column files. This should be cached
             # as metadata but that would require re-curating the datasets.
-            for location_bytes in tqdm.tqdm(arrow_table[heavy_pntr_col].to_pylist()):
+            for location_bytes in arrow_table[heavy_pntr_col].to_pylist():
                 location = ColumnBytesFileLocationV1.from_bytes(location_bytes)
                 path = self._s3_path_factory.get_column_concatenated_bytes_s3path_from_uuid(
                     location.file_id.bytes, dataset_name=self._dataset_id.name
