@@ -4,7 +4,6 @@ import os
 from functools import cached_property
 from multiprocessing import Pool, cpu_count
 from multiprocessing.pool import ThreadPool
-from threading import Lock
 from typing import Any, Dict, List, Optional, Tuple
 
 import boto3
@@ -180,7 +179,6 @@ def iterate_bucket_key_chunk_for_size(
     # create the s3 resource locally and don't pass in. Boto3 docs state to do this in each thread
     # and not pass around.
     s3_resource = boto3.resource("s3")
-    lock = Lock()
     for bucket_key_loc in bucket_key_locs:
         bucket_loc, key_loc = bucket_key_loc
         # get the byte length for the object
@@ -189,10 +187,9 @@ def iterate_bucket_key_chunk_for_size(
 
         if copy_to_gcloud:
 
-            with lock:
-                config = get_config()
-                tmp_output_loc = config.gcloud_storage_config.local_gcloud_tmp_data_transfer_dir
-                gcloud_wicker_root_path = config.gcloud_storage_config.bucket_wicker_data_head_path
+            config = get_config()
+            tmp_output_loc = config.gcloud_storage_config.local_gcloud_tmp_data_transfer_dir
+            gcloud_wicker_root_path = config.gcloud_storage_config.bucket_wicker_data_head_path
 
             s3_bucket_resource = s3_resource.Bucket(bucket_loc)
             copy_file_to_gcloud(

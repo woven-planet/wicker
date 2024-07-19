@@ -113,7 +113,7 @@ class WickerConfig:
         )
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=None)
 def get_config() -> WickerConfig:
     """Retrieves the Wicker config for the current process
 
