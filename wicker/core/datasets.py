@@ -11,7 +11,6 @@ import boto3
 import pyarrow  # type: ignore
 import pyarrow.fs as pafs  # type: ignore
 import pyarrow.parquet as papq  # type: ignore
-import tqdm  # type: ignore
 from google.cloud import storage
 
 from wicker.core.column_files import ColumnBytesFileCache, ColumnBytesFileLocationV1
@@ -86,7 +85,7 @@ def get_file_size_s3_multiproc(buckets_keys: List[Tuple[str, str]], copy_to_gclo
 
     Args:
         buckets_keys (List[Tuple[str, str]]): A list of buckets and keys for which
-        to fetch size in bytes on s3. Tuple index 0 is bucket and index 1 is key of the file.a
+        to fetch size in bytes on s3. Tuple index 0 is bucket and index 1 is key of the file.
         copy_to_gcloud (bool, True): A bool for defining if copying to gcloud or not.
 
     Returns:
@@ -99,7 +98,7 @@ def get_file_size_s3_multiproc(buckets_keys: List[Tuple[str, str]], copy_to_gclo
     ]
     print("Grabbing file information from s3 heads")
     pool = Pool(cpu_count() - 1)
-    return sum(list(tqdm.tqdm(pool.map(get_file_size_s3_threaded, buckets_keys_input_tuples))))
+    return sum(list(pool.map(get_file_size_s3_threaded, buckets_keys_input_tuples)))
 
 
 def get_file_size_s3_threaded(buckets_keys_chunks_input_tuple: Tuple[List[Tuple[str, str]], bool]) -> int:
@@ -131,9 +130,7 @@ def get_file_size_s3_threaded(buckets_keys_chunks_input_tuple: Tuple[List[Tuple[
 
     thread_pool = ThreadPool()
 
-    return sum(
-        list(tqdm.tqdm(thread_pool.map(iterate_bucket_key_chunk_for_size, local_thread_input_tuples)))
-    )  # type: ignore
+    return sum(list(thread_pool.map(iterate_bucket_key_chunk_for_size, local_thread_input_tuples)))
 
 
 def chunk_data_for_split(chunkable_data: List[Any], chunk_number: int = 500) -> List[List[Any]]:
@@ -173,7 +170,6 @@ def iterate_bucket_key_chunk_for_size(
         copy_to_gcloud bool: bool specifying to copy to gcloud or not.
         gcloud_client storage.Client: GCloud client for copying data or None if no copying
         gcloud_bucket storage.Bucket: GCloud bucket object to copy data.
-
     Returns:
         int: total amount of bytes in the file chunk list
 
@@ -377,7 +373,7 @@ class S3Dataset(AbstractDataset):
             # Each individual row only knows which column file it goes to, so we have to
             # neccesarily parse all rows :( to get the column files. This should be cached
             # as metadata but that would require re-curating the datasets.
-            for location_bytes in tqdm.tqdm(arrow_table[heavy_pntr_col].to_pylist()):
+            for location_bytes in arrow_table[heavy_pntr_col].to_pylist():
                 location = ColumnBytesFileLocationV1.from_bytes(location_bytes)
                 path = self._s3_path_factory.get_column_concatenated_bytes_s3path_from_uuid(
                     location.file_id.bytes, dataset_name=self._dataset_id.name
