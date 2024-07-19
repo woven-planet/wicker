@@ -2,6 +2,7 @@ import abc
 import logging
 import os
 from functools import cached_property
+from multiprocessing import Pool, cpu_count
 from multiprocessing.pool import ThreadPool
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -9,7 +10,6 @@ import boto3
 import pyarrow  # type: ignore
 import pyarrow.fs as pafs  # type: ignore
 import pyarrow.parquet as papq  # type: ignore
-import tqdm  # type: ignore
 
 from wicker.core.column_files import (
     ColumnBytesFileCache,
@@ -18,7 +18,6 @@ from wicker.core.column_files import (
 )
 from wicker.core.config import get_config  # type: ignore
 from wicker.core.definitions import DatasetDefinition, DatasetID, DatasetPartition
-from wicker.core.shuffle import ShuffleWorker
 from wicker.core.storage import (
     AbstractDataStorage,
     FileSystemDataStorage,
@@ -33,6 +32,95 @@ from wicker.schema.schema import DatasetSchema
 FILE_LOCK_TIMEOUT_SECONDS = 300
 
 logger = logging.getLogger(__name__)
+
+
+def get_file_size_s3_multiproc(buckets_keys: List[Tuple[str, str]]) -> int:
+    """Get file size of s3 files, most often column files.
+
+    This works on any list of buckets and keys but is generally only
+    used for column files as those are the majority of what is stored on
+    s3 for Wicker. Wicker also stores parquet files on s3 but those are limited
+    to one file per dataset and one schema file.
+
+    This splits your buckets_keys_list across multiple processes on your local host
+    where each process is then multi threaded further. This reduces the i/o wait by
+    parellelizing across all available procs and threads on a single machine.
+
+    Args:
+        buckets_keys: (List[Tuple[str, str]]): A list of buckets and keys for which
+        to fetch size in bytes on s3. Tuple index 0 is bucket and index 1 is key of the file.
+
+    Returns:
+        int size of file list in bytes.
+    """
+    buckets_keys_chunks = chunk_data_for_split(chunkable_data=buckets_keys, chunk_number=200)
+
+    logging.info("Grabbing file information from s3 heads")
+    pool = Pool(cpu_count() - 1)
+    return sum(list(pool.map(get_file_size_s3_threaded, buckets_keys_chunks)))
+
+
+def get_file_size_s3_threaded(buckets_keys_chunks_local: List[Tuple[str, str]]) -> int:
+    """Get file size of a list of s3 paths.
+
+    Args:
+        buckets_keys_chunks_local - The list of tuples denoting bucket and key of files on s3 to
+        parse. Generally column files but will work with any data.
+
+    Returns:
+        int: size of the set of files in bytes
+    """
+    local_chunks = chunk_data_for_split(chunkable_data=buckets_keys_chunks_local, chunk_number=200)
+    thread_pool = ThreadPool()
+
+    return sum(list(thread_pool.map(iterate_bucket_key_chunk_for_size, local_chunks)))  # type: ignore
+
+
+def chunk_data_for_split(chunkable_data: List[Any], chunk_number: int = 500) -> List[List[Any]]:
+    """Chunk data into a user specified number of chunks.
+
+    Args:
+        chunkable_data (List[Any]): Data to be chunked into smaller pieces.
+        chunk_number (int): Number of chunks to form.
+
+    Returns:
+        List[List[Any]]: List of subsets of input data.
+    """
+    local_chunks = []
+    local_chunk_size = len(chunkable_data) // chunk_number
+    for i in range(0, chunk_number - 1):
+        chunk = chunkable_data[i * local_chunk_size : (i + 1) * local_chunk_size]
+        local_chunks.append(chunk)
+
+    last_chunk_size = len(chunkable_data) - (chunk_number * local_chunk_size)
+    if last_chunk_size > 0:
+        last_chunk = chunkable_data[-last_chunk_size:]
+        local_chunks.append(last_chunk)
+
+    return local_chunks
+
+
+def iterate_bucket_key_chunk_for_size(bucket_key_locs: List[Tuple[str, str]]) -> int:  # type: ignore
+    """Iterate on chunk of s3 files to get local length of bytes.
+
+    Args:
+        bucket_key_locs: List of Tuple[str, str] containing the s3 bucket and key to check size.
+
+    Returns:
+        int: total amount of bytes in the file chunk list
+
+    """
+    local_len = 0
+
+    # create the s3 resource locally and don't pass in. Boto3 docs state to do this in each thread
+    # and not pass around.
+    s3_resource = boto3.resource("s3")
+    for bucket_key_loc in bucket_key_locs:
+        bucket_loc, key_loc = bucket_key_loc
+        # get the byte length for the object
+        byte_length = s3_resource.Object(bucket_loc, key_loc).content_length
+        local_len += byte_length
+    return local_len
 
 
 class AbstractDataset(abc.ABC):
@@ -327,7 +415,7 @@ class S3Dataset(AbstractDataset):
         )
 
     def _get_parquet_dir_size(self) -> int:
-        """Get the arrow path and find all the files within, count their bytes
+        """Get the parquet path and find all the files within, count their bytes
 
         Returns:
             int: bytes in parquet directory
@@ -346,13 +434,15 @@ class S3Dataset(AbstractDataset):
 
         return get_folder_size(bucket, key)
 
-    def _get_dataset_size(self):
-        """Gets total size of the dataset in bits
+    def _get_dataset_partition_size(self) -> int:
+        """Gets total size of the dataset partition in bytes.
 
         Returns:
-            int: total dataset size in bits
+            int: total dataset partition size in bytes
         """
+
         # intialize with size of parquet dir
+        logging.info("Parsing parquet and arrow dir for size.")
         par_dir_bytes = self._get_parquet_dir_size()
 
         # need to know which columns are heavy pntr columns we go to for
@@ -360,49 +450,41 @@ class S3Dataset(AbstractDataset):
         schema = self.schema
         heavy_pointer_cols = []
         for col_name in schema.get_all_column_names():
-            if schema.get_column(col_name).is_heavy_pointer:
+            column = schema.get_column(col_name)
+            if column is not None and column.is_heavy_pointer:
                 heavy_pointer_cols.append(col_name)
 
-        # Each individual row only knows which column file it goes to, so we have to
-        # neccesarily parse all rows :( to get the column files. This should be cached
-        # as metadata but that would require re-curating the datasets.
-        print("Creating arrow table")
+        # create arrow table for parsing
+        # only know the single partition arrow table loc so can only get one partition size
+        logging.info("Creating arrow table")
         arrow_table = self.arrow_table()
 
         buckets_keys = set()
-        # ignore typing to avoid changing the typing of Shuffle Worker yet
-        # ToDo: Change typing of ShuffleWorker and let it take local data storage
-        worker = ShuffleWorker(storage=self._storage)  # type: ignore
-        print("Processing through heavy pointers")
+
+        logging.info("Processing through heavy pointers")
         for heavy_pntr_col in heavy_pointer_cols:
-            print(f"Evaulating {heavy_pntr_col} for column file locations")
-            for location_bytes in tqdm.tqdm(arrow_table[heavy_pntr_col].to_pylist()):
+            logging.info(f"Evaulating {heavy_pntr_col} for column file locations")
+            # Each individual row only knows which column file it goes to, so we have to
+            # neccesarily parse all rows :( to get the column files. This should be cached
+            # as metadata but that would require re-curating the datasets.
+            for location_bytes in arrow_table[heavy_pntr_col].to_pylist():
                 location = ColumnBytesFileLocationV1.from_bytes(location_bytes)
-                path = worker.s3_path_factory.get_column_concatenated_bytes_s3path_from_uuid(
+                path = self._s3_path_factory.get_column_concatenated_bytes_s3path_from_uuid(
                     location.file_id.bytes, dataset_name=self._dataset_id.name
                 )
                 bucket, key = path.replace("s3://", "").split("/", 1)
                 buckets_keys.add((bucket, key))
 
-        # we use existing shuffle worker here to grab the column file from
-        # know location.
-        def get_file_size_s3(bucket_key: Tuple[str, str]) -> int:
-            s3 = boto3.resource("s3")
-            bucket, key = bucket_key
-            bucket, key = path.replace("s3://", "").split("/", 1)
-            byte_length = s3.Object(bucket, key).content_length
-            return byte_length
-
-        print("Grabbing file information from s3 heads")
-        with ThreadPool() as pool:
-            results = list(tqdm.tqdm(pool.imap(get_file_size_s3, buckets_keys), total=len(buckets_keys)))
-        return sum(results) + par_dir_bytes
+        # pass the data to the multi proc management function
+        buckets_keys_list = list(buckets_keys)
+        column_files_byte_size = get_file_size_s3_multiproc(buckets_keys_list)
+        return column_files_byte_size + par_dir_bytes
 
     @cached_property
     def dataset_size(self) -> int:
-        """Total dataset size in bits
+        """Total dataset partition size in bytes
 
         Returns:
-            int: total dataset size in bits
+            int: total dataset size in bytes
         """
-        return self._get_dataset_size()
+        return self._get_dataset_partition_size()
