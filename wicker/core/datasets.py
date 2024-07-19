@@ -469,7 +469,9 @@ class S3Dataset(AbstractDataset):
             # as metadata but that would require re-curating the datasets.
             for location_bytes in arrow_table[heavy_pntr_col].to_pylist():
                 location = ColumnBytesFileLocationV1.from_bytes(location_bytes)
-                path = self._s3_path_factory.get_column_concatenated_bytes_s3path_from_uuid(
+                # type ignore because this is guaranteed to have a S3PathFactory as the
+                # path factory attr
+                path = self._path_factory.get_column_concatenated_bytes_s3path_from_uuid(  # type: ignore
                     location.file_id.bytes, dataset_name=self._dataset_id.name
                 )
                 bucket, key = path.replace("s3://", "").split("/", 1)
