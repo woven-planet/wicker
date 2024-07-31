@@ -45,7 +45,7 @@ def persist_wicker_dataset(
     s3_path_factory: S3PathFactory = S3PathFactory(),
     local_reduction: bool = False,
     sort: bool = True,
-    partition_size = DEFAULT_SPARK_PARTITION_SIZE
+    partition_size=DEFAULT_SPARK_PARTITION_SIZE,
 ) -> Optional[Dict[str, int]]:
     """
     Persist wicker dataset public facing api function, for api consistency.
@@ -76,7 +76,7 @@ def persist_wicker_dataset(
         rdd,
         local_reduction=local_reduction,
         sort=sort,
-        partition_size=partition_size
+        partition_size=partition_size,
     )
 
 
@@ -105,7 +105,7 @@ class SparkPersistor(AbstractDataPersistor):
         rdd: pyspark.rdd.RDD[Tuple[str, UnparsedExample]],
         local_reduction: bool = False,
         sort: bool = True,
-        partition_size = DEFAULT_SPARK_PARTITION_SIZE
+        partition_size=DEFAULT_SPARK_PARTITION_SIZE,
     ) -> Optional[Dict[str, int]]:
         """
         Persist the current rdd dataset defined by name, version, schema, and data.
