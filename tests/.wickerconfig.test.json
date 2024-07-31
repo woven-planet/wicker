@@ -18,5 +18,4 @@
     "retry_backoff":5,
     "retry_delay_s": 4
   }
-  
 }
