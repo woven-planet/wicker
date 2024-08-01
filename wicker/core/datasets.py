@@ -150,6 +150,7 @@ class S3Dataset(AbstractDataset):
         pa_filesystem: Optional[pafs.FileSystem] = None,
         filelock_timeout_seconds: int = FILE_LOCK_TIMEOUT_SECONDS,
         treat_objects_as_bytes: bool = False,
+        filters=None,
     ):
         """Initializes an S3Dataset
 
@@ -160,7 +161,10 @@ class S3Dataset(AbstractDataset):
         :param data_service: S3DataService instance to use, defaults to None which uses default initializations
         :param filelock_timeout_seconds: number of seconds after which to timeout on waiting for downloads,
             defaults to FILE_LOCK_TIMEOUT_SECONDS
-        :param treat_objects_as_bytes: If set, don't try to decode ObjectFields and keep them as binary data.
+        :param treat_objects_as_bytes: If set, don't try to decode ObjectFields and keep them as binary data
+        :param filters: Rows which do not match the filter predicate will be removed, defaults to None
+        :type filters: pyarrow.compute.Expression, List[Tuple], or List[List[Tuple]], optional
+        .. seealso:: `filters in ParquetDataset <https://arrow.apache.org/docs/python/generated/pyarrow.parquet.ParquetDataset.html#pyarrow.parquet.ParquetDataset>`__ # noqa
         """
         super().__init__()
         self._columns_to_load: Optional[List[str]] = columns_to_load
