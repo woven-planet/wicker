@@ -122,7 +122,7 @@ class TestS3Dataset(unittest.TestCase):
                 filters=[("foo", "in", filtered_value_list)],
             )
             self.assertEqual(len(ds), len(filtered_value_list))
-            retrived_values_list = [row["foo"] for row in ds]
+            retrived_values_list = [ds[i]["foo"] for i in range(len(ds))]
             retrived_values_list.sort()
             filtered_value_list.sort()
             self.assertListEqual(retrived_values_list, filtered_value_list)
