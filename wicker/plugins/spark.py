@@ -27,7 +27,7 @@ from wicker.core.persistance import AbstractDataPersistor
 from wicker.core.storage import S3DataStorage, S3PathFactory
 from wicker.schema import serialization
 
-SPARK_PARTITION_SIZE = 256
+DEFAULT_SPARK_PARTITION_SIZE = 256
 MAX_COL_FILE_NUMROW = 50  # TODO(isaak-willett): Magic number, we should derive this based on row size
 
 PrimaryKeyTuple = Tuple[Any, ...]
@@ -45,6 +45,7 @@ def persist_wicker_dataset(
     s3_path_factory: S3PathFactory = S3PathFactory(),
     local_reduction: bool = False,
     sort: bool = True,
+    partition_size=DEFAULT_SPARK_PARTITION_SIZE,
 ) -> Optional[Dict[str, int]]:
     """
     Persist wicker dataset public facing api function, for api consistency.
@@ -65,6 +66,8 @@ def persist_wicker_dataset(
     :type local_reduction: bool
     :param sort: if true, sort the resulting table by primary keys
     :type sort: bool
+    :param partition_size: partition size during the sort
+    :type partition_size: int
     """
     return SparkPersistor(s3_storage, s3_path_factory).persist_wicker_dataset(
         dataset_name,
@@ -73,6 +76,7 @@ def persist_wicker_dataset(
         rdd,
         local_reduction=local_reduction,
         sort=sort,
+        partition_size=partition_size,
     )
 
 
@@ -101,6 +105,7 @@ class SparkPersistor(AbstractDataPersistor):
         rdd: pyspark.rdd.RDD[Tuple[str, UnparsedExample]],
         local_reduction: bool = False,
         sort: bool = True,
+        partition_size=DEFAULT_SPARK_PARTITION_SIZE,
     ) -> Optional[Dict[str, int]]:
         """
         Persist the current rdd dataset defined by name, version, schema, and data.
@@ -140,7 +145,7 @@ class SparkPersistor(AbstractDataPersistor):
         # Sort RDD by keys
         rdd2: pyspark.rdd.RDD[Tuple[Tuple[Any, ...], Tuple[str, ParsedExample]]] = rdd1.sortByKey(
             # TODO(jchia): Magic number, we should derive this based on row size
-            numPartitions=max(1, dataset_size // SPARK_PARTITION_SIZE),
+            numPartitions=max(1, dataset_size // partition_size),
             ascending=True,
         )
 
