@@ -164,7 +164,7 @@ class S3Dataset(AbstractDataset):
         :param treat_objects_as_bytes: If set, don't try to decode ObjectFields and keep them as binary data
         :param filters: Rows which do not match the filter predicate will be removed, defaults to None
         :type filters: pyarrow.compute.Expression, List[Tuple], or List[List[Tuple]], optional
-        .. seealso:: `filters in ParquetDataset <https://arrow.apache.org/docs/python/generated/pyarrow.parquet.ParquetDataset.html#pyarrow.parquet.ParquetDataset>`__ # noqa
+        .. seealso:: `filters in <https://arrow.apache.org/docs/python/generated/pyarrow.parquet.read_table.html>`__ # noqa
         """
         super().__init__()
         self._columns_to_load: Optional[List[str]] = columns_to_load
@@ -193,6 +193,7 @@ class S3Dataset(AbstractDataset):
             self._dataset_id,
             schema=self.schema(),
         )
+        self.filters = filters
 
     def schema(self) -> DatasetSchema:
         if self._schema is None:
@@ -209,7 +210,9 @@ class S3Dataset(AbstractDataset):
     def arrow_table(self) -> pyarrow.Table:
         path = self._s3_path_factory.get_dataset_partition_path(self._partition, s3_prefix=False)
         if not self._arrow_table:
-            self._arrow_table = papq.read_table(path, columns=self._columns_to_load, filesystem=self._pa_filesystem)
+            self._arrow_table = papq.read_table(
+                path, columns=self._columns_to_load, filesystem=self._pa_filesystem, filters=self.filters
+            )
         return self._arrow_table
 
     def __len__(self) -> int:
