@@ -119,11 +119,12 @@ class TestS3Dataset(unittest.TestCase):
                 storage=fake_s3_storage,
                 s3_path_factory=None,
                 pa_filesystem=pafs.LocalFileSystem(),
-                filters=("foo", "in", filtered_value_list),
+                filters=[("foo", "in", filtered_value_list)],
             )
             self.assertEqual(len(ds), len(filtered_value_list))
             retrived_values_list = [row["foo"] for row in ds]
             retrived_values_list.sort()
+            filtered_value_list.sort()
             self.assertListEqual(retrived_values_list, filtered_value_list)
 
     def test_dataset_size(self) -> None:
