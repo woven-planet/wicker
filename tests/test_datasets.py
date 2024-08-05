@@ -122,10 +122,10 @@ class TestS3Dataset(unittest.TestCase):
                 filters=[("foo", "in", filtered_value_list)],
             )
             self.assertEqual(len(ds), len(filtered_value_list))
-            retrived_values_list = [ds[i]["foo"] for i in range(len(ds))]
-            retrived_values_list.sort()
+            retrieved_values_list = [ds[i]["foo"] for i in range(len(ds))]
+            retrieved_values_list.sort()
             filtered_value_list.sort()
-            self.assertListEqual(retrived_values_list, filtered_value_list)
+            self.assertListEqual(retrieved_values_list, filtered_value_list)
 
     def test_dataset_size(self) -> None:
         with self._setup_storage() as (fake_s3_storage, fake_s3_path_factory, tmpdir):
