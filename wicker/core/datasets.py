@@ -162,7 +162,7 @@ class S3Dataset(AbstractDataset):
         :param filelock_timeout_seconds: number of seconds after which to timeout on waiting for downloads,
             defaults to FILE_LOCK_TIMEOUT_SECONDS
         :param treat_objects_as_bytes: If set, don't try to decode ObjectFields and keep them as binary data
-        :param filters: Rows which do not match the filter predicate will be removed, defaults to None
+        :param filters: Only returns rows which match the filter. Defaults to None, i.e., returns all rows.
         :type filters: pyarrow.compute.Expression, List[Tuple], or List[List[Tuple]], optional
         .. seealso:: `filters in <https://arrow.apache.org/docs/python/generated/pyarrow.parquet.read_table.html>`__ # noqa
         """
