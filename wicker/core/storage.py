@@ -510,7 +510,7 @@ class S3PathFactory(WickerPathFactory):
         """Determine the cut prefix by using default logic and if override provided preferring.
 
         Args:
-            s3_prefix (bool, optional): Whehter to keep the s3 prefix or not.
+            s3_prefix (bool, optional): Whether to keep the s3 prefix or not.
             cut_prefix_override (str, optional): Optional arbitrary prefix to prefer over s3 prefix.
                 used if provided.
 
