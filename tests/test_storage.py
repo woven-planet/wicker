@@ -216,3 +216,38 @@ class TestS3PathFactory(TestCase):
         # dataset_name, raise ValueError
         with self.assertRaises(ValueError):
             S3PathFactory().get_column_concatenated_bytes_files_path()
+
+        # Test the remove s3 prefix option in the get_column_concatenated_bytes_files_path function
+        self.assertEqual(
+            S3PathFactory().get_column_concatenated_bytes_files_path(dataset_name=dataset_name, s3_prefix=False),
+            f"dummy_bucket/wicker/{dataset_name}/__COLUMN_CONCATENATED_FILES__",
+        )
+
+        # Test when the s3 prefix remove bool is not passed the prefix isn't eliminated.
+        self.assertEqual(
+            S3PathFactory(prefix_replace_path="/test_mount_path").get_column_concatenated_bytes_files_path(
+                dataset_name=dataset_name, s3_prefix=True
+            ),
+            f"s3://dummy_bucket/wicker/{dataset_name}/__COLUMN_CONCATENATED_FILES__",
+        )
+
+        self.assertEqual(
+            S3PathFactory(prefix_replace_path="/test_mount_path/").get_column_concatenated_bytes_files_path(
+                dataset_name=dataset_name, s3_prefix=False
+            ),
+            f"/test_mount_path/dummy_bucket/wicker/{dataset_name}/__COLUMN_CONCATENATED_FILES__",
+        )
+
+        self.assertEqual(
+            S3PathFactory(prefix_replace_path="/test_mount_path/").get_column_concatenated_bytes_files_path(
+                dataset_name=dataset_name, s3_prefix=False, cut_prefix_override="s3://dummy_bucket/"
+            ),
+            f"/test_mount_path/wicker/{dataset_name}/__COLUMN_CONCATENATED_FILES__",
+        )
+
+        self.assertEqual(
+            S3PathFactory(prefix_replace_path="/test_mount_path/").get_column_concatenated_bytes_files_path(
+                dataset_name=dataset_name, s3_prefix=True, cut_prefix_override="s3://dummy_bucket/"
+            ),
+            f"/test_mount_path/wicker/{dataset_name}/__COLUMN_CONCATENATED_FILES__",
+        )
