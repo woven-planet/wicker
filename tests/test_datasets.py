@@ -107,6 +107,26 @@ class TestS3Dataset(unittest.TestCase):
                 self.assertEqual(retrieved["foo"], reference["foo"])
                 np.testing.assert_array_equal(retrieved["np_arr"], reference["np_arr"])
 
+    def test_filters_dataset(self) -> None:
+        filtered_value_list = [f"bar{i}" for i in range(100)]
+        with self._setup_storage() as (fake_s3_storage, fake_s3_path_factory, tmpdir):
+            ds = S3Dataset(
+                FAKE_NAME,
+                FAKE_VERSION,
+                FAKE_PARTITION,
+                local_cache_path_prefix=tmpdir,
+                columns_to_load=None,
+                storage=fake_s3_storage,
+                s3_path_factory=None,
+                pa_filesystem=pafs.LocalFileSystem(),
+                filters=[("foo", "in", filtered_value_list)],
+            )
+            self.assertEqual(len(ds), len(filtered_value_list))
+            retrieved_values_list = [ds[i]["foo"] for i in range(len(ds))]
+            retrieved_values_list.sort()
+            filtered_value_list.sort()
+            self.assertListEqual(retrieved_values_list, filtered_value_list)
+
     def test_dataset_size(self) -> None:
         with self._setup_storage() as (fake_s3_storage, fake_s3_path_factory, tmpdir):
             # overwrite the mocked resource function using the fake storage
