@@ -10,6 +10,7 @@ import boto3
 import pyarrow  # type: ignore
 import pyarrow.fs as pafs  # type: ignore
 import pyarrow.parquet as papq  # type: ignore
+from google.cloud import storage
 
 from wicker.core.column_files import ColumnBytesFileCache, ColumnBytesFileLocationV1
 from wicker.core.config import get_config  # type: ignore
@@ -22,7 +23,54 @@ from wicker.schema.schema import DatasetSchema
 FILE_LOCK_TIMEOUT_SECONDS = 300
 
 
-def get_file_size_s3_multiproc(buckets_keys: List[Tuple[str, str]]) -> int:
+def copy_file_to_gcloud(
+    gcloud_bucket: storage.Bucket,
+    gcloud_client: storage.Client,
+    gcloud_wicker_root_path: str,
+    s3_bucket_resource: Any,
+    s3_key: str,
+    tmp_output_loc: str,
+) -> None:
+    """Copy file from AWS to GCloud Storage.
+
+
+    bucket & client passed around for gcloud as thread safe
+    https://github.com/googleapis/google-cloud-dotnet/blob/main/apis/Google.Cloud.Storage.V1/docs/index.md
+
+    Args:
+        gcloud_bucket (storage.Bucket): GCloud bucket to use for data storage.
+        gcloud_client (storage.Client): GCloud client to use for existance checking.
+        s3_bucket_resource: S3 Bucket resource to use for data download.
+        s3_key (str): S3 key to copy from s3 to GCloud.
+
+    Returns:
+        Void
+    """
+    gcloud_column_concat_path = os.path.join(gcloud_wicker_root_path, "__COLUMN_CONCATENATED_FILES__")
+    gcloud_file_path = os.path.join(gcloud_column_concat_path, os.path.basename(s3_key))
+
+    gcloud_blob = storage.Blob(bucket=gcloud_bucket, name=gcloud_file_path)
+    # if the file doesn't exist on gcloud proceed to move from aws to gcloud dumping ground
+    if not gcloud_blob.exists(gcloud_client):
+        logging.debug(f"File not found on gcloud at {gcloud_file_path}, uploading.")
+        local_file_path = os.path.join(tmp_output_loc, s3_key)
+        if not os.path.exists(os.path.dirname(local_file_path)):
+            os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
+
+        if not os.path.exists(local_file_path):
+            s3_bucket_resource.download_file(s3_key, local_file_path)
+
+        gcloud_blob.upload_from_filename(local_file_path)
+        logging.debug(f"File uploaded from {local_file_path} to {gcloud_file_path}")
+
+        # delete file locally to not overload drive
+        os.remove(local_file_path)
+        logging.debug("Removed file from local system.")
+    else:
+        logging.debug(f"File found on gcloud at {gcloud_file_path}, skipping upload.")
+
+
+def get_file_size_s3_multiproc(buckets_keys: List[Tuple[str, str]], copy_to_gcloud: bool = False) -> int:
     """Get file size of s3 files, most often column files.
 
     This works on any list of buckets and keys but is generally only
@@ -35,33 +83,53 @@ def get_file_size_s3_multiproc(buckets_keys: List[Tuple[str, str]]) -> int:
     parellelizing across all available procs and threads on a single machine.
 
     Args:
-        buckets_keys: (List[Tuple[str, str]]): A list of buckets and keys for which
+        buckets_keys (List[Tuple[str, str]]): A list of buckets and keys for which
         to fetch size in bytes on s3. Tuple index 0 is bucket and index 1 is key of the file.
+        copy_to_gcloud (bool, True): A bool for defining if copying to gcloud or not.
 
     Returns:
         int size of file list in bytes.
     """
     buckets_keys_chunks = chunk_data_for_split(chunkable_data=buckets_keys, chunk_number=200)
 
-    logging.info("Grabbing file information from s3 heads")
+    buckets_keys_input_tuples = [
+        (buckets_keys_chunks_local, copy_to_gcloud) for buckets_keys_chunks_local in buckets_keys_chunks
+    ]
+    print("Grabbing file information from s3 heads")
     pool = Pool(cpu_count() - 1)
-    return sum(list(pool.map(get_file_size_s3_threaded, buckets_keys_chunks)))
+    return sum(list(pool.map(get_file_size_s3_threaded, buckets_keys_input_tuples)))
 
 
-def get_file_size_s3_threaded(buckets_keys_chunks_local: List[Tuple[str, str]]) -> int:
+def get_file_size_s3_threaded(buckets_keys_chunks_input_tuple: Tuple[List[Tuple[str, str]], bool]) -> int:
     """Get file size of a list of s3 paths.
+
+    Tuple structure is [List[Tuple[str, str]], bool], the documentation for each part respectivelly is below.
 
     Args:
         buckets_keys_chunks_local - The list of tuples denoting bucket and key of files on s3 to
         parse. Generally column files but will work with any data.
+        copy_to_gcloud (bool) - Determines whether to copy data to gcloud
 
     Returns:
         int: size of the set of files in bytes
     """
+    buckets_keys_chunks_local, copy_to_gcloud = buckets_keys_chunks_input_tuple
+
+    gcloud_bucket, gcloud_client = None, None
+    if copy_to_gcloud:
+        config = get_config()
+        gcloud_client = storage.Client()
+        gcloud_bucket = gcloud_client.bucket(config.gcloud_storage_config.bucket)
+
     local_chunks = chunk_data_for_split(chunkable_data=buckets_keys_chunks_local, chunk_number=200)
+
+    local_thread_input_tuples = [
+        (local_chunk_blob, copy_to_gcloud, gcloud_client, gcloud_bucket) for local_chunk_blob in local_chunks
+    ]
+
     thread_pool = ThreadPool()
 
-    return sum(list(thread_pool.map(iterate_bucket_key_chunk_for_size, local_chunks)))  # type: ignore
+    return sum(list(thread_pool.map(iterate_bucket_key_chunk_for_size, local_thread_input_tuples)))
 
 
 def chunk_data_for_split(chunkable_data: List[Any], chunk_number: int = 500) -> List[List[Any]]:
@@ -88,16 +156,24 @@ def chunk_data_for_split(chunkable_data: List[Any], chunk_number: int = 500) -> 
     return local_chunks
 
 
-def iterate_bucket_key_chunk_for_size(bucket_key_locs: List[Tuple[str, str]]) -> int:  # type: ignore
+def iterate_bucket_key_chunk_for_size(
+    input_tuple: Tuple[List[Tuple[str, str]], bool, Optional[storage.Client], Optional[storage.Bucket]]
+) -> int:  # type: ignore
     """Iterate on chunk of s3 files to get local length of bytes.
 
-    Args:
-        bucket_key_locs: List of Tuple[str, str] containing the s3 bucket and key to check size.
+    Input tuple has structure indicated below, contains the info required to get file and
+    optionally copy to gcloud. Structure is described below.
 
+    Args:
+        bucket_key_locs List of Tuple[str, str]: containing the s3 bucket and key to check size.
+        copy_to_gcloud bool: bool specifying to copy to gcloud or not.
+        gcloud_client storage.Client: GCloud client for copying data or None if no copying
+        gcloud_bucket storage.Bucket: GCloud bucket object to copy data.
     Returns:
         int: total amount of bytes in the file chunk list
 
     """
+    bucket_key_locs, copy_to_gcloud, gcloud_client, gcloud_bucket = input_tuple
     local_len = 0
 
     # create the s3 resource locally and don't pass in. Boto3 docs state to do this in each thread
@@ -108,6 +184,22 @@ def iterate_bucket_key_chunk_for_size(bucket_key_locs: List[Tuple[str, str]]) ->
         # get the byte length for the object
         byte_length = s3_resource.Object(bucket_loc, key_loc).content_length
         local_len += byte_length
+
+        if copy_to_gcloud:
+
+            config = get_config()
+            tmp_output_loc = config.gcloud_storage_config.local_gcloud_tmp_data_transfer_dir
+            gcloud_wicker_root_path = config.gcloud_storage_config.bucket_wicker_data_head_path
+
+            s3_bucket_resource = s3_resource.Bucket(bucket_loc)
+            copy_file_to_gcloud(
+                gcloud_bucket=gcloud_bucket,
+                gcloud_client=gcloud_client,
+                gcloud_wicker_root_path=gcloud_wicker_root_path,
+                s3_bucket_resource=s3_bucket_resource,
+                s3_key=key_loc,
+                tmp_output_loc=tmp_output_loc,
+            )
     return local_len
 
 
@@ -248,8 +340,11 @@ class S3Dataset(AbstractDataset):
 
         return get_folder_size(bucket, key)
 
-    def _get_dataset_partition_size(self) -> int:
+    def _get_dataset_partition_size(self, copy_to_gcloud: bool = False) -> int:
         """Gets total size of the dataset partition in bytes.
+
+        Args:
+            copy_to_gcloud (bool): Set to copy to gcloud, defaults to False.
 
         Returns:
             int: total dataset partition size in bytes
@@ -292,7 +387,7 @@ class S3Dataset(AbstractDataset):
 
         # pass the data to the multi proc management function
         buckets_keys_list = list(buckets_keys)
-        column_files_byte_size = get_file_size_s3_multiproc(buckets_keys_list)
+        column_files_byte_size = get_file_size_s3_multiproc(buckets_keys_list, copy_to_gcloud=copy_to_gcloud)
         return column_files_byte_size + par_dir_bytes
 
     @cached_property
