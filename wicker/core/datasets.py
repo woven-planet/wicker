@@ -365,6 +365,7 @@ class S3Dataset(AbstractDataset):
         pa_filesystem: Optional[pafs.FileSystem] = None,
         filelock_timeout_seconds: int = FILE_LOCK_TIMEOUT_SECONDS,
         treat_objects_as_bytes: bool = False,
+        filters=None,
     ):
         """Initializes an S3Dataset
 
@@ -375,7 +376,10 @@ class S3Dataset(AbstractDataset):
         :param data_service: S3DataService instance to use, defaults to None which uses default initializations
         :param filelock_timeout_seconds: number of seconds after which to timeout on waiting for downloads,
             defaults to FILE_LOCK_TIMEOUT_SECONDS
-        :param treat_objects_as_bytes: If set, don't try to decode ObjectFields and keep them as binary data.
+        :param treat_objects_as_bytes: If set, don't try to decode ObjectFields and keep them as binary data
+        :param filters: Only returns rows which match the filter. Defaults to None, i.e., returns all rows.
+        :type filters: pyarrow.compute.Expression, List[Tuple], or List[List[Tuple]], optional
+        .. seealso:: `filters in <https://arrow.apache.org/docs/python/generated/pyarrow.parquet.read_table.html>`__ # noqa
         """
         pa_filesystem = (
             pafs.S3FileSystem(region=get_config().aws_s3_config.region) if pa_filesystem is None else pa_filesystem
@@ -395,11 +399,14 @@ class S3Dataset(AbstractDataset):
             storage=storage,
             treat_objects_as_bytes=treat_objects_as_bytes,
         )
+        self.filters = filters
 
     def arrow_table(self) -> pyarrow.Table:
         path = self._path_factory._get_dataset_partition_path(self._partition, prefix_to_trim="s3://")
         if not self._arrow_table:
-            self._arrow_table = papq.read_table(path, columns=self._columns_to_load, filesystem=self._pa_filesystem)
+            self._arrow_table = papq.read_table(
+                path, columns=self._columns_to_load, filesystem=self._pa_filesystem, filters=self.filters
+            )
         return self._arrow_table
 
     def __len__(self) -> int:
