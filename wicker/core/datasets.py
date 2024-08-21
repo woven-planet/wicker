@@ -2,8 +2,6 @@ import abc
 import logging
 import os
 from functools import cached_property
-from multiprocessing import Pool, cpu_count
-from multiprocessing.pool import ThreadPool
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import boto3
@@ -18,6 +16,7 @@ from wicker.core.column_files import (
 )
 from wicker.core.config import get_config  # type: ignore
 from wicker.core.definitions import DatasetDefinition, DatasetID, DatasetPartition
+from wicker.core.parsing import multiproc_file_parse, thread_file_parse
 from wicker.core.storage import (
     AbstractDataStorage,
     FileSystemDataStorage,
@@ -33,71 +32,9 @@ FILE_LOCK_TIMEOUT_SECONDS = 300
 
 logger = logging.getLogger(__name__)
 
-
-def get_file_size_s3_multiproc(buckets_keys: List[Tuple[str, str]]) -> int:
-    """Get file size of s3 files, most often column files.
-
-    This works on any list of buckets and keys but is generally only
-    used for column files as those are the majority of what is stored on
-    s3 for Wicker. Wicker also stores parquet files on s3 but those are limited
-    to one file per dataset and one schema file.
-
-    This splits your buckets_keys_list across multiple processes on your local host
-    where each process is then multi threaded further. This reduces the i/o wait by
-    parellelizing across all available procs and threads on a single machine.
-
-    Args:
-        buckets_keys: (List[Tuple[str, str]]): A list of buckets and keys for which
-        to fetch size in bytes on s3. Tuple index 0 is bucket and index 1 is key of the file.
-
-    Returns:
-        int size of file list in bytes.
-    """
-    buckets_keys_chunks = chunk_data_for_split(chunkable_data=buckets_keys, chunk_number=200)
-
-    logging.info("Grabbing file information from s3 heads")
-    pool = Pool(cpu_count() - 1)
-    return sum(list(pool.map(get_file_size_s3_threaded, buckets_keys_chunks)))
-
-
-def get_file_size_s3_threaded(buckets_keys_chunks_local: List[Tuple[str, str]]) -> int:
-    """Get file size of a list of s3 paths.
-
-    Args:
-        buckets_keys_chunks_local - The list of tuples denoting bucket and key of files on s3 to
-        parse. Generally column files but will work with any data.
-
-    Returns:
-        int: size of the set of files in bytes
-    """
-    local_chunks = chunk_data_for_split(chunkable_data=buckets_keys_chunks_local, chunk_number=200)
-    thread_pool = ThreadPool()
-
-    return sum(list(thread_pool.map(iterate_bucket_key_chunk_for_size, local_chunks)))  # type: ignore
-
-
-def chunk_data_for_split(chunkable_data: List[Any], chunk_number: int = 500) -> List[List[Any]]:
-    """Chunk data into a user specified number of chunks.
-
-    Args:
-        chunkable_data (List[Any]): Data to be chunked into smaller pieces.
-        chunk_number (int): Number of chunks to form.
-
-    Returns:
-        List[List[Any]]: List of subsets of input data.
-    """
-    local_chunks = []
-    local_chunk_size = len(chunkable_data) // chunk_number
-    for i in range(0, chunk_number - 1):
-        chunk = chunkable_data[i * local_chunk_size : (i + 1) * local_chunk_size]
-        local_chunks.append(chunk)
-
-    last_chunk_size = len(chunkable_data) - (chunk_number * local_chunk_size)
-    if last_chunk_size > 0:
-        last_chunk = chunkable_data[-last_chunk_size:]
-        local_chunks.append(last_chunk)
-
-    return local_chunks
+        
+def thread_func_head(buckets_keys_chunks_local: List[Tuple[str, str]]):
+    thread_file_parse(buckets_keys_chunks_local, iterate_bucket_key_chunk_for_size, sum)
 
 
 def iterate_bucket_key_chunk_for_size(bucket_key_locs: List[Tuple[str, str]]) -> int:  # type: ignore
@@ -486,7 +423,12 @@ class S3Dataset(AbstractDataset):
 
         # pass the data to the multi proc management function
         buckets_keys_list = list(buckets_keys)
-        column_files_byte_size = get_file_size_s3_multiproc(buckets_keys_list)
+        
+        column_files_byte_size = multiproc_file_parse(
+            buckets_keys=buckets_keys_list,
+            function_for_process=thread_func_head,
+            result_collapse_func=sum
+        )
         return column_files_byte_size + par_dir_bytes
 
     @cached_property
