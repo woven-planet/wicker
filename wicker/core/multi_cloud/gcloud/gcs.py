@@ -154,4 +154,4 @@ def launch_gcs_transfer_job(
     )
 
     result = client.create_transfer_job(transfer_job_request)
-    print(f"Created transferJob: {result.name}")
+    return result
