@@ -38,8 +38,12 @@ FILE_LOCK_TIMEOUT_SECONDS = 300
 logger = logging.getLogger(__name__)
 
 
-def thread_func_head(buckets_keys_chunks_local: List[Tuple[str, str]]):
+def thread_func_head_size(buckets_keys_chunks_local: List[Tuple[str, str]]):
     thread_file_parse(buckets_keys_chunks_local, iterate_bucket_key_chunk_for_size, sum)
+
+
+def thread_func_non_existant_gcloud(buckets_keys_chunks_local: List[Tuple[str, str]]):
+    thread_file_parse(buckets_keys_chunks_local, get_non_existant_s3_file_set, None)
 
 
 def iterate_bucket_key_chunk_for_size(bucket_key_locs: List[Tuple[str, str]]) -> int:  # type: ignore
@@ -381,6 +385,12 @@ class S3Dataset(AbstractDataset):
 
         # get the total set that do not exist on gcloud
         # do this in case previous transfer failed and we pick up midway
+        files_to_move = multiproc_file_parse(
+            list(heavy_pointer_buckets_keys),
+            thread_func_non_existant_gcloud
+        )
+        print(files_to_move)
+        raise
         files_to_move = get_non_existant_s3_file_set(file_list=list(heavy_pointer_buckets_keys))
 
         # when you have the file list create the gcloud transfer service
@@ -455,7 +465,7 @@ class S3Dataset(AbstractDataset):
         buckets_keys_list = list(self.heavy_pointer_buckets_keys)
 
         column_files_byte_size = multiproc_file_parse(
-            buckets_keys=buckets_keys_list, function_for_process=thread_func_head, result_collapse_func=sum
+            buckets_keys=buckets_keys_list, function_for_process=thread_func_head_size, result_collapse_func=sum
         )
         return column_files_byte_size + par_dir_bytes
 

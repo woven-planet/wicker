@@ -55,7 +55,7 @@ def multiproc_file_parse(
     buckets_keys_chunks = chunk_data_for_split(chunkable_data=buckets_keys, chunk_number=200)
 
     logging.info("Grabbing file information from s3 heads")
-    pool = Pool(cpu_count() - 1)
+    pool = Pool(cpu_count() - 2)
     results = list(pool.map(function_for_process, buckets_keys_chunks))
     if result_collapse_func is not None:
         return result_collapse_func(results)
