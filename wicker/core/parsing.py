@@ -1,7 +1,6 @@
 import logging
 from multiprocessing import Pool, cpu_count
 from multiprocessing.pool import ThreadPool
-
 from typing import Any, List, Tuple
 
 
@@ -30,10 +29,8 @@ def chunk_data_for_split(chunkable_data: List[Any], chunk_number: int = 500) -> 
 
 
 def multiproc_file_parse(
-        buckets_keys: List[Tuple[str, str]],
-        function_for_process: Any,
-        result_collapse_func: Any = None
-    ) -> Any:
+    buckets_keys: List[Tuple[str, str]], function_for_process: Any, result_collapse_func: Any = None
+) -> Any:
     """Get file size of s3 files, most often column files.
 
     This works on any list of buckets and keys but is generally only
@@ -66,10 +63,8 @@ def multiproc_file_parse(
 
 
 def thread_file_parse(
-        buckets_keys_chunks_local: List[Tuple[str, str]],
-        function_for_thread: Any,
-        result_collapse_func: Any = None
-    ) -> Any:
+    buckets_keys_chunks_local: List[Tuple[str, str]], function_for_thread: Any, result_collapse_func: Any = None
+) -> Any:
     """Get file size of a list of s3 paths.
 
     Args:
@@ -84,8 +79,8 @@ def thread_file_parse(
         int: size of the set of files in bytes
     """
     local_chunks = chunk_data_for_split(chunkable_data=buckets_keys_chunks_local, chunk_number=200)
-    thread_pool = ThreadPool() 
-    
+    thread_pool = ThreadPool()
+
     results = list(thread_pool.map(function_for_thread, local_chunks))  # type: ignore
     if result_collapse_func is not None:
         return result_collapse_func(results)
