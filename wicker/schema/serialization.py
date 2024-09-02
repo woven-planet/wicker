@@ -286,3 +286,8 @@ class AvroDatasetSchemaSerializer(schema.DatasetSchemaVisitor[Dict[str, Any]]):
             "name": field.name,
             "type": field_type,
         }
+
+    def process_sf_variant_field(self, field: schema.VariantField) -> Any:
+        return {
+            **self.process_schema_field(field, "sf_numpy"),
+        }

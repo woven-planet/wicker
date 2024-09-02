@@ -4,19 +4,29 @@ import os
 from functools import cached_property
 from multiprocessing import Pool, cpu_count
 from multiprocessing.pool import ThreadPool
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Type
 
 import boto3
 import pyarrow  # type: ignore
+import pyarrow.compute as pc
 import pyarrow.fs as pafs  # type: ignore
 import pyarrow.parquet as papq  # type: ignore
+import snowflake.connector
 
 from wicker.core.column_files import ColumnBytesFileCache, ColumnBytesFileLocationV1
 from wicker.core.config import get_config  # type: ignore
 from wicker.core.definitions import DatasetDefinition, DatasetID, DatasetPartition
 from wicker.core.storage import S3DataStorage, S3PathFactory
 from wicker.schema import dataloading, serialization
-from wicker.schema.schema import DatasetSchema
+from wicker.schema.schema import (
+    BoolField,
+    DatasetSchema,
+    FloatField,
+    IntField,
+    SchemaField,
+    SfNumpyField,
+    StringField,
+)
 
 # How long to wait before timing out on filelocks in seconds
 FILE_LOCK_TIMEOUT_SECONDS = 300
@@ -303,3 +313,248 @@ class S3Dataset(AbstractDataset):
             int: total dataset size in bytes
         """
         return self._get_dataset_partition_size()
+
+
+class SFDataset(AbstractDataset):
+    """Loading dataset from Snowflake table"""
+
+    def __init__(
+        self,
+        dataset_name: str,
+        dataset_version: str,
+        dataset_partition_name: str,
+        table_name: str,
+        connection_parameters: Optional[Dict[str, str]] = None,
+        connection: Any = None,
+        schema: Optional[DatasetSchema] = None,
+        columns_to_load: Optional[List[str]] = None,
+        optional_condition: str = "",
+        primary_keys: List[str] = ["scene_id", "frame_idx"],
+    ):
+        """Initialize SFDataset.
+
+        Args:
+            dataset_name (str): Name of the dataset to load.
+            dataset_version (str): Version of the dataset to load.
+            dataset_partition_name (str): Partition name.
+            table_name (str): Name of the table in database to load.
+            connection_parameters (Optional[Dict[str, str]], optional):
+                Parameters to connect to the database. Defaults to None.
+            connection (Any, optional): Established connection to the database. Defaults to None.
+            schema (Optional[DatasetSchema], optional): Expected DatasetSchema. Defaults to None.
+            columns_to_load (Optional[List[str]], optional): Name of columns to load. Defaults to None.
+            optional_condition (str, optional): Query condition to specify the dataset. Defaults to "".
+            primary_keys (List[str], optional): Primary key of the dataset.
+                Defaults to ["scene_id", "frame_idx"].
+        """
+        self._arrow_table: Optional[pyarrow.Table] = None
+
+        self._dataset_id = DatasetID(name=dataset_name, version=dataset_version)
+        self._partition = DatasetPartition(dataset_id=self._dataset_id, partition=dataset_partition_name)
+        self._schema = schema
+        self._table_name = table_name
+        self._columns_to_load = columns_to_load
+        self._primary_keys = primary_keys
+        self._connection_parameters = connection_parameters
+        self._optional_condition = optional_condition
+        self._connection = connection
+        self._dataset_definition = DatasetDefinition(
+            self._dataset_id,
+            schema=self.schema(),
+        )
+
+    @property
+    def connection(self):
+        """Returns a connection with the database.
+            It tries to connect if no connection exists.
+
+        Raises:
+            ValueError: Error if both connection and connection_parameters are None.
+
+        Returns:
+            _type_: Connection to the database.
+        """
+        if self._connection is None:
+            if self._connection_parameters is not None:
+                self._connection = snowflake.connector.connect(**self._connection_parameters)
+            else:
+                raise ValueError(
+                    "Invalid input: Both 'connection' and 'connection_parameters' cannot be None.",
+                    "At least one of them must be provided.",
+                )
+        return self._connection
+
+    def schema(self) -> DatasetSchema:
+        """Returns schema of the dataset. It can be inputted by end-user to ensure the expected schema.
+
+        Returns:
+            DatasetSchema: Schema of the dataset.
+        """
+        if self._schema is None:
+            schema_table = self._get_schema_from_database()
+            schema_fields = self._get_schema_fields(schema_table)
+            self._schema = DatasetSchema(schema_fields, self._primary_keys)
+        return self._schema
+
+    def arrow_table(self) -> pyarrow.Table:
+        """Returns a table of the dataset as pyarrow table.
+
+        Returns:
+            pyarrow.Table: Contents of the dataset.
+        """
+        if self._arrow_table is None:
+            arrow_table = self._get_data()
+            arrow_table = self._get_lower_case_columns(arrow_table)
+            df = arrow_table.to_pandas()
+            # TODO: Here is workaround because ObjectField accepts only bytes as input
+            for col in self.schema().schema_record.fields:
+                if isinstance(col, SfNumpyField):
+                    df[col.name] = df[col.name].apply(lambda x: x.encode("utf-8"))
+            self._arrow_table = pyarrow.Table.from_pandas(df)
+        return self._arrow_table
+
+    def __len__(self) -> int:
+        """Returns a number of rows of the dataset.
+
+        Returns:
+            int: Number of rows of the dataset.
+        """
+        return len(self.arrow_table())
+
+    def __getitem__(self, idx: int) -> Dict[str, Any]:
+        """Returns contents of a row of the dataset.
+
+        Args:
+            idx (int): Index of the dataset to load.
+
+        Returns:
+            Dict[str, Any]: Parsed/Transformed contents of a row.
+        """
+        tbl = self.arrow_table()
+        columns = self._columns_to_load if self._columns_to_load is not None else tbl.column_names
+        row = {col: tbl[col][idx].as_py() for col in columns}
+        example = dataloading.load_example(row, self.schema())
+        return example
+
+    def _get_schema_from_database(self) -> pyarrow.Table:
+        """Returns schema of the dataset as a table.
+            It converts the name of columns to lower case because Snowflake returns each column as upper case.
+
+        Returns:
+            pyarrow.Table: Schema of the dataset.
+        """
+        with self.connection.cursor() as cur:
+            cur.execute(f"describe table {self._table_name};")
+            cur.execute(
+                """
+                select
+                    *
+                from
+                    table(result_scan(last_query_id()))
+                ;
+            """
+            )
+            schema_table = cur.fetch_arrow_all()  # type: ignore
+        lowercase_column = pc.utf8_lower(schema_table["name"])  # type: ignore
+        schema_table = schema_table.append_column("lowercase_name", lowercase_column)
+        if self._columns_to_load is not None:
+            mask = pc.is_in(  # type: ignore
+                schema_table["lowercase_name"],
+                value_set=pyarrow.array(self._columns_to_load),
+            )
+            schema_table = schema_table.filter(mask)
+        return schema_table
+
+    def _get_schema_fields(self, schema_table: pyarrow.Table) -> List[SchemaField]:
+        """Returns fields of the schema by mapping name of types.
+
+        Args:
+            schema_table (pyarrow.Table): Table explains name and type of the columns.
+
+        Returns:
+            List[SchemaField]: Fields of schema of the dataset.
+        """
+        schema_fields = []
+        for name, type in zip(schema_table["lowercase_name"], schema_table["type"]):
+            schema = self._get_schema_type(type.as_py())
+            if schema == SfNumpyField:
+                schema_instance = schema(name=name.as_py(), shape=(1, -1), dtype="float32")  # type: ignore
+            else:
+                schema_instance = schema(name=name.as_py())  # type: ignore
+            schema_fields.append(schema_instance)
+        return schema_fields
+
+    def _get_schema_type(self, type: str) -> Type[SchemaField]:
+        """Returns type of schema filed by mapping name of type in the database.
+
+        Args:
+            type (str): Name of type in the database.
+
+        Raises:
+            NotImplementedError: Error if the type is not supported.
+
+        Returns:
+            Type[SchemaField]: Type of SchemaField corresponding to the input type.
+        """
+        upper_type_name = type.upper()
+        if upper_type_name.startswith("VARCHAR"):
+            return StringField
+        elif upper_type_name.startswith("BOOLEAN"):
+            return BoolField
+        elif upper_type_name.startswith("NUMBER"):
+            if upper_type_name.endswith("0)"):
+                return IntField
+            else:
+                return FloatField
+        elif upper_type_name.startswith("VARIANT"):
+            return SfNumpyField
+        else:
+            raise NotImplementedError(f"{upper_type_name} is not Implemented as schema")
+
+    def _get_data(self) -> pyarrow.Table:
+        """Returns a table contains dataset contents loaded from the database.
+            It accepts parameters to specify the dataset.
+
+        Returns:
+            pyarrow.Table: Contents of the dataset.
+        """
+        columns = "*"
+        if self._columns_to_load is not None:
+            columns = ",".join([f'{f} as "{f}"' for f in self._columns_to_load])
+        optional_query = ""
+        if self._optional_condition:
+            optional_query = f"and {self._optional_condition}"
+        with self.connection.cursor() as cur:
+            sql = f"""
+                select
+                    {columns}
+                from
+                    {self._table_name}
+                where
+                    partition = '{self._partition.partition}'
+                    and dataset_name = '{self._dataset_id.name}'
+                    and version = '{self._dataset_id.version}'
+                    {optional_query}
+                ;
+            """
+            cur.execute(sql)
+            arrow_table = cur.fetch_arrow_all()  # type: ignore
+        return arrow_table
+
+    def _get_lower_case_columns(self, arrow_table: pyarrow.Table) -> pyarrow.Table:
+        """Returns a table by renaming columns to lower case.
+
+        Args:
+            arrow_table (pyarrow.Table): Input table.
+
+        Returns:
+            pyarrow.Table: Table with column names with lower case.
+        """
+        new_schema = pyarrow.schema(
+            [
+                pyarrow.field(name.lower(), field.type)
+                for name, field in zip(arrow_table.schema.names, arrow_table.schema)
+            ]
+        )
+        arrow_table = pyarrow.Table.from_arrays(arrow_table.columns, schema=new_schema)
+        return arrow_table

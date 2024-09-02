@@ -87,6 +87,12 @@ class LoadExampleVisitor(schema.DatasetSchemaVisitor[Any]):
             return data
         return field.codec.decode_object(data)
 
+    def process_sf_variant_field(self, field: schema.VariantField) -> Optional[Any]:
+        data = validation.validate_field_type(self._current_data, str, field.required, self._current_path)
+        if data is None:
+            return data
+        return field.codec.decode_object(data.encode())
+
     def process_array_field(self, field: schema.ArrayField) -> Optional[List[Any]]:
         current_data = validation.validate_field_type(self._current_data, list, field.required, self._current_path)
         if current_data is None:
