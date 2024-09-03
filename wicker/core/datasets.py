@@ -20,9 +20,9 @@ from wicker.core.multi_cloud.gcloud.gcs import (
     generate_manifest_file,
     get_non_existant_s3_file_set,
     launch_gcs_transfer_job,
-    push_manifest_to_gcp
+    push_manifest_to_gcp,
 )
-from wicker.core.parsing import multiproc_file_parse, thread_file_parse, list_combine
+from wicker.core.parsing import list_combine, multiproc_file_parse, thread_file_parse
 from wicker.core.storage import (
     AbstractDataStorage,
     FileSystemDataStorage,
@@ -391,22 +391,18 @@ class S3Dataset(AbstractDataset):
         # get the total set that do not exist on gcloud
         # do this in case previous transfer failed and we pick up midway
         cut_down = list(heavy_pointer_buckets_keys)[:50]
-        files_to_move = multiproc_file_parse(
-            cut_down,
-            thread_func_non_existant_gcloud,
-            list_combine
-        )
+        files_to_move = multiproc_file_parse(cut_down, thread_func_non_existant_gcloud, list_combine)
 
         # when you have the file list create the gcloud transfer service
         # manifest file
         manifest_file_local_path = "./manifest.csv"
         generate_manifest_file(files_to_move=files_to_move, manifest_dest_path=manifest_file_local_path)
- 
+
         gcs_file_location_path = push_manifest_to_gcp(
             dataset_name=self._dataset_id.name,
             dataset_partition=self._partition.partition,
             dataset_version=self._dataset_id.version,
-            manifest_file_local_path=manifest_file_local_path
+            manifest_file_local_path=manifest_file_local_path,
         )
 
         launch_code = launch_gcs_transfer_job(
@@ -416,7 +412,7 @@ class S3Dataset(AbstractDataset):
             manifest_location=gcs_file_location_path,
             project_id="wp-dev-eai-n321",
         )
-        return False
+        return launch_code
 
     @cached_property
     def heavy_pointer_buckets_keys(self) -> Set[Tuple[str, str]]:
@@ -474,7 +470,9 @@ class S3Dataset(AbstractDataset):
 
         buckets_keys_list = list(self.heavy_pointer_buckets_keys)
         column_files_byte_size = multiproc_file_parse(
-            buckets_keys=buckets_keys_list, function_for_process=thread_func_head_size, result_collapse_func=list_combine
+            buckets_keys=buckets_keys_list,
+            function_for_process=thread_func_head_size,
+            result_collapse_func=list_combine,
         )
         return column_files_byte_size + par_dir_bytes
 

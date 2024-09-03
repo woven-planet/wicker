@@ -4,15 +4,10 @@ import os
 from dataclasses import dataclass
 from typing import List, Tuple
 
-from google.cloud import storage, storage_transfer
 import tqdm
+from google.cloud import storage, storage_transfer
 
 from wicker.core.config import get_config
-from wicker.core.parsing import (
-    chunk_data_for_split,
-    multiproc_file_parse,
-    thread_file_parse,
-)
 
 
 @dataclass
@@ -160,11 +155,8 @@ def launch_gcs_transfer_job(
 
 
 def push_manifest_to_gcp(
-        dataset_name: str,
-        dataset_partition: str,
-        dataset_version: str,
-        manifest_file_local_path: str
-    ) -> str:
+    dataset_name: str, dataset_partition: str, dataset_version: str, manifest_file_local_path: str
+) -> str:
     """Push manifest file to gcp bucket set in config file.
 
     Pushes the passed in config to gcs bucket that was used in the config
@@ -187,8 +179,10 @@ def push_manifest_to_gcp(
     # Generate unique name for manifest.
     # To ensure that we are not overwritting a previous manifest generate a unique name.
     now = datetime.datetime.utcnow()
-    formatted_time = now.strftime('%Y_%m_%d')
-    manifest_unique_name = f"{dataset_name}_{dataset_version.replace('.', '_')}_{dataset_partition}_{formatted_time}.csv"
+    formatted_time = now.strftime("%Y_%m_%d")
+    manifest_unique_name = (
+        f"{dataset_name}_{dataset_version.replace('.', '_')}_{dataset_partition}_{formatted_time}.csv"
+    )
 
     # storage location of the manifest file
     gcloud_path = os.path.join("manifests", manifest_unique_name)
@@ -196,5 +190,5 @@ def push_manifest_to_gcp(
     # create blob and upload
     dataset_blob = gcloud_bucket.blob(gcloud_path)
     dataset_blob.upload_from_filename(manifest_file_local_path)
-    
+
     return gcloud_path
