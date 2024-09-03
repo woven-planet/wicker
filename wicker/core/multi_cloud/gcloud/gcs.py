@@ -1,9 +1,11 @@
 import csv
 import datetime
+import os
 from dataclasses import dataclass
 from typing import List, Tuple
 
 from google.cloud import storage, storage_transfer
+import tqdm
 
 from wicker.core.config import get_config
 from wicker.core.parsing import (
@@ -76,7 +78,7 @@ def get_non_existant_s3_file_set(file_list: List[Tuple[str, str]]) -> List[S3Fil
     aws_transfer_cut_prefix = config.gcloud_storage_config.aws_transfer_cut_prefix
     non_existant_files = []
     idx = 0
-    for file in file_list:
+    for file in tqdm.tqdm(file_list):
         bucket, key = file
         gcloud_key = key.replace(aws_transfer_cut_prefix, gcloud_wicker_root_path)
         if not gcloud_file_exists(
@@ -88,9 +90,9 @@ def get_non_existant_s3_file_set(file_list: List[Tuple[str, str]]) -> List[S3Fil
                 source_key=key,
             )
             non_existant_files.append(non_existant_file)
-        idx += 1
-        if idx == 20:
-            break
+            idx += 1
+            if idx >= 5:
+                break
     return non_existant_files
 
 
@@ -155,3 +157,44 @@ def launch_gcs_transfer_job(
 
     result = client.create_transfer_job(transfer_job_request)
     return result
+
+
+def push_manifest_to_gcp(
+        dataset_name: str,
+        dataset_partition: str,
+        dataset_version: str,
+        manifest_file_local_path: str
+    ) -> str:
+    """Push manifest file to gcp bucket set in config file.
+
+    Pushes the passed in config to gcs bucket that was used in the config
+    file. This manifest is used with gcloud file transfer service.
+
+    Args:
+        dataset_name (str): Name of dataset associated with manifest.
+        dataset_partition (str): Partition of dataset associated with manifest.
+        dataset_version (str): Version of dataset associated with manifest.
+        manifest_file_local_path (str): Path to manifest file on loc system.
+
+    Returns:
+        str: path to manifest file on cloud storage.
+    """
+    # create bucket and client objects
+    gcloud_client = storage.Client()
+    config = get_config()
+    gcloud_bucket = gcloud_client.bucket(config.gcloud_storage_config.bucket)
+
+    # Generate unique name for manifest.
+    # To ensure that we are not overwritting a previous manifest generate a unique name.
+    now = datetime.datetime.utcnow()
+    formatted_time = now.strftime('%Y_%m_%d')
+    manifest_unique_name = f"{dataset_name}_{dataset_version.replace('.', '_')}_{dataset_partition}_{formatted_time}.csv"
+
+    # storage location of the manifest file
+    gcloud_path = os.path.join("manifests", manifest_unique_name)
+
+    # create blob and upload
+    dataset_blob = gcloud_bucket.blob(gcloud_path)
+    dataset_blob.upload_from_filename(manifest_file_local_path)
+    
+    return gcloud_path

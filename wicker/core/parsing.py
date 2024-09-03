@@ -18,7 +18,8 @@ def chunk_data_for_split(chunkable_data: List[Any], chunk_number: int = 500) -> 
     local_chunk_size = len(chunkable_data) // chunk_number
     for i in range(0, chunk_number - 1):
         chunk = chunkable_data[i * local_chunk_size : (i + 1) * local_chunk_size]
-        local_chunks.append(chunk)
+        if len(chunk) > 0:
+            local_chunks.append(chunk)
 
     last_chunk_size = len(chunkable_data) - (chunk_number * local_chunk_size)
     if last_chunk_size > 0:
@@ -58,7 +59,7 @@ def multiproc_file_parse(
     pool = Pool(cpu_count() - 2)
     results = list(pool.map(function_for_process, buckets_keys_chunks))
     if result_collapse_func is not None:
-        return result_collapse_func(results)
+        results = result_collapse_func(results)
     return results
 
 
@@ -80,8 +81,24 @@ def thread_file_parse(
     """
     local_chunks = chunk_data_for_split(chunkable_data=buckets_keys_chunks_local, chunk_number=200)
     thread_pool = ThreadPool()
-
     results = list(thread_pool.map(function_for_thread, local_chunks))  # type: ignore
     if result_collapse_func is not None:
         return result_collapse_func(results)
     return results
+
+
+def list_combine(lists: List[List[Any]]) -> List[Any]:
+    """Combine list of list into single list.
+
+    Why does python not have a builtin for this, found out next
+    PEP.....
+
+    Args:
+        lists (List[List[Any]]): lists to push together
+    Returns:
+        List[Any]: Single joined list
+    """
+    final_list = []
+    for input_list in lists:
+        final_list.extend(input_list)
+    return final_list
