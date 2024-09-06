@@ -12,6 +12,7 @@ import os
 import shutil
 import uuid
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
@@ -32,6 +33,9 @@ logger = logging.getLogger(__name__)
 class AbstractDataStorage(ABC):
     """Abstract data storage class that implements required methods for Column Bytes File Cache"""
 
+    def __init__(self):
+        self.read_timeout = get_config().storage_download_config.timeout
+
     @abstractmethod
     def fetch_file(self, input_path: str, local_prefix: str, timeout_seconds: int) -> str:
         """Fetch file from chosen data storage method.
@@ -44,27 +48,65 @@ class AbstractDataStorage(ABC):
         """
         pass
 
+    @abstractmethod
+    def put_file(self, input_path: str, target_path: str) -> None:
+        """Put file on data storage in target location.
+
+        :param input_path: input path of file
+        :type input_path: str
+        :param target_path: target path to place file
+        :type target_path: str
+        """
+        pass
+
+    @abstractmethod
+    def put_object(self, object_bytes: bytes, target_path: str) -> None:
+        """Put object on data storage in target location.
+
+        :param object_bytes: Bytes of object to store.
+        :type object_bytes: bytes
+        :param target_path: Path to storage destination.
+        :type target_path: str
+        """
+        pass
+
+    def _safe_file_download(self, input_path: str, local_dst_path: str) -> str:
+        """Download file safely from data source with locking.
+
+        Locks the file path and downloads the file to the local system. Does not release the lock
+        until the file is downloaded fully.
+
+        Args:
+            input_path (str): path to file to download
+            local_dst_path (str): path to save file at on local system
+
+        Returns:
+            str: local path of the file when downloaded
+        """
+        os.makedirs(os.path.dirname(local_dst_path), exist_ok=True)
+        lock_path = local_dst_path + ".lock"
+        success_marker = local_dst_path + ".success"
+        while not os.path.isfile(success_marker):
+            with SimpleUnixFileLock(lock_path, timeout_seconds=self.read_timeout):
+                if not os.path.isfile(success_marker):
+                    filedir = os.path.split(local_dst_path)[0]
+                    os.makedirs(filedir, exist_ok=True)
+                    try:
+                        shutil.copyfile(input_path, local_dst_path)
+                        with open(success_marker, "w"):
+                            pass
+                    except Exception:
+                        logging.error(f"Failed to download/move object for file path: {input_path}")
+                        raise
+        return local_dst_path
+
 
 class FileSystemDataStorage(AbstractDataStorage):
     """Storage routines for reading and writing objects in file system"""
 
     def __init__(self) -> None:
         """Constructor for a file system storage instance."""
-        pass
-
-    @retry(
-        Exception,
-        tries=get_config().storage_download_config.retries,
-        backoff=get_config().storage_download_config.retry_backoff,
-        delay=get_config().storage_download_config.retry_delay_s,
-        logger=logger,
-    )
-    def download_with_retries(self, input_path: str, local_path: str):
-        try:
-            shutil.copyfile(input_path, local_path)
-        except Exception as e:
-            logging.error(f"Failed to download/move object for file path: {input_path}")
-            raise e
+        super().__init__()
 
     def fetch_file(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
         """Fetches a file system, ie: gets the path to the file.
@@ -76,12 +118,31 @@ class FileSystemDataStorage(AbstractDataStorage):
 
         :param input_path: input file path on system
         :param local_prefix: local path that specifies where to download the file
-        :param timeout_seconds: number of seconds till timing out on waiting for the file to be downloaded
+        :param timeout_seconds: number of seconds till timing out on waiting for the file to be downloaded.
+            Kept so api's are identical between S3 storage and local storage, deprecated and unused.
         :return: local path to the file on the local file system
         """
-        input_path = os.path.join(input_path, os.path.basename(local_prefix))
-        self.download_with_retries(input_path, local_prefix)
-        return local_prefix
+        local_full_path = os.path.join(local_prefix, os.path.basename(input_path))
+        return self._safe_file_download(input_path=input_path, local_dst_path=local_full_path)
+
+    def put_file(self, input_path: str, target_path: str) -> None:
+        """Put file on local or mounted data storage.
+
+        :param input_path: file path on the local system.
+        :param target_path: file path on local system or mounted drive.
+        """
+        os.makedirs(Path(target_path).parent, exist_ok=True)
+        shutil.copy2(input_path, target_path)
+
+    def put_object(self, object_bytes: bytes, target_path: str) -> None:
+        """Put object on data storage
+
+        :param object_bytes: bytes to write to path
+        :param target_path: path to write object
+        """
+        os.makedirs(Path(target_path).parent, exist_ok=True)
+        with open(target_path, "wb") as binary_file:
+            binary_file.write(object_bytes)
 
 
 class S3DataStorage(AbstractDataStorage):
@@ -94,6 +155,7 @@ class S3DataStorage(AbstractDataStorage):
         unit tests to easily mock / patch the S3 client or to utilize the S3 Stubber. Unit tests
         might also find it convenient to mock or patch member functions on instances of this class.
         """
+        super().__init__()
         boto_config = get_config().aws_s3_config.boto_config
         boto_client_config = botocore.config.Config(
             max_pool_connections=boto_config.max_pool_connections,
@@ -102,7 +164,6 @@ class S3DataStorage(AbstractDataStorage):
         )
         self.session = boto3.session.Session() if session is None else session
         self.client = self.session.client("s3", config=boto_client_config)
-        self.read_timeout = get_config().storage_download_config.timeout
 
     def __getstate__(self) -> Dict[Any, Any]:
         return {}
@@ -206,26 +267,34 @@ class S3DataStorage(AbstractDataStorage):
         self.client.download_fileobj(bucket, key, bio)
         return bio.getvalue()
 
-    def put_object_s3(self, object_bytes: bytes, s3_path: str) -> None:
+    def put_object(self, object_bytes: bytes, target_path: str) -> None:
         """Upload an object to S3
 
         :param object_bytes: the object to upload to S3
         :type object_bytes: bytes
-        :param s3_path: path to the file in S3
-        :type s3_path: str
+        :param target_path: path to the file in S3
+        :type target_path: str
         """
         # Long term, we would add an md5sum check and short-circuit the upload if they are the same
-        bucket, key = self.bucket_key_from_s3_path(s3_path)
+        bucket, key = self.bucket_key_from_s3_path(target_path)
         self.client.put_object(Body=object_bytes, Bucket=bucket, Key=key)
 
-    def put_file_s3(self, local_path: str, s3_path: str) -> None:
+    def put_object_s3(self, object_bytes: bytes, s3_path: str) -> None:
+        """Deprecated api access to the put object functionality."""
+        self.put_object(object_bytes=object_bytes, target_path=s3_path)
+
+    def put_file(self, local_path: str, target_path: str) -> None:
         """Upload a file to S3
 
         :param local_path: local path to the file
-        :param s3_path: s3 path to dump file to
+        :param target_path: s3 path to dump file to
         """
-        bucket, key = self.bucket_key_from_s3_path(s3_path)
+        bucket, key = self.bucket_key_from_s3_path(target_path)
         self.client.upload_file(local_path, bucket, key)
+
+    def put_file_s3(self, local_path: str, s3_path: str) -> None:
+        """Deprecated api access to the put file functionality."""
+        self.put_file(local_path=local_path, target_path=s3_path)
 
     def __eq__(self, other: Any) -> bool:
         # We don't want to use isinstance here to make sure we have the same implementation.
@@ -238,43 +307,43 @@ class WickerPathFactory:
     Our bucket should look like::
 
         <dataset-root>
-        /__COLUMN_CONCATENATED_FILES__
-            - file1
-            - file2
-        /dataset_name_1
-        /dataset_name_2
-            /0.0.1
-            /0.0.2
-            - avro_schema.json
-            / assets
-                - files added by users
-            / partition_1.parquet
-            / partition_2.parquet
-                - _l5ml_dataset_partition_metadata.json
-                - _SUCCESS
-                - part-0-attempt-1234.parquet
-                - part-1-attempt-2345.parquet
+            /__COLUMN_CONCATENATED_FILES__
+                - file1
+                - file2
+            /dataset_name_1
+            /dataset_name_2
+                /0.0.1
+                /0.0.2
+                    - avro_schema.json
+                    / assets
+                        - files added by users
+                    / partition_1.parquet
+                    / partition_2.parquet
+                        - _l5ml_dataset_partition_metadata.json
+                        - _SUCCESS
+                        - part-0-attempt-1234.parquet
+                        - part-1-attempt-2345.parquet
 
     If store_concatenated_bytes_files_in_dataset is True, then the bucket structure will
     be under the dataset directory:
 
             <root_path>
-            /dataset_name_1
-            /dataset_name_2
-                /__COLUMN_CONCATENATED_FILES__
-                    - file1
-                    - file2
-                /0.0.1
-                /0.0.2
-                - avro_schema.json
-                / assets
-                    - files added by users
-                / partition_1.parquet
-                / partition_2.parquet
-                    - _l5ml_dataset_partition_metadata.json
-                    - _SUCCESS
-                    - part-0-attempt-1234.parquet
-                    - part-1-attempt-2345.parquet
+                /dataset_name_1
+                /dataset_name_2
+                    /__COLUMN_CONCATENATED_FILES__
+                        - file1
+                        - file2
+                    /0.0.1
+                    /0.0.2
+                        - avro_schema.json
+                        / assets
+                            - files added by users
+                        / partition_1.parquet
+                        / partition_2.parquet
+                            - _l5ml_dataset_partition_metadata.json
+                            - _SUCCESS
+                            - part-0-attempt-1234.parquet
+                            - part-1-attempt-2345.parquet
 
     When a prefix_replace_path is passed the paths of each location are altered such that
     the prefix_to_trim is replaced with prefix_replace_path. This is generally done in the case
@@ -448,43 +517,43 @@ class S3PathFactory(WickerPathFactory):
     Our bucket should look like::
 
         s3://<dataset-root>
-        /__COLUMN_CONCATENATED_FILES__
-            - file1
-            - file2
-        /dataset_name_1
-        /dataset_name_2
-            /0.0.1
-            /0.0.2
-            - avro_schema.json
-            / assets
-                - files added by users
-            / partition_1.parquet
-            / partition_2.parquet
-                - _l5ml_dataset_partition_metadata.json
-                - _SUCCESS
-                - part-0-attempt-1234.parquet
-                - part-1-attempt-2345.parquet
+            /__COLUMN_CONCATENATED_FILES__
+                - file1
+                - file2
+            /dataset_name_1
+            /dataset_name_2
+                /0.0.1
+                /0.0.2
+                    - avro_schema.json
+                    / assets
+                        - files added by users
+                    / partition_1.parquet
+                    / partition_2.parquet
+                        - _l5ml_dataset_partition_metadata.json
+                        - _SUCCESS
+                        - part-0-attempt-1234.parquet
+                        - part-1-attempt-2345.parquet
 
     If store_concatenated_bytes_files_in_dataset is True, then the bucket structure will
     be under the dataset directory:
 
             s3://<root_path>
-            /dataset_name_1
-            /dataset_name_2
-                /__COLUMN_CONCATENATED_FILES__
-                    - file1
-                    - file2
-                /0.0.1
-                /0.0.2
-                - avro_schema.json
-                / assets
-                    - files added by users
-                / partition_1.parquet
-                / partition_2.parquet
-                    - _l5ml_dataset_partition_metadata.json
-                    - _SUCCESS
-                    - part-0-attempt-1234.parquet
-                    - part-1-attempt-2345.parquet
+                /dataset_name_1
+                /dataset_name_2
+                    /__COLUMN_CONCATENATED_FILES__
+                        - file1
+                        - file2
+                    /0.0.1
+                    /0.0.2
+                        - avro_schema.json
+                        / assets
+                            - files added by users
+                        / partition_1.parquet
+                        / partition_2.parquet
+                            - _l5ml_dataset_partition_metadata.json
+                            - _SUCCESS
+                            - part-0-attempt-1234.parquet
+                            - part-1-attempt-2345.parquet
     """
 
     def __init__(self, s3_root_path: Optional[str] = None, prefix_replace_path: str = "") -> None:
