@@ -318,3 +318,6 @@ class ResolvePointersVisitor(schema.DatasetSchemaVisitor[Any]):
             return data
         cbf_info = ColumnBytesFileLocationV1.from_bytes(data)
         return self.cbf_cache.read(cbf_info)
+
+    def process_sf_variant_field(self, field: schema.VariantField) -> Any:
+        return self._current_data

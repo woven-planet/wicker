@@ -149,6 +149,14 @@ class ParseExampleVisitor(schema.DatasetSchemaVisitor[Any]):
             res.append(field.element_field._accept_visitor(self))
         return res
 
+    def process_sf_variant_field(self, field: schema.VariantField) -> Any:
+        data = validation.validate_field_type(
+            self._current_data, field.codec.object_type(), field.required, self._current_path
+        )
+        if data is None:
+            return None
+        return field.codec.validate_and_encode_object(data)
+
 
 class ParseExampleMetadataVisitor(ParseExampleVisitor):
     """Specialization of ParseExampleVisitor which skips over certain fields that are now parsed as metadata"""
