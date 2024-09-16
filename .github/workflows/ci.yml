@@ -47,3 +47,6 @@ jobs:
 
       - name: Run type checks
         run: make type-check
+
+      - name: Run hello world
+        run: make hello
