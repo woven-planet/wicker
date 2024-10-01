@@ -253,7 +253,7 @@ class ColumnBytesFileCache(ColumnBytesFileReader):
         :type filelock_timeout_seconds: int, optional
         :param path_factory: Path factory for determining paths to col files from root
         :type path_factory: WickerPathFactory, defaults to S3PathFactory
-        :param storage: Storage used for grabbing files. Defaults to nont and creates S3DataStorage if none.
+        :param storage: Storage used for grabbing files. Defaults to S3DataStorage if None.
         :type storage: Optional[AbstractDataStorage]
         :param dataset_name: name of the dataset, defaults to None
         :type dataset_name: str, optional
