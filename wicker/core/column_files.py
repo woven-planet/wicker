@@ -183,8 +183,8 @@ class ColumnBytesFileReader:
 
     def __init__(
         self,
+        path_factory: WickerPathFactory,
         dataset_name: Optional[str] = None,
-        path_factory: WickerPathFactory = S3PathFactory(),
     ) -> None:
         self._column_bytes_root_path = path_factory._get_column_concatenated_bytes_files_path(dataset_name=dataset_name)
         self._dataset_name = dataset_name
@@ -258,7 +258,7 @@ class ColumnBytesFileCache(ColumnBytesFileReader):
         :param dataset_name: name of the dataset, defaults to None
         :type dataset_name: str, optional
         """
-        super().__init__(dataset_name=dataset_name, path_factory=path_factory)
+        super().__init__(path_factory, dataset_name=dataset_name)
         self._storage = storage if storage is not None else S3DataStorage()
         self._root_path = local_cache_path_prefix
         self._filelock_timeout_seconds = filelock_timeout_seconds
