@@ -206,7 +206,7 @@ class TestColumnBytesFileCacheAndReader(unittest.TestCase):
 
         # Mock the helper function that just opens a file and returns its contents.
         read_column_bytes_file_mock = MagicMock(return_value=FAKE_BYTES)
-        cbf_cache._read_column_bytes_file = read_column_bytes_file_mock
+        cbf_cache._read_column_bytes_file = read_column_bytes_file_mock  # type: ignore
 
         # Read back the column file.
         bytes_read = cbf_cache.read(info)
@@ -220,7 +220,7 @@ class TestColumnBytesFileCacheAndReader(unittest.TestCase):
 
         # Reset the reader function mock so we can check that it was called just once.
         read_column_bytes_file_mock = MagicMock(return_value=FAKE_BYTES)
-        cbf_reader._read_column_bytes_file = read_column_bytes_file_mock
+        cbf_reader._read_column_bytes_file = read_column_bytes_file_mock  # type: ignore
 
         bytes_read = cbf_reader.read(info)
         read_column_bytes_file_mock.assert_called_once_with(
