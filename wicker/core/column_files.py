@@ -228,8 +228,8 @@ class ColumnBytesFileReader:
         self,
         example: validation.AvroRecord,
         schema: schema.DatasetSchema,
-    ):
-        visitor = ResolvePointersVisitor(self, example, schema)
+    ) -> validation.AvroRecord:
+        visitor = ResolvePointersVisitor(example, schema, self)
         return visitor.resolve_pointers()
 
 
