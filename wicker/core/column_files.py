@@ -279,8 +279,6 @@ class ColumnBytesFileCache(ColumnBytesFileReader):
             self._column_bytes_root_path, str(column_bytes_file_info.file_id)
         )
 
-        print("ALEX CBF read path", column_concatenated_bytes_file_path, "_rp is", self._root_path)
-
         local_path = self._storage.fetch_file(
             column_concatenated_bytes_file_path,
             self._root_path,

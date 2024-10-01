@@ -7,8 +7,7 @@ from unittest.mock import MagicMock
 from wicker.core.column_files import (
     ColumnBytesFileCache,
     ColumnBytesFileLocationV1,
-    ColumnBytesFileReader,
-    ColumnBytesFileWriter
+    ColumnBytesFileWriter,
 )
 from wicker.core.definitions import DatasetID, DatasetPartition
 from wicker.core.storage import S3PathFactory
@@ -189,30 +188,30 @@ class TestColumnBytesFileCache(unittest.TestCase):
             info = ccb.add(FAKE_COL, FAKE_BYTES)
             self.assertEqual(info.byte_offset, 0)
             self.assertEqual(info.data_size, len(FAKE_BYTES))
-        mock_storage.put_file_s3.assert_called_once_with(
-            unittest.mock.ANY,
-            os.path.join(
-                path_factory.get_column_concatenated_bytes_files_path(),
-                str(info.file_id),
-            ),
+        s3_path = os.path.join(
+            path_factory.get_column_concatenated_bytes_files_path(),
+            str(info.file_id),
         )
-        # Now, read it back.
-        # mock_storage.fetch_file.return_value = FAKE_BYTES
+        mock_storage.put_file_s3.assert_called_once_with(unittest.mock.ANY, s3_path)
+
+        # Now, verify that we can read it back from mock storage.
+        local_path = os.path.join("/tmp", s3_path.split("s3://")[1])
+        mock_storage.fetch_file = MagicMock(return_value=local_path)
+
         cbf_cache = ColumnBytesFileCache(
             storage=mock_storage,
             path_factory=path_factory,
         )
+
+        # Mock the helper function that just opens a file and returns its contents.
+        read_column_bytes_file = MagicMock(return_value=FAKE_BYTES)
+        cbf_cache._read_column_bytes_file = read_column_bytes_file
+
+        # Read back the column file.
         bytes_read = cbf_cache.read(info)
-        mock_storage.fetch_file.assert_called_once_with(
-            os.path.join(
-                path_factory.get_column_concatenated_bytes_files_path(),
-                str(info.file_id),
-            ),
-            "/tmp",
-            -1,
-        )
-        # self.assertEqual(len(bytes_read), len(FAKE_BYTES))
-        # self.assertEqual(bytes_read, FAKE_BYTES)
+        mock_storage.fetch_file.assert_called_once_with(s3_path, "/tmp", timeout_seconds=-1)
+        self.assertEqual(len(bytes_read), len(FAKE_BYTES))
+        self.assertEqual(bytes_read, FAKE_BYTES)
 
 
 class TestCCBInfo(unittest.TestCase):
