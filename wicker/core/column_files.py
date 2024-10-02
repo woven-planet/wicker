@@ -90,8 +90,8 @@ class ColumnBytesFileWriter:
 
     def __init__(
         self,
-        storage: S3DataStorage = S3DataStorage(),
-        s3_path_factory: S3PathFactory = S3PathFactory(),
+        storage: AbstractDataStorage = S3DataStorage(),
+        s3_path_factory: WickerPathFactory = S3PathFactory(),  # S3-specific naming kept for backwards compatibility.
         target_file_size: Optional[int] = None,
         target_file_rowgroup_size: Optional[int] = None,
         dataset_name: str = None,
@@ -105,12 +105,15 @@ class ColumnBytesFileWriter:
         :param dataset_name: dataset name, defaults to None
         """
         self.storage = storage
-        self.s3_path_factory = s3_path_factory
+        self.path_factory = s3_path_factory
         # {column_name: (file_id, write_count, <filehandle_to_tmp_file>)}
         self.write_buffers: Dict[str, ColumnBytesFileWriteBuffer] = {}
         self.target_file_size = target_file_size
         self.target_file_rowgroup_size = target_file_rowgroup_size
         self.dataset_name = dataset_name
+
+        # Set an S3-specific member variable for backwards compatibility only. Use self.path_factory instead.
+        self.s3_path_factory = s3_path_factory if isinstance(s3_path_factory, S3PathFactory) else None
 
     def __enter__(self) -> ColumnBytesFileWriter:
         return self
@@ -166,15 +169,13 @@ class ColumnBytesFileWriter:
         )
 
     def _write_column(self, column_name: str) -> None:
-        columns_root_path = self.s3_path_factory.get_column_concatenated_bytes_files_path(
-            dataset_name=self.dataset_name
-        )
+        columns_root_path = self.path_factory._get_column_concatenated_bytes_files_path(dataset_name=self.dataset_name)
         write_buffer = self.write_buffers[column_name]
         path = os.path.join(columns_root_path, str(write_buffer.file_id))
         if write_buffer.buffer.tell() > 0:
             write_buffer.buffer.flush()
             write_buffer.buffer.seek(0)
-            self.storage.put_file_s3(
+            self.storage.put_file(
                 write_buffer.buffer.name,
                 path,
             )
