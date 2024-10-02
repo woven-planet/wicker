@@ -97,7 +97,7 @@ class TestS3Dataset(unittest.TestCase):
                 local_cache_path_prefix=tmpdir,
                 columns_to_load=None,
                 storage=fake_s3_storage,
-                s3_path_factory=None,
+                s3_path_factory=fake_s3_path_factory,
                 pa_filesystem=pafs.LocalFileSystem(),
             )
 
@@ -117,7 +117,7 @@ class TestS3Dataset(unittest.TestCase):
                 local_cache_path_prefix=tmpdir,
                 columns_to_load=None,
                 storage=fake_s3_storage,
-                s3_path_factory=None,
+                s3_path_factory=fake_s3_path_factory,
                 pa_filesystem=pafs.LocalFileSystem(),
                 filters=[("foo", "in", filtered_value_list)],
             )

@@ -4,9 +4,14 @@ import unittest
 import uuid
 from unittest.mock import MagicMock
 
-from wicker.core.column_files import ColumnBytesFileLocationV1, ColumnBytesFileWriter
+from wicker.core.column_files import (
+    ColumnBytesFileCache,
+    ColumnBytesFileLocationV1,
+    ColumnBytesFileReader,
+    ColumnBytesFileWriter,
+)
 from wicker.core.definitions import DatasetID, DatasetPartition
-from wicker.core.storage import S3PathFactory
+from wicker.core.storage import S3PathFactory, WickerPathFactory
 from wicker.testing.storage import FakeS3DataStorage
 
 FAKE_SHARD_ID = "fake_shard_id"
@@ -170,6 +175,60 @@ class TestColumnBytesFileWriter(unittest.TestCase):
                 self.assertEqual(info3.byte_offset, 0)
                 self.assertEqual(info3.data_size, len(FAKE_BYTES2))
                 self.assertNotEqual(info2.file_id, info3.file_id)
+
+
+class TestColumnBytesFileCacheAndReader(unittest.TestCase):
+    def test_write_one_column_one_row_and_read(self) -> None:
+        path_factory = S3PathFactory()
+        mock_storage = MagicMock()
+        # First, write a row to column bytes mock storage.
+        with ColumnBytesFileWriter(
+            storage=mock_storage,
+            s3_path_factory=path_factory,
+        ) as ccb:
+            info = ccb.add(FAKE_COL, FAKE_BYTES)
+            self.assertEqual(info.byte_offset, 0)
+            self.assertEqual(info.data_size, len(FAKE_BYTES))
+        s3_path = os.path.join(
+            path_factory.get_column_concatenated_bytes_files_path(),
+            str(info.file_id),
+        )
+        mock_storage.put_file_s3.assert_called_once_with(unittest.mock.ANY, s3_path)
+
+        # Now, verify that we can read it back from mock storage.
+        local_path = os.path.join("/tmp", s3_path.split("s3://fake_data/")[1])
+        mock_storage.fetch_file = MagicMock(return_value=local_path)
+
+        cbf_cache = ColumnBytesFileCache(
+            storage=mock_storage,
+            path_factory=path_factory,
+        )
+
+        # Mock the helper function that just opens a file and returns its contents.
+        read_column_bytes_file_mock = MagicMock(return_value=FAKE_BYTES)
+        cbf_cache._read_column_bytes_file = read_column_bytes_file_mock  # type: ignore
+
+        # Read back the column file.
+        bytes_read = cbf_cache.read(info)
+        mock_storage.fetch_file.assert_called_once_with(s3_path, "/tmp", timeout_seconds=-1)
+        self.assertEqual(len(bytes_read), len(FAKE_BYTES))
+        self.assertEqual(bytes_read, FAKE_BYTES)
+
+        # Now let's verify that we can use the reader directly to read the local column bytes.
+        wicker_path_factory = WickerPathFactory("/tmp")
+        cbf_reader = ColumnBytesFileReader(wicker_path_factory)
+
+        # Reset the reader function mock so we can check that it was called just once.
+        read_column_bytes_file_mock = MagicMock(return_value=FAKE_BYTES)
+        cbf_reader._read_column_bytes_file = read_column_bytes_file_mock  # type: ignore
+
+        bytes_read = cbf_reader.read(info)
+        read_column_bytes_file_mock.assert_called_once_with(
+            column_bytes_file_info=info,
+            column_bytes_file_path=local_path,
+        )
+        self.assertEqual(len(bytes_read), len(FAKE_BYTES))
+        self.assertEqual(bytes_read, FAKE_BYTES)
 
 
 class TestCCBInfo(unittest.TestCase):
