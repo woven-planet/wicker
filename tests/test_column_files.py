@@ -31,7 +31,7 @@ class TestColumnBytesFileWriter(unittest.TestCase):
             s3_path_factory=path_factory,
         ):
             pass
-        mock_storage.put_object_s3.assert_not_called()
+        mock_storage.put_object.assert_not_called()
 
     def test_write_one_column_one_row(self) -> None:
         path_factory = S3PathFactory()
@@ -43,7 +43,7 @@ class TestColumnBytesFileWriter(unittest.TestCase):
             info = ccb.add(FAKE_COL, FAKE_BYTES)
             self.assertEqual(info.byte_offset, 0)
             self.assertEqual(info.data_size, len(FAKE_BYTES))
-        mock_storage.put_file_s3.assert_called_once_with(
+        mock_storage.put_file.assert_called_once_with(
             unittest.mock.ANY,
             os.path.join(
                 path_factory.get_column_concatenated_bytes_files_path(),
@@ -65,7 +65,7 @@ class TestColumnBytesFileWriter(unittest.TestCase):
             next_info = ccb.add(FAKE_COL, FAKE_BYTES)
             self.assertEqual(next_info.byte_offset, len(FAKE_BYTES))
             self.assertEqual(next_info.data_size, len(FAKE_BYTES))
-        mock_storage.put_file_s3.assert_called_once_with(
+        mock_storage.put_file.assert_called_once_with(
             unittest.mock.ANY,
             os.path.join(
                 path_factory.get_column_concatenated_bytes_files_path(),
@@ -100,14 +100,14 @@ class TestColumnBytesFileWriter(unittest.TestCase):
             self.assertEqual(info2.byte_offset, len(FAKE_BYTES) * 2)
             self.assertEqual(info2.data_size, len(FAKE_BYTES))
 
-        mock_storage.put_file_s3.assert_any_call(
+        mock_storage.put_file.assert_any_call(
             unittest.mock.ANY,
             os.path.join(
                 path_factory.get_column_concatenated_bytes_files_path(),
                 str(info1.file_id),
             ),
         )
-        mock_storage.put_file_s3.assert_any_call(
+        mock_storage.put_file.assert_any_call(
             unittest.mock.ANY,
             os.path.join(
                 path_factory.get_column_concatenated_bytes_files_path(),
@@ -193,7 +193,7 @@ class TestColumnBytesFileCacheAndReader(unittest.TestCase):
             path_factory.get_column_concatenated_bytes_files_path(),
             str(info.file_id),
         )
-        mock_storage.put_file_s3.assert_called_once_with(unittest.mock.ANY, s3_path)
+        mock_storage.put_file.assert_called_once_with(unittest.mock.ANY, s3_path)
 
         # Now, verify that we can read it back from mock storage.
         local_path = os.path.join("/tmp", s3_path.split("s3://fake_data/")[1])
