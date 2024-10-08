@@ -11,10 +11,20 @@ import pyarrow  # type: ignore
 import pyarrow.fs as pafs  # type: ignore
 import pyarrow.parquet as papq  # type: ignore
 
-from wicker.core.column_files import ColumnBytesFileCache, ColumnBytesFileLocationV1
+from wicker.core.column_files import (
+    ColumnBytesFileCache,
+    ColumnBytesFileLocationV1,
+    ColumnBytesFileReader,
+)
 from wicker.core.config import get_config  # type: ignore
 from wicker.core.definitions import DatasetDefinition, DatasetID, DatasetPartition
-from wicker.core.storage import S3DataStorage, S3PathFactory
+from wicker.core.storage import (
+    AbstractDataStorage,
+    FileSystemDataStorage,
+    S3DataStorage,
+    S3PathFactory,
+    WickerPathFactory,
+)
 from wicker.schema import dataloading, serialization
 from wicker.schema.schema import DatasetSchema
 
@@ -125,17 +135,165 @@ class AbstractDataset(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def schema(self) -> DatasetSchema:
-        """Return the schema of the dataset."""
-        pass
-
-    @abc.abstractmethod
     def arrow_table(self) -> pyarrow.Table:
         """Return the pyarrow table with all the metadata fields and pointers of the dataset."""
         pass
 
+    @abc.abstractmethod
+    def schema(self) -> DatasetSchema:
+        """Return the schema of the dataset."""
+        pass
 
-class S3Dataset(AbstractDataset):
+
+class BaseDataset(AbstractDataset):
+    """Provides an implementation for part of the AbstractDataset interface for datasets whose items
+    and schema are intended to be read from files."""
+
+    def __init__(
+        self,
+        path_factory: WickerPathFactory,
+        storage: AbstractDataStorage,
+        columns_to_load: Optional[List[str]] = None,
+        filelock_timeout_seconds: int = FILE_LOCK_TIMEOUT_SECONDS,
+        local_cache_path_prefix: str = "",
+        treat_objects_as_bytes: bool = False,
+    ) -> None:
+        """Init for a BaseFileDataset.
+
+        :param path_factory: WickerPathFactory for pulling consistent paths.
+        :param storage: AbstractDataStorage for data access.
+        :param columns_to_load: list of columns to load, defaults to None which loads all columns
+        :param filelock_timeout_seconds: number of seconds after which to timeout on waiting for downloads,
+            defaults to FILE_LOCK_TIMEOUT_SECONDS
+        :param local_cache_path_prefix: Path to local cache path, if empty don't create cache
+        :param treat_objects_as_bytes: If set, don't try to decode ObjectFields and keep them as binary data.
+        """
+        self._columns_to_load = columns_to_load
+        self._filelock_timeout_seconds = filelock_timeout_seconds
+        self._local_cache_path_prefix = local_cache_path_prefix
+        self._path_factory = path_factory
+        self._schema: Optional[DatasetSchema] = None
+        self._storage = storage
+        self._treat_objects_as_bytes = treat_objects_as_bytes
+
+    def __getitem__(self, idx: int) -> Dict[str, Any]:
+        """Get data item at index within arrow table.
+
+        Pulls from either cache or data store the item in the dataset at index specified.
+
+        Args:
+            idx (int): idx in arrow table to grab data.
+
+        Returns:
+            Dict[str, Any]: Row of data defined through schema object.
+        """
+        column_file_reader = self.column_bytes_reader()
+        tbl = self.arrow_table()
+        columns = self._columns_to_load if self._columns_to_load is not None else tbl.column_names
+        row = {col: tbl[col][idx].as_py() for col in columns}
+        schema = self.schema()
+        return dataloading.load_example(
+            column_file_reader.resolve_pointers(row, schema),
+            schema,
+        )
+
+    def __len__(self) -> int:
+        """Get length of arrow table inferring it is the same as the dataset.
+
+        Returns:
+            int: length of arrow table.
+        """
+        return len(self.arrow_table())
+
+    @abc.abstractmethod
+    def column_bytes_reader(self) -> ColumnBytesFileReader:
+        """Builder function to return a column bytes file reader."""
+        pass
+
+    def schema(self) -> DatasetSchema:
+        """Return the schema of the dataset."""
+        if self._schema is None:
+            schema_path = self._path_factory._get_dataset_schema_path(self._dataset_id)
+            local_path = self._storage.fetch_file(
+                schema_path, self._local_cache_path_prefix, timeout_seconds=self._filelock_timeout_seconds
+            )
+            with open(local_path, "rb") as f:
+                self._schema = serialization.loads(
+                    f.read().decode("utf-8"), treat_objects_as_bytes=self._treat_objects_as_bytes
+                )
+        return self._schema
+
+
+class FileSystemDataset(BaseDataset):
+    """Implementation of a Map-based dataset on local file system or mounted drive"""
+
+    def __init__(
+        self,
+        dataset_name: str,
+        dataset_partition_name: str,
+        dataset_version: str,
+        pa_filesystem: pafs.LocalFileSystem,
+        path_factory: WickerPathFactory,
+        storage: FileSystemDataStorage,
+        columns_to_load: Optional[List[str]] = None,
+        local_cache_path_prefix: str = "",
+        treat_objects_as_bytes: bool = False,
+        filters=None,
+    ):
+        """Initializes a FileSystemDataset.
+
+        :param dataset_name: name of the dataset
+        :param dataset_partition_name: partition name
+        :param dataset_version: version of the dataset
+        :param pa_filesystem: Pyarrow filesystem for reading the parquet files and tables.
+        :param path_factory: Optional WickerPathFactory for pulling consistent paths.
+        :param storage: Optional FileSystemDataStorage object for pulling files from filesystem
+        :param columns_to_load: list of columns to load, defaults to None which loads all columns
+        :param local_cache_path_prefix: Path to local cache path, if None don't create cache
+        :param treat_objects_as_bytes: If set, don't try to decode ObjectFields and keep them as binary data.
+        :param filters: Only returns rows which match the filter. Defaults to None, i.e., returns all rows.
+        :type filters: pyarrow.compute.Expression, List[Tuple], or List[List[Tuple]], optional
+        .. seealso:: `filters in <https://arrow.apache.org/docs/python/generated/pyarrow.parquet.read_table.html>`__ # noqa
+        """
+        super().__init__(
+            path_factory,
+            storage,
+            columns_to_load=columns_to_load,
+            filelock_timeout_seconds=FILE_LOCK_TIMEOUT_SECONDS,
+            local_cache_path_prefix=local_cache_path_prefix,
+            treat_objects_as_bytes=treat_objects_as_bytes,
+        )
+        self._arrow_table: Optional[pyarrow.Table] = None
+        self._column_bytes_file_reader: Optional[ColumnBytesFileReader] = None
+        self._dataset_id = DatasetID(name=dataset_name, version=dataset_version)
+        self._filters = filters
+        self._pa_filesystem = pa_filesystem
+        self._partition = DatasetPartition(dataset_id=self._dataset_id, partition=dataset_partition_name)
+
+    def arrow_table(self) -> pyarrow.Table:
+        """Grab and load arrow table from expected path.
+
+        Returns:
+            pyarrow.Table: Arrow table object for the loaded dataset.
+        """
+        path = self._path_factory._get_dataset_partition_path(self._partition)
+        if not self._arrow_table:
+            self._arrow_table = papq.read_table(
+                path, columns=self._columns_to_load, filesystem=self._pa_filesystem, filters=self._filters,
+            )
+        return self._arrow_table
+
+    def column_bytes_reader(self) -> ColumnBytesFileReader:
+        """Builder function to return a column bytes file reader."""
+        if not self._column_bytes_file_reader:
+            self._column_bytes_file_reader = ColumnBytesFileReader(
+                dataset_name=self._dataset_id.name,
+                path_factory=self._path_factory,
+            )
+        return self._column_bytes_file_reader
+
+
+class S3Dataset(BaseDataset):
     """Implementation for a Map-based dataset"""
 
     def __init__(
@@ -166,27 +324,21 @@ class S3Dataset(AbstractDataset):
         :type filters: pyarrow.compute.Expression, List[Tuple], or List[List[Tuple]], optional
         .. seealso:: `filters in <https://arrow.apache.org/docs/python/generated/pyarrow.parquet.read_table.html>`__ # noqa
         """
-        super().__init__()
-        self._columns_to_load: Optional[List[str]] = columns_to_load
-        self._treat_objects_as_bytes = treat_objects_as_bytes
-        self._schema: Optional[DatasetSchema] = None
-        self._arrow_table: Optional[pyarrow.Table] = None
-
-        self._local_cache_path_prefix = local_cache_path_prefix
-        self._filelock_timeout_seconds = filelock_timeout_seconds
-        self._storage = storage if storage is not None else S3DataStorage()
-        self._s3_path_factory = s3_path_factory if s3_path_factory is not None else S3PathFactory()
-        self._column_bytes_file_cache = ColumnBytesFileCache(
-            local_cache_path_prefix=local_cache_path_prefix,
+        path_factory = s3_path_factory if s3_path_factory is not None else S3PathFactory()
+        super().__init__(
+            path_factory,
+            storage,
+            columns_to_load=columns_to_load,
             filelock_timeout_seconds=filelock_timeout_seconds,
-            path_factory=self._s3_path_factory,
-            storage=self._storage,
-            dataset_name=dataset_name,
+            local_cache_path_prefix=local_cache_path_prefix,
+            treat_objects_as_bytes=treat_objects_as_bytes,
         )
+        self._arrow_table: Optional[pyarrow.Table] = None
+        self._column_bytes_file_cache: Optional[ColumnBytesFileCache] = None
+        self._s3_path_factory = path_factory
         self._pa_filesystem = (
             pafs.S3FileSystem(region=get_config().aws_s3_config.region) if pa_filesystem is None else pa_filesystem
         )
-
         self._dataset_id = DatasetID(name=dataset_name, version=dataset_version)
         self._partition = DatasetPartition(dataset_id=self._dataset_id, partition=dataset_partition_name)
         self._dataset_definition = DatasetDefinition(
@@ -194,18 +346,6 @@ class S3Dataset(AbstractDataset):
             schema=self.schema(),
         )
         self.filters = filters
-
-    def schema(self) -> DatasetSchema:
-        if self._schema is None:
-            schema_path = self._s3_path_factory.get_dataset_schema_path(self._dataset_id)
-            local_path = self._storage.fetch_file(
-                schema_path, self._local_cache_path_prefix, timeout_seconds=self._filelock_timeout_seconds
-            )
-            with open(local_path, "rb") as f:
-                self._schema = serialization.loads(
-                    f.read().decode("utf-8"), treat_objects_as_bytes=self._treat_objects_as_bytes
-                )
-        return self._schema
 
     def arrow_table(self) -> pyarrow.Table:
         path = self._s3_path_factory.get_dataset_partition_path(self._partition, s3_prefix=False)
@@ -215,17 +355,17 @@ class S3Dataset(AbstractDataset):
             )
         return self._arrow_table
 
-    def __len__(self) -> int:
-        return len(self.arrow_table())
-
-    def __getitem__(self, idx: int) -> Dict[str, Any]:
-        tbl = self.arrow_table()
-        columns = self._columns_to_load if self._columns_to_load is not None else tbl.column_names
-        row = {col: tbl[col][idx].as_py() for col in columns}
-        return dataloading.load_example(
-            self._column_bytes_file_cache.resolve_pointers(row, self.schema()),
-            self.schema(),
-        )
+    def column_bytes_reader(self) -> ColumnBytesFileReader:
+        """Builder function to return a column bytes file reader."""
+        if not self._column_bytes_file_cache:
+            self._column_bytes_file_cache = ColumnBytesFileCache(
+                local_cache_path_prefix=self._local_cache_path_prefix,
+                filelock_timeout_seconds=self._filelock_timeout_seconds,
+                path_factory=self._s3_path_factory,
+                storage=self._storage,
+                dataset_name=self._dataset_id.name,
+            )
+        return self._column_bytes_file_cache
 
     def _get_parquet_dir_size(self) -> int:
         """Get the parquet path and find all the files within, count their bytes

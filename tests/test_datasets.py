@@ -11,9 +11,9 @@ import pyarrow.fs as pafs  # type: ignore
 import pyarrow.parquet as papq  # type: ignore
 
 from wicker.core.column_files import ColumnBytesFileWriter
-from wicker.core.datasets import S3Dataset
+from wicker.core.datasets import FileSystemDataset, S3Dataset
 from wicker.core.definitions import DatasetID, DatasetPartition
-from wicker.core.storage import S3PathFactory
+from wicker.core.storage import FileSystemDataStorage, S3PathFactory, WickerPathFactory
 from wicker.schema import schema, serialization
 from wicker.testing.storage import FakeS3DataStorage
 
@@ -45,6 +45,58 @@ def cwd(path):
         yield
     finally:
         os.chdir(oldpwd)
+
+
+class TestFileSystemDataset(unittest.TestCase):
+    @contextmanager
+    def _setup_storage(self) -> Iterator[Tuple[FileSystemDataStorage, WickerPathFactory, str]]:
+        with tempfile.TemporaryDirectory() as tmpdir, cwd(tmpdir):
+            fake_local_fs_storage = FileSystemDataStorage()
+            fake_local_path_factory = WickerPathFactory(root_path=tmpdir)
+            with ColumnBytesFileWriter(
+                storage=fake_local_fs_storage,
+                s3_path_factory=fake_local_path_factory,
+                target_file_rowgroup_size=10,
+            ) as writer:
+                locs = [
+                    writer.add("np_arr", FAKE_NUMPY_CODEC.validate_and_encode_object(data["np_arr"]))  # type: ignore
+                    for data in FAKE_DATA
+                ]
+
+            arrow_metadata_table = pa.Table.from_pydict(
+                {"foo": [data["foo"] for data in FAKE_DATA], "np_arr": [loc.to_bytes() for loc in locs]}
+            )
+            metadata_table_path = os.path.join(
+                tmpdir, fake_local_path_factory._get_dataset_partition_path(FAKE_DATASET_PARTITION)
+            )
+            os.makedirs(os.path.dirname(metadata_table_path), exist_ok=True)
+            papq.write_table(arrow_metadata_table, metadata_table_path)
+
+            fake_local_fs_storage.put_object(
+                serialization.dumps(FAKE_SCHEMA).encode("utf-8"),
+                fake_local_path_factory._get_dataset_schema_path(FAKE_DATASET_ID),
+            )
+            yield fake_local_fs_storage, fake_local_path_factory, tmpdir
+
+    def test_filesystem_dataset(self):
+        with self._setup_storage() as (fake_local_storage, fake_local_path_factory, tmpdir):
+            with tempfile.TemporaryDirectory() as tmp_cache_dir:
+                pa_filesystem = pafs.LocalFileSystem()
+                ds = FileSystemDataset(
+                    FAKE_NAME,
+                    FAKE_PARTITION,
+                    FAKE_VERSION,
+                    pa_filesystem,
+                    fake_local_path_factory,
+                    fake_local_storage,
+                    columns_to_load=None,
+                    local_cache_path_prefix=tmp_cache_dir,
+                )
+                for i in range(len(FAKE_DATA)):
+                    retrieved = ds[i]
+                    reference = FAKE_DATA[i]
+                    self.assertEqual(retrieved["foo"], reference["foo"])
+                    np.testing.assert_array_equal(retrieved["np_arr"], reference["np_arr"])
 
 
 class TestS3Dataset(unittest.TestCase):
@@ -144,14 +196,12 @@ class TestS3Dataset(unittest.TestCase):
                 def Object(self, bucket: str, key: str) -> FakeResponse:
                     full_path = os.path.join("s3://", bucket, key)
                     data = fake_s3_storage.fetch_obj_s3(full_path)
-
                     return FakeResponse(content_length=len(data))
 
             def mock_resource_returner(_: Any):
                 return MockedS3Resource()
 
             with patch("wicker.core.datasets.boto3.resource", mock_resource_returner):
-
                 ds = S3Dataset(
                     FAKE_NAME,
                     FAKE_VERSION,
