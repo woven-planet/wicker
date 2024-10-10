@@ -41,7 +41,7 @@ class FakeS3DataStorage(S3DataStorage):
             shutil.copy2(self._get_local_path(input_path), dest_path)
         return dest_path
 
-    def persist_object(self, object_bytes: bytes, target_path: str) -> None:
+    def persist_content(self, object_bytes: bytes, target_path: str) -> None:
         full_tmp_path = self._get_local_path(target_path)
         os.makedirs(os.path.dirname(full_tmp_path), exist_ok=True)
         with open(full_tmp_path, "wb") as f:
