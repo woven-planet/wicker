@@ -219,7 +219,7 @@ class BasicPersistor(AbstractDataPersistor):
         schema_path = self.s3_path_factory.get_dataset_schema_path(
             DatasetID(name=dataset_name, version=dataset_version)
         )
-        self.s3_storage.put_object(serialization.dumps(dataset_schema).encode("utf-8"), schema_path)
+        self.s3_storage.persist_content(serialization.dumps(dataset_schema).encode("utf-8"), schema_path)
 
         # 3. Validate the rows and ensure data is well formed, sort while doing
         dataset_0 = [(row[0], self.parse_row(row[1], dataset_schema)) for row in dataset]
