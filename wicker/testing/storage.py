@@ -41,13 +41,13 @@ class FakeS3DataStorage(S3DataStorage):
             shutil.copy2(self._get_local_path(input_path), dest_path)
         return dest_path
 
-    def put_object(self, object_bytes: bytes, target_path: str) -> None:
+    def persist_object(self, object_bytes: bytes, target_path: str) -> None:
         full_tmp_path = self._get_local_path(target_path)
         os.makedirs(os.path.dirname(full_tmp_path), exist_ok=True)
         with open(full_tmp_path, "wb") as f:
             f.write(object_bytes)
 
-    def put_file(self, local_path: str, target_path: str) -> None:
+    def persist_file(self, local_path: str, target_path: str) -> None:
         full_tmp_path = self._get_local_path(target_path)
         os.makedirs(os.path.dirname(full_tmp_path), exist_ok=True)
         shutil.copy2(local_path, full_tmp_path)
@@ -83,12 +83,12 @@ class TestS3LocalDataStorage(S3DataStorage):
         return target_path
 
     # Override.
-    def put_object(self, object_bytes: bytes, target_path: str) -> None:
+    def persist_content(self, object_bytes: bytes, target_path: str) -> None:
         self._create_path(os.path.dirname(target_path))
         with self._fs.open_output_stream(target_path) as ostream:
             ostream.write(object_bytes)
 
     # Override.
-    def put_file(self, local_path: str, target_path: str) -> None:
+    def persist_file(self, local_path: str, target_path: str) -> None:
         self._create_path(os.path.dirname(target_path))
         self._fs.copy_file(local_path, target_path)

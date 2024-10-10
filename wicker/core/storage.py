@@ -46,8 +46,8 @@ class AbstractDataStorage(ABC):
         pass
 
     @abstractmethod
-    def put_file(self, input_path: str, target_path: str) -> None:
-        """Put file on data storage in target location.
+    def persist_file(self, input_path: str, target_path: str) -> None:
+        """Persist file in data storage in target location.
 
         :param input_path: input path of file
         :type input_path: str
@@ -57,10 +57,10 @@ class AbstractDataStorage(ABC):
         pass
 
     @abstractmethod
-    def put_object(self, object_bytes: bytes, target_path: str) -> None:
-        """Put object on data storage in target location.
+    def persist_content(self, object_bytes: bytes, target_path: str) -> None:
+        """Persist object content in data storage in target location.
 
-        :param object_bytes: Bytes of object to store.
+        :param object_bytes: Bytes of object content to store.
         :type object_bytes: bytes
         :param target_path: Path to storage destination.
         :type target_path: str
@@ -89,8 +89,8 @@ class FileSystemDataStorage(AbstractDataStorage):
         shutil.copyfile(input_path, local_path)
         return local_path
 
-    def put_file(self, input_path: str, target_path: str) -> None:
-        """Put file on local or mounted data storage.
+    def persist_file(self, input_path: str, target_path: str) -> None:
+        """Persist file on local or mounted data storage.
 
         :param input_path: file path on the local system.
         :param target_path: file path on local system or mounted drive.
@@ -101,8 +101,8 @@ class FileSystemDataStorage(AbstractDataStorage):
         os.makedirs(Path(target_path).parent, exist_ok=True)
         shutil.copy2(input_path, target_path)
 
-    def put_object(self, object_bytes: bytes, target_path: str) -> None:
-        """Put object on data storage in target location.
+    def persist_content(self, object_bytes: bytes, target_path: str) -> None:
+        """Persist object content on data storage in target location.
 
         :param object_bytes: bytes to write to path
         :param target_path: path to write object
@@ -234,8 +234,8 @@ class S3DataStorage(AbstractDataStorage):
         self.client.download_fileobj(bucket, key, bio)
         return bio.getvalue()
 
-    def put_object(self, object_bytes: bytes, target_path: str) -> None:
-        """Upload an object to S3
+    def persist_content(self, object_bytes: bytes, target_path: str) -> None:
+        """Upload object content to S3
 
         :param object_bytes: the object to upload to S3
         :type object_bytes: bytes
@@ -248,9 +248,9 @@ class S3DataStorage(AbstractDataStorage):
 
     def put_object_s3(self, object_bytes: bytes, s3_path: str) -> None:
         """Deprecated api access to the put object functionality."""
-        self.put_object(object_bytes=object_bytes, target_path=s3_path)
+        self.persist_content(object_bytes=object_bytes, target_path=s3_path)
 
-    def put_file(self, local_path: str, target_path: str) -> None:
+    def persist_file(self, local_path: str, target_path: str) -> None:
         """Upload a file to S3
 
         :param local_path: local path to the file
@@ -261,7 +261,7 @@ class S3DataStorage(AbstractDataStorage):
 
     def put_file_s3(self, local_path: str, s3_path: str) -> None:
         """Deprecated api access to the put file functionality."""
-        self.put_file(local_path=local_path, target_path=s3_path)
+        self.persist_file(local_path=local_path, target_path=s3_path)
 
     def __eq__(self, other: Any) -> bool:
         # We don't want to use isinstance here to make sure we have the same implementation.

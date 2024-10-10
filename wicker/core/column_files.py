@@ -175,7 +175,7 @@ class ColumnBytesFileWriter:
         if write_buffer.buffer.tell() > 0:
             write_buffer.buffer.flush()
             write_buffer.buffer.seek(0)
-            self.storage.put_file(
+            self.storage.persist_file(
                 write_buffer.buffer.name,
                 path,
             )
