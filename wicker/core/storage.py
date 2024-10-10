@@ -83,7 +83,7 @@ class FileSystemDataStorage(AbstractDataStorage):
         :return: local path to the downloaded file
         """
         # If we not copying the file to a new path, just return the input path.
-        if local_prefix == "":
+        if not local_prefix:
             return input_path
         local_path = os.path.join(local_prefix, os.path.basename(input_path))
         shutil.copyfile(input_path, local_path)
