@@ -52,22 +52,8 @@ class FileSystemDataStorage(AbstractDataStorage):
         """Constructor for a file system storage instance."""
         pass
 
-    @retry(
-        Exception,
-        tries=get_config().storage_download_config.retries,
-        backoff=get_config().storage_download_config.retry_backoff,
-        delay=get_config().storage_download_config.retry_delay_s,
-        logger=logger,
-    )
-    def download_with_retries(self, input_path: str, local_path: str):
-        try:
-            shutil.copyfile(input_path, local_path)
-        except Exception as e:
-            logging.error(f"Failed to download/move object for file path: {input_path}")
-            raise e
-
     def fetch_file(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
-        """Fetches a file system, ie: gets the path to the file.
+        """Fetch file from data storage into the local path.
 
         This function assumes the input_path is a valid file in the file system based on wicker assumed pathing.
 
@@ -79,9 +65,11 @@ class FileSystemDataStorage(AbstractDataStorage):
         :param timeout_seconds: number of seconds till timing out on waiting for the file to be downloaded
         :return: local path to the file on the local file system
         """
-        input_path = os.path.join(input_path, os.path.basename(local_prefix))
-        self.download_with_retries(input_path, local_prefix)
-        return local_prefix
+        if not local_prefix:
+            return input_path
+        local_path = os.path.join(local_prefix, os.path.basename(input_path))
+        shutil.copyfile(input_path, local_path)
+        return local_path
 
 
 class S3DataStorage(AbstractDataStorage):
