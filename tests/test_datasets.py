@@ -65,11 +65,13 @@ class TestFileSystemDataset(unittest.TestCase):
     @contextmanager
     def _setup_storage(self) -> Iterator[Tuple[FileSystemDataStorage, WickerPathFactory, str]]:
         with tempfile.TemporaryDirectory() as tmpdir, cwd(tmpdir):
-            fake_local_fs_storage = FileSystemDataStorage()
-            fake_local_path_factory = WickerPathFactory(root_path=tmpdir)
+            fake_local_fs_storage = FakeS3DataStorage(tmpdir=tmpdir)
+            fake_local_path_factory = WickerPathFactory(root_path=os.path.join(tmpdir, "fake_data"))
+            fake_s3_path_factory = S3PathFactory()
+            fake_s3_storage = FakeS3DataStorage(tmpdir=tmpdir)
             with ColumnBytesFileWriter(
                 storage=fake_local_fs_storage,
-                s3_path_factory=fake_local_path_factory,
+                s3_path_factory=fake_s3_path_factory,
                 target_file_rowgroup_size=10,
             ) as writer:
                 locs = [
@@ -86,7 +88,8 @@ class TestFileSystemDataset(unittest.TestCase):
             os.makedirs(os.path.dirname(metadata_table_path), exist_ok=True)
             papq.write_table(arrow_metadata_table, metadata_table_path)
 
-            fake_local_fs_storage.put_object(
+            # The mock storage class here actually writes to local storage, so we can use it in the test.
+            fake_s3_storage.put_object_s3(
                 serialization.dumps(FAKE_SCHEMA).encode("utf-8"),
                 fake_local_path_factory._get_dataset_schema_path(FAKE_DATASET_ID),
             )
@@ -98,8 +101,8 @@ class TestFileSystemDataset(unittest.TestCase):
                 pa_filesystem = pafs.LocalFileSystem()
                 ds = FileSystemDataset(
                     FAKE_NAME,
-                    FAKE_PARTITION,
                     FAKE_VERSION,
+                    FAKE_PARTITION,
                     pa_filesystem,
                     fake_local_path_factory,
                     fake_local_storage,
@@ -113,9 +116,8 @@ class TestFileSystemDataset(unittest.TestCase):
                     np.testing.assert_array_equal(retrieved["np_arr"], reference["np_arr"])
 
                 # test that the dataset size in the tmpdir is the same as the starting dir
-                tmpdir_size = get_size(tmp_cache_dir)
+                tmpdir_size = get_size(os.path.join(tmp_cache_dir, "fake_data"))
                 expect_dir_size = get_size(os.path.join(tmpdir, "__COLUMN_CONCATENATED_FILES__"))
-                # test that all column files are copied over that are meant to be
                 assert tmpdir_size == expect_dir_size
 
 
