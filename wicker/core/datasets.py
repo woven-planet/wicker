@@ -352,8 +352,9 @@ class S3Dataset(BaseDataset):
         :type filters: pyarrow.compute.Expression, List[Tuple], or List[List[Tuple]], optional
         .. seealso:: `filters in <https://arrow.apache.org/docs/python/generated/pyarrow.parquet.read_table.html>`__ # noqa
         """
-        s3_path_factory = s3_path_factory if s3_path_factory else S3PathFactory()
         pa_filesystem = pa_filesystem if pa_filesystem else pafs.S3FileSystem(region=get_config().aws_s3_config.region)
+        s3_path_factory = s3_path_factory if s3_path_factory else S3PathFactory()
+        storage = storage if storage else S3DataStorage()
         super().__init__(
             dataset_name,
             dataset_version,
