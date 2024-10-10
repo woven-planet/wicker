@@ -65,12 +65,12 @@ class TestFileSystemDataset(unittest.TestCase):
     @contextmanager
     def _setup_storage(self) -> Iterator[Tuple[FileSystemDataStorage, WickerPathFactory, str]]:
         with tempfile.TemporaryDirectory() as tmpdir, cwd(tmpdir):
-            fake_local_fs_storage = FakeS3DataStorage(tmpdir=tmpdir)
+            fake_local_fs_storage = FileSystemDataStorage()
             fake_local_path_factory = WickerPathFactory(root_path=os.path.join(tmpdir, "fake_data"))
             fake_s3_path_factory = S3PathFactory()
             fake_s3_storage = FakeS3DataStorage(tmpdir=tmpdir)
             with ColumnBytesFileWriter(
-                storage=fake_local_fs_storage,
+                storage=fake_s3_storage,
                 s3_path_factory=fake_s3_path_factory,
                 target_file_rowgroup_size=10,
             ) as writer:
