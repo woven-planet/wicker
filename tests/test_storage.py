@@ -166,7 +166,7 @@ class TestS3DataStorage(TestCase):
             with Stubber(data_storage.client) as stubber:
                 response = {}  # type: ignore
                 stubber.add_response("put_object", response, None)
-                data_storage._file(tmpfile.name, input_path)
+                data_storage.persist_file(tmpfile.name, input_path)
 
     @staticmethod
     def download_file_side_effect(*args, **kwargs) -> None:  # type: ignore
