@@ -31,24 +31,24 @@ class FakeS3DataStorage(S3DataStorage):
         with open(self._get_local_path(input_path), "rb") as f:
             return f.read()
 
-    def fetch_file(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
-        if not self.check_exists_s3(input_path):
-            raise KeyError(f"File {input_path} not found in the fake s3 storage.")
-        bucket, key = self.bucket_key_from_s3_path(input_path)
+    def fetch_file(self, storage_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
+        if not self.check_exists_s3(storage_path):
+            raise KeyError(f"File {storage_path} not found in the fake s3 storage.")
+        bucket, key = self.bucket_key_from_s3_path(storage_path)
         dest_path = os.path.join(local_prefix, key)
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
         if not os.path.isfile(dest_path):
-            shutil.copy2(self._get_local_path(input_path), dest_path)
+            shutil.copy2(self._get_local_path(storage_path), dest_path)
         return dest_path
 
-    def persist_content(self, object_bytes: bytes, target_path: str) -> None:
-        full_tmp_path = self._get_local_path(target_path)
+    def persist_content(self, object_bytes: bytes, storage_path: str) -> None:
+        full_tmp_path = self._get_local_path(storage_path)
         os.makedirs(os.path.dirname(full_tmp_path), exist_ok=True)
         with open(full_tmp_path, "wb") as f:
             f.write(object_bytes)
 
-    def persist_file(self, local_path: str, target_path: str) -> None:
-        full_tmp_path = self._get_local_path(target_path)
+    def persist_file(self, local_path: str, storage_path: str) -> None:
+        full_tmp_path = self._get_local_path(storage_path)
         os.makedirs(os.path.dirname(full_tmp_path), exist_ok=True)
         shutil.copy2(local_path, full_tmp_path)
 
@@ -73,22 +73,22 @@ class TestS3LocalDataStorage(S3DataStorage):
         return file_info.type != pafs.FileType.NotFound
 
     # Override.
-    def fetch_file(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
+    def fetch_file(self, storage_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
         # This raises if the input path is not relative to the root.
-        relative_input_path = Path(input_path).relative_to(self._root_path)
+        relative_input_path = Path(storage_path).relative_to(self._root_path)
 
         target_path = os.path.join(local_prefix, str(relative_input_path))
         self._create_path(os.path.dirname(target_path))
-        self._fs.copy_file(input_path, target_path)
+        self._fs.copy_file(storage_path, target_path)
         return target_path
 
     # Override.
-    def persist_content(self, object_bytes: bytes, target_path: str) -> None:
-        self._create_path(os.path.dirname(target_path))
-        with self._fs.open_output_stream(target_path) as ostream:
+    def persist_content(self, object_bytes: bytes, storage_path: str) -> None:
+        self._create_path(os.path.dirname(storage_path))
+        with self._fs.open_output_stream(storage_path) as ostream:
             ostream.write(object_bytes)
 
     # Override.
-    def persist_file(self, local_path: str, target_path: str) -> None:
-        self._create_path(os.path.dirname(target_path))
-        self._fs.copy_file(local_path, target_path)
+    def persist_file(self, local_path: str, storage_path: str) -> None:
+        self._create_path(os.path.dirname(storage_path))
+        self._fs.copy_file(local_path, storage_path)

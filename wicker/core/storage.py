@@ -34,10 +34,10 @@ class AbstractDataStorage(ABC):
     """Abstract data storage class that implements required methods for Column Bytes File Cache"""
 
     @abstractmethod
-    def fetch_file(self, input_path: str, local_prefix: str, timeout_seconds: int) -> str:
+    def fetch_file(self, storage_path: str, local_prefix: str, timeout_seconds: int) -> str:
         """Fetch file from data storage into the local path.
 
-        :param input_path: input file path
+        :param storage_path: absolute path in storage to the file
         :param local_prefix: local path that specifies where to download the file
         :param timeout_seconds: number of seconds till timing out on waiting for the file to be downloaded
         :return: local path to the downloaded file
@@ -46,24 +46,24 @@ class AbstractDataStorage(ABC):
         pass
 
     @abstractmethod
-    def persist_file(self, input_path: str, target_path: str) -> None:
+    def persist_file(self, input_path: str, storage_path: str) -> None:
         """Persist file in data storage in target location.
 
         :param input_path: input path of file
         :type input_path: str
-        :param target_path: target path to place file
-        :type target_path: str
+        :param storage_path: absolute path in storage to persist the file
+        :type storage_path: str
         """
         pass
 
     @abstractmethod
-    def persist_content(self, object_bytes: bytes, target_path: str) -> None:
-        """Persist object content in data storage in target location.
+    def persist_content(self, object_bytes: bytes, storage_path: str) -> None:
+        """Persist object content in data storage in storage location.
 
         :param object_bytes: Bytes of object content to store.
         :type object_bytes: bytes
-        :param target_path: Path to storage destination.
-        :type target_path: str
+        :param storage_path: Absolute path in storage to persist the object content.
+        :type storage_path: str
         """
         pass
 
@@ -75,40 +75,40 @@ class FileSystemDataStorage(AbstractDataStorage):
         """Constructor for a file system storage instance."""
         pass
 
-    def fetch_file(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
+    def fetch_file(self, storage_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
         """Fetch file from data storage into the local path.
 
-        :param input_path: input file path
+        :param storage_path: absolute path in storage to the file
         :param local_prefix: local path that specifies where to download the file
         :return: local path to the downloaded file
         """
         # If we not copying the file to a new path, just return the input path.
         if not local_prefix:
-            return input_path
-        local_path = os.path.join(local_prefix, os.path.basename(input_path))
-        shutil.copyfile(input_path, local_path)
+            return storage_path
+        local_path = os.path.join(local_prefix, os.path.basename(storage_path))
+        shutil.copyfile(storage_path, local_path)
         return local_path
 
-    def persist_file(self, input_path: str, target_path: str) -> None:
+    def persist_file(self, input_path: str, storage_path: str) -> None:
         """Persist file on local or mounted data storage.
 
         :param input_path: file path on the local system.
-        :param target_path: file path on local system or mounted drive.
+        :param storage_path: absolute path in storage to persist the file
         """
         # If we are not putting the file to a new location, just return.
-        if input_path == target_path:
+        if input_path == storage_path:
             return
-        os.makedirs(Path(target_path).parent, exist_ok=True)
-        shutil.copy2(input_path, target_path)
+        os.makedirs(Path(storage_path).parent, exist_ok=True)
+        shutil.copy2(input_path, storage_path)
 
-    def persist_content(self, object_bytes: bytes, target_path: str) -> None:
+    def persist_content(self, object_bytes: bytes, storage_path: str) -> None:
         """Persist object content on data storage in target location.
 
         :param object_bytes: bytes to write to path
-        :param target_path: path to write object
+        :param storage_path: Absolute path in storage to persist the object content.
         """
-        os.makedirs(Path(target_path).parent, exist_ok=True)
-        with open(target_path, "wb") as binary_file:
+        os.makedirs(Path(storage_path).parent, exist_ok=True)
+        with open(storage_path, "wb") as binary_file:
             binary_file.write(object_bytes)
 
 
@@ -185,20 +185,20 @@ class S3DataStorage(AbstractDataStorage):
             logging.error(f"Failed to download s3 object in bucket: {bucket}, key: {key}")
             raise e
 
-    def fetch_file(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
+    def fetch_file(self, storage_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
         """
         Fetches a file from S3 to the local machine and skips it if it already exists. This function
         is safe to call concurrently from multiple processes and utilizes a local filelock to block
         parallel downloads such that only one process will perform the download.
 
-        This function assumes the input_path is a valid file in S3.
+        This function assumes the storage_path is a valid file in S3.
 
-        :param input_path: input file path in S3
+        :param storage_path: absolute path to the file in S3
         :param local_prefix: local path that specifies where to download the file
         :param timeout_seconds: number of seconds till timing out on waiting for the file to be downloaded
         :return: local path to the downloaded file
         """
-        bucket, key = self.bucket_key_from_s3_path(input_path)
+        bucket, key = self.bucket_key_from_s3_path(storage_path)
         local_path = os.path.join(local_prefix, key)
 
         lock_path = local_path + ".lock"
@@ -221,7 +221,7 @@ class S3DataStorage(AbstractDataStorage):
 
     def fetch_file_s3(self, input_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
         """Deprecated fetch file access, function signature kept to preserve backwards compatibility."""
-        return self.fetch_file(input_path=input_path, local_prefix=local_prefix, timeout_seconds=timeout_seconds)
+        return self.fetch_file(input_path, local_prefix, timeout_seconds=timeout_seconds)
 
     def fetch_obj_s3(self, input_path: str) -> bytes:
         """Fetches an object from S3 as bytes in memory
@@ -234,34 +234,34 @@ class S3DataStorage(AbstractDataStorage):
         self.client.download_fileobj(bucket, key, bio)
         return bio.getvalue()
 
-    def persist_content(self, object_bytes: bytes, target_path: str) -> None:
+    def persist_content(self, object_bytes: bytes, storage_path: str) -> None:
         """Upload object content to S3
 
         :param object_bytes: the object to upload to S3
         :type object_bytes: bytes
-        :param target_path: path to the file in S3
-        :type target_path: str
+        :param storage_path: absolute path in S3 to persist the object content
+        :type storage_path: str
         """
         # Long term, we would add an md5sum check and short-circuit the upload if they are the same
-        bucket, key = self.bucket_key_from_s3_path(target_path)
+        bucket, key = self.bucket_key_from_s3_path(storage_path)
         self.client.put_object(Body=object_bytes, Bucket=bucket, Key=key)
 
     def put_object_s3(self, object_bytes: bytes, s3_path: str) -> None:
         """Deprecated api access to the put object functionality."""
-        self.persist_content(object_bytes=object_bytes, target_path=s3_path)
+        self.persist_content(object_bytes, s3_path)
 
-    def persist_file(self, local_path: str, target_path: str) -> None:
+    def persist_file(self, local_path: str, storage_path: str) -> None:
         """Upload a file to S3
 
         :param local_path: local path to the file
-        :param target_path: s3 path to dump file to
+        :param storage_path: absolute path in S3 to persist the file
         """
-        bucket, key = self.bucket_key_from_s3_path(target_path)
+        bucket, key = self.bucket_key_from_s3_path(storage_path)
         self.client.upload_file(local_path, bucket, key)
 
     def put_file_s3(self, local_path: str, s3_path: str) -> None:
         """Deprecated api access to the put file functionality."""
-        self.persist_file(local_path=local_path, target_path=s3_path)
+        self.persist_file(local_path, s3_path)
 
     def __eq__(self, other: Any) -> bool:
         # We don't want to use isinstance here to make sure we have the same implementation.
