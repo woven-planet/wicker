@@ -37,7 +37,7 @@ class TestFileSystemDataStorage(TestCase):
             # create local file store
             local_datastore = FileSystemDataStorage()
             # save file to destination
-            local_datastore.fetch_file(src_dir, dst_path)
+            local_datastore.fetch_file(src_path, dst_dir)
 
             # verify file exists
             assert os.path.exists(dst_path)
@@ -46,6 +46,43 @@ class TestFileSystemDataStorage(TestCase):
             with open(dst_path, "r") as open_dst_file:
                 test_string = open_dst_file.readline()
                 assert test_string == expected_string
+
+    def test_persist_file(self) -> None:
+        """Unit test for persisting file on local/mounted drive location."""
+        data_storage = FileSystemDataStorage()
+        object_bytes = b"testy testy"
+
+        # write to a sample file in our system
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpfile_path = os.path.join(tmpdir, "test.txt")
+            with open(tmpfile_path, "wb") as open_file:
+                open_file.write(object_bytes)
+            storage_path = "path/to/testy/testy/test.testy"
+            storage_path = os.path.join(tmpdir, storage_path)
+            data_storage.persist_file(tmpfile_path, storage_path)
+
+            # test the file was written correctly by opening and verifying
+            moved_bytes = None
+            with open(storage_path, "rb") as read_file:
+                moved_bytes = read_file.readline()
+            assert moved_bytes == object_bytes
+
+    def test_persist_content(self) -> None:
+        """Unit test for persisting object on local/mounted drive location."""
+        data_storage = FileSystemDataStorage()
+        object_bytes = b"testy testy"
+
+        # write to a sample file in our system
+        with tempfile.TemporaryDirectory() as tmpdir:
+            storage_path = "path/to/testy/testy/test.testy"
+            storage_path = os.path.join(tmpdir, storage_path)
+            data_storage.persist_content(object_bytes, storage_path)
+
+            # test the file was written correctly by opening and verifying
+            moved_bytes = None
+            with open(storage_path, "rb") as read_file:
+                moved_bytes = read_file.readline()
+            assert moved_bytes == object_bytes
 
 
 class TestS3DataStorage(TestCase):
@@ -100,8 +137,8 @@ class TestS3DataStorage(TestCase):
             # The check_exists_s3 function catches the exception when the key does not exist
             self.assertFalse(data_storage.check_exists_s3(input_path))
 
-    def test_put_object_s3(self) -> None:
-        """Unit test for the put_object_s3 function."""
+    def test_persist_content(self) -> None:
+        """Unit test for the persist_content function."""
         data_storage = S3DataStorage()
         object_bytes = b"this is my object"
         input_path = "s3://foo/bar/baz/dummy"
@@ -114,13 +151,13 @@ class TestS3DataStorage(TestCase):
                 "Key": "bar/baz/dummy",
             }
             stubber.add_response("put_object", response, expected_params)
-            data_storage.put_object_s3(object_bytes, input_path)
+            data_storage.persist_content(object_bytes, input_path)
 
-    def test_put_file_s3(self) -> None:
-        """Unit test for the put_file_s3 function"""
+    def test_persist_file(self) -> None:
+        """Unit test for the persist_file function"""
         data_storage = S3DataStorage()
         object_bytes = b"this is my object"
-        input_path = "s3://foo/bar/baz/dummy"
+        storage_path = "s3://foo/bar/baz/dummy"
 
         with tempfile.NamedTemporaryFile() as tmpfile:
             tmpfile.write(object_bytes)
@@ -129,7 +166,7 @@ class TestS3DataStorage(TestCase):
             with Stubber(data_storage.client) as stubber:
                 response = {}  # type: ignore
                 stubber.add_response("put_object", response, None)
-                data_storage.put_file_s3(tmpfile.name, input_path)
+                data_storage.persist_file(tmpfile.name, storage_path)
 
     @staticmethod
     def download_file_side_effect(*args, **kwargs) -> None:  # type: ignore
@@ -144,12 +181,12 @@ class TestS3DataStorage(TestCase):
     def test_fetch_file(self, download_file: mock.Mock) -> None:
         """Unit test for the fetch_file function."""
         data_storage = S3DataStorage()
-        input_path = "s3://foo/bar/baz/dummy"
+        storage_path = "s3://foo/bar/baz/dummy"
         with tempfile.TemporaryDirectory() as local_prefix:
             # Add a side-effect to create the file to download at the correct local path
             download_file.side_effect = self.download_file_side_effect
 
-            local_path = data_storage.fetch_file(input_path, local_prefix)
+            local_path = data_storage.fetch_file(storage_path, local_prefix)
             download_file.assert_called_once_with(
                 bucket="foo",
                 key="bar/baz/dummy",
@@ -164,7 +201,7 @@ class TestS3DataStorage(TestCase):
     def test_fetch_file_s3_on_nonexistent_file(self, download_file: mock.Mock) -> None:
         """Unit test for the fetch_file function for a non-existent file in S3."""
         data_storage = S3DataStorage()
-        input_path = "s3://foo/bar/barbazz/dummy"
+        storage_path = "s3://foo/bar/barbazz/dummy"
         local_prefix = "/tmp"
 
         response = {"Error": {"Code": "404"}}
@@ -172,7 +209,7 @@ class TestS3DataStorage(TestCase):
         download_file.side_effect = side_effect
 
         with self.assertRaises(ClientError):
-            data_storage.fetch_file(input_path, local_prefix)
+            data_storage.fetch_file(storage_path, local_prefix)
 
 
 class TestS3PathFactory(TestCase):
