@@ -60,9 +60,9 @@ class AbstractDataStorage(ABC):
     def persist_content(self, object_bytes: bytes, storage_path: str) -> None:
         """Persist object content in data storage in storage location.
 
-        :param object_bytes: Bytes of object content to store.
+        :param object_bytes: bytes of object content to store.
         :type object_bytes: bytes
-        :param storage_path: Absolute path in storage to persist the object content.
+        :param storage_path: absolute path in storage to persist the content.
         :type storage_path: str
         """
         pass
@@ -78,9 +78,9 @@ class FileSystemDataStorage(AbstractDataStorage):
     def fetch_file(self, storage_path: str, local_prefix: str, timeout_seconds: int = 120) -> str:
         """Fetch file from data storage into the local path.
 
-        :param storage_path: absolute path in storage to the file
-        :param local_prefix: local path that specifies where to download the file
-        :return: local path to the downloaded file
+        :param storage_path: absolute path in storage to the file, e.g. /mnt/data/train/foo.json
+        :param local_prefix: local path that specifies where to download the file, e.g. /tmp/data
+        :return: local path to the downloaded file, e.g. /tmp/data/foo.json
         """
         # If we not copying the file to a new path, just return the input path.
         if not local_prefix:
@@ -92,8 +92,8 @@ class FileSystemDataStorage(AbstractDataStorage):
     def persist_file(self, input_path: str, storage_path: str) -> None:
         """Persist file on local or mounted data storage.
 
-        :param input_path: file path on the local system.
-        :param storage_path: absolute path in storage to persist the file
+        :param input_path: file path on the local system, e.g. /tmp/data/foo.json
+        :param storage_path: absolute path in storage to persist the file, e.g. /mnt/data/train/foo.json
         """
         # If we are not putting the file to a new location, just return.
         if input_path == storage_path:
@@ -105,7 +105,7 @@ class FileSystemDataStorage(AbstractDataStorage):
         """Persist object content on data storage in target location.
 
         :param object_bytes: bytes to write to path
-        :param storage_path: Absolute path in storage to persist the object content.
+        :param storage_path: absolute path in storage to persist the content, e.g. /mnt/data/train/foo.json
         """
         os.makedirs(Path(storage_path).parent, exist_ok=True)
         with open(storage_path, "wb") as binary_file:
@@ -156,7 +156,7 @@ class S3DataStorage(AbstractDataStorage):
     def check_exists_s3(self, input_path: str) -> bool:
         """Checks if a file exists on S3 under given path
 
-        :param input_path: input file path in S3
+        :param input_path: input file path in S3, e.g. s3://hello/train/foo.json
         :type input_path: str
         :return: whether or not the file exists in S3
         :rtype: bool
@@ -193,10 +193,10 @@ class S3DataStorage(AbstractDataStorage):
 
         This function assumes the storage_path is a valid file in S3.
 
-        :param storage_path: absolute path to the file in S3
-        :param local_prefix: local path that specifies where to download the file
+        :param storage_path: absolute path to the file in S3, e.g. s3://hello/train/foo.json
+        :param local_prefix: local path that specifies where to download the file, e.g. /tmp/train
         :param timeout_seconds: number of seconds till timing out on waiting for the file to be downloaded
-        :return: local path to the downloaded file
+        :return: local path to the downloaded file, e.g. /tmp/train/foo.json
         """
         bucket, key = self.bucket_key_from_s3_path(storage_path)
         local_path = os.path.join(local_prefix, key)
@@ -226,7 +226,7 @@ class S3DataStorage(AbstractDataStorage):
     def fetch_obj_s3(self, input_path: str) -> bytes:
         """Fetches an object from S3 as bytes in memory
 
-        :param input_path: path to object in s3
+        :param input_path: path to object in s3, e.g. s3://hello/train/foo.json
         :return: bytes of data in file
         """
         bucket, key = self.bucket_key_from_s3_path(input_path)
@@ -239,7 +239,7 @@ class S3DataStorage(AbstractDataStorage):
 
         :param object_bytes: the object to upload to S3
         :type object_bytes: bytes
-        :param storage_path: absolute path in S3 to persist the object content
+        :param storage_path: absolute path in S3 to persist the content, e.g. s3://hello/train/foo.json
         :type storage_path: str
         """
         # Long term, we would add an md5sum check and short-circuit the upload if they are the same
@@ -253,8 +253,8 @@ class S3DataStorage(AbstractDataStorage):
     def persist_file(self, local_path: str, storage_path: str) -> None:
         """Upload a file to S3
 
-        :param local_path: local path to the file
-        :param storage_path: absolute path in S3 to persist the file
+        :param local_path: local path to the file, e.g. /tmp/train/foo.json
+        :param storage_path: absolute path in S3 to persist the file, e.g. s3://hello/train/foo.json
         """
         bucket, key = self.bucket_key_from_s3_path(storage_path)
         self.client.upload_file(local_path, bucket, key)
