@@ -464,6 +464,7 @@ class DatasetFactory:
     """
 
     def create_filesystem_dataset(
+        self,
         dataset_name: str,
         dataset_version: str,
         dataset_partition_name: str,
@@ -498,6 +499,7 @@ class DatasetFactory:
         )
 
     def create_s3_dataset(
+        self,
         dataset_name: str,
         dataset_version: str,
         dataset_partition_name: str,
