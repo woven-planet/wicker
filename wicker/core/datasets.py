@@ -147,13 +147,14 @@ class AbstractDataset(abc.ABC):
 
 class BaseDataset(AbstractDataset):
     """Provides an implementation for part of the AbstractDataset interface for datasets whose items
-    and schema can be read from AbstractDataStorage."""
+    and schema can be read from AbstractDataStorage and column bytes files."""
 
     def __init__(
         self,
         dataset_name: str,
         dataset_version: str,
         dataset_partition_name: str,
+        column_bytes_file_reader: ColumnBytesFileReader,
         pa_filesystem: pafs.FileSystem,
         path_factory: WickerPathFactory,
         storage: AbstractDataStorage,
@@ -168,6 +169,7 @@ class BaseDataset(AbstractDataset):
         :param dataset_name: name of the dataset
         :param dataset_version: version of the dataset
         :param dataset_partition_name: partition name
+        :param column_bytes_file_reader: Reader instance for column bytes files
         :param pa_filesystem: Pyarrow filesystem for reading the parquet files and tables.
         :param path_factory: WickerPathFactory for pulling consistent paths.
         :param storage: AbstractDataStorage for data access.
@@ -181,6 +183,7 @@ class BaseDataset(AbstractDataset):
         .. seealso:: `filters in <https://arrow.apache.org/docs/python/generated/pyarrow.parquet.read_table.html>`__ # noqa
         """
         self._arrow_table: Optional[pyarrow.Table] = None  # Set by lazy initialization
+        self._column_bytes_file_reader = column_bytes_file_reader
         self._columns_to_load = columns_to_load
         self._dataset_id = DatasetID(name=dataset_name, version=dataset_version)
         self._dataset_name = dataset_name
@@ -194,9 +197,6 @@ class BaseDataset(AbstractDataset):
         self._schema: Optional[DatasetSchema] = None  # Set by lazy initialization
         self._storage = storage
         self._treat_objects_as_bytes = treat_objects_as_bytes
-
-        # Create the column bytes reader that depends on the other init parameter values.
-        self._column_bytes_file_reader = self._build_column_bytes_reader()
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         """Get data item at index within arrow table.
@@ -225,23 +225,6 @@ class BaseDataset(AbstractDataset):
             int: length of arrow table.
         """
         return len(self.arrow_table())
-
-    def _build_column_bytes_reader(self) -> ColumnBytesFileReader:
-        """Builder function to return a column bytes file reader."""
-        if self._local_cache_path_prefix:
-            # If caching column files from storage into the local filesystem, return a cache-enabled reader.
-            return ColumnBytesFileCache(
-                local_cache_path_prefix=self._local_cache_path_prefix,
-                filelock_timeout_seconds=self._filelock_timeout_seconds,
-                path_factory=self._path_factory,
-                storage=self._storage,
-                dataset_name=self._dataset_name,
-            )
-        # Otherwise return a pass-through reader.
-        return ColumnBytesFileReader(
-            dataset_name=self._dataset_name,
-            path_factory=self._path_factory,
-        )
 
     def arrow_table(self) -> pyarrow.Table:
         """Grab and load arrow table from expected path.
@@ -281,7 +264,6 @@ class FileSystemDataset(BaseDataset):
         dataset_name: str,
         dataset_version: str,
         dataset_partition_name: str,
-        pa_filesystem: pafs.LocalFileSystem,
         path_factory: WickerPathFactory,
         storage: FileSystemDataStorage,
         columns_to_load: Optional[List[str]] = None,
@@ -294,7 +276,7 @@ class FileSystemDataset(BaseDataset):
         :param dataset_name: name of the dataset
         :param dataset_version: version of the dataset
         :param dataset_partition_name: partition name
-        :param pa_filesystem: Pyarrow local filesystem for reading the parquet files and tables.
+        :param column_bytes_file_reader: Reader instance for column bytes files
         :param path_factory: WickerPathFactory for pulling consistent paths.
         :param storage: FileSystemDataStorage object for pulling files from filesystem
         :param columns_to_load: list of columns to load, defaults to None which loads all columns
@@ -304,10 +286,16 @@ class FileSystemDataset(BaseDataset):
         :type filters: pyarrow.compute.Expression, List[Tuple], or List[List[Tuple]], optional
         .. seealso:: `filters in <https://arrow.apache.org/docs/python/generated/pyarrow.parquet.read_table.html>`__ # noqa
         """
+        column_bytes_file_reader = ColumnBytesFileReader(
+            path_factory=path_factory,
+            dataset_name=dataset_name,
+        )
+        pa_filesystem = pafs.LocalFileSystem()
         super().__init__(
             dataset_name,
             dataset_version,
             dataset_partition_name,
+            column_bytes_file_reader,
             pa_filesystem,
             path_factory,
             storage,
@@ -355,10 +343,19 @@ class S3Dataset(BaseDataset):
         pa_filesystem = pa_filesystem if pa_filesystem else pafs.S3FileSystem(region=get_config().aws_s3_config.region)
         s3_path_factory = s3_path_factory if s3_path_factory else S3PathFactory()
         storage = storage if storage else S3DataStorage()
+        # For S3 datasets always cache column files from S3 on the local disk under the cache path.
+        column_bytes_file_cache = ColumnBytesFileCache(
+            local_cache_path_prefix=local_cache_path_prefix,
+            filelock_timeout_seconds=filelock_timeout_seconds,
+            path_factory=s3_path_factory,
+            storage=storage,
+            dataset_name=dataset_name,
+        )
         super().__init__(
             dataset_name,
             dataset_version,
             dataset_partition_name,
+            column_bytes_file_cache,
             pa_filesystem,
             s3_path_factory,
             storage,

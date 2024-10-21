@@ -98,12 +98,10 @@ class TestFileSystemDataset(unittest.TestCase):
     def test_filesystem_dataset(self):
         with self._setup_storage() as (fake_local_storage, fake_local_path_factory, tmpdir):
             with tempfile.TemporaryDirectory() as tmp_cache_dir:
-                pa_filesystem = pafs.LocalFileSystem()
                 ds = FileSystemDataset(
                     FAKE_NAME,
                     FAKE_VERSION,
                     FAKE_PARTITION,
-                    pa_filesystem,
                     fake_local_path_factory,
                     fake_local_storage,
                     columns_to_load=None,
