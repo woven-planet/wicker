@@ -502,13 +502,13 @@ def build_dataset(
 
     s3_root_path = config.aws_s3_config.s3_datasets_path
     s3_path_factory = S3PathFactory(s3_root_path=s3_root_path)
-    storage = S3DataStorage()
+    s3_storage = S3DataStorage()
     return S3Dataset(
         dataset_name,
         dataset_version,
         dataset_partition_name,
         columns_to_load=columns_to_load,
-        storage=storage,
+        storage=s3_storage,
         s3_path_factory=s3_path_factory,
         treat_objects_as_bytes=treat_objects_as_bytes,
         filters=filters,
