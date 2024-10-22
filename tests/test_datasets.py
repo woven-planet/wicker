@@ -11,7 +11,15 @@ import pyarrow.fs as pafs  # type: ignore
 import pyarrow.parquet as papq  # type: ignore
 
 from wicker.core.column_files import ColumnBytesFileWriter
-from wicker.core.datasets import FileSystemDataset, S3Dataset
+from wicker.core.config import (
+    FILESYSTEM_CONFIG,
+    StorageDownloadConfig,
+    WickerAwsS3Config,
+    WickerConfig,
+    WickerFileSystemConfig,
+    WickerWandBConfig,
+)
+from wicker.core.datasets import FileSystemDataset, S3Dataset, build_dataset
 from wicker.core.definitions import DatasetID, DatasetPartition
 from wicker.core.storage import FileSystemDataStorage, S3PathFactory, WickerPathFactory
 from wicker.schema import schema, serialization
@@ -36,18 +44,20 @@ FAKE_SCHEMA = schema.DatasetSchema(
 FAKE_DATA = [{"foo": f"bar{i}", "np_arr": np.eye(4)} for i in range(1000)]
 
 
-def get_size(start_path="."):
-    total_byte_size = 0
-    for dir_path, dirnames, filenames in os.walk(start_path):
-        for filename in filenames:
-            # skip if lock, success, or avro file
-            if "lock" not in filename and "success" not in filename and "avro" not in filename:
-                file_path = os.path.join(dir_path, filename)
-                # skip any symlinks (not in wicker but still test)
-                if not os.path.islink(file_path):
-                    total_byte_size += os.path.getsize(file_path)
-
-    return total_byte_size
+def build_mock_wicker_config(tmpdir: str) -> WickerConfig:
+    """Helper function to build WickerConfig objects to use as unit test mocks."""
+    return WickerConfig(
+        raw={},
+        aws_s3_config=WickerAwsS3Config.from_json({}),
+        filesystem_config=WickerFileSystemConfig.from_json(
+            {
+                "prefix_replace_path": "",
+                "root_datasets_path": os.path.join(tmpdir, "fake_data"),
+            }
+        ),
+        storage_download_config=StorageDownloadConfig.from_json({}),
+        wandb_config=WickerWandBConfig.from_json({}),
+    )
 
 
 @contextmanager
@@ -97,26 +107,33 @@ class TestFileSystemDataset(unittest.TestCase):
 
     def test_filesystem_dataset(self):
         with self._setup_storage() as (fake_local_storage, fake_local_path_factory, tmpdir):
-            with tempfile.TemporaryDirectory() as tmp_cache_dir:
-                ds = FileSystemDataset(
+            ds = FileSystemDataset(
+                FAKE_NAME,
+                FAKE_VERSION,
+                FAKE_PARTITION,
+                fake_local_path_factory,
+                fake_local_storage,
+            )
+            for i in range(len(FAKE_DATA)):
+                retrieved = ds[i]
+                reference = FAKE_DATA[i]
+                self.assertEqual(retrieved["foo"], reference["foo"])
+                np.testing.assert_array_equal(retrieved["np_arr"], reference["np_arr"])
+
+            # Also double-check that the builder function is working correctly.
+            with patch("wicker.core.datasets.get_config") as mock_get_config:
+                mock_get_config.return_value = build_mock_wicker_config(tmpdir)
+                ds2 = build_dataset(
+                    FILESYSTEM_CONFIG,
                     FAKE_NAME,
                     FAKE_VERSION,
                     FAKE_PARTITION,
-                    fake_local_path_factory,
-                    fake_local_storage,
-                    columns_to_load=None,
-                    local_cache_path_prefix=tmp_cache_dir,
                 )
                 for i in range(len(FAKE_DATA)):
-                    retrieved = ds[i]
+                    retrieved = ds2[i]
                     reference = FAKE_DATA[i]
                     self.assertEqual(retrieved["foo"], reference["foo"])
                     np.testing.assert_array_equal(retrieved["np_arr"], reference["np_arr"])
-
-                # test that the dataset size in the tmpdir is the same as the starting dir
-                tmpdir_size = get_size(os.path.join(tmp_cache_dir, "fake_data"))
-                expect_dir_size = get_size(os.path.join(tmpdir, "__COLUMN_CONCATENATED_FILES__"))
-                assert tmpdir_size == expect_dir_size
 
 
 class TestS3Dataset(unittest.TestCase):

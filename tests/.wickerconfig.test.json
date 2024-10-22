@@ -8,6 +8,10 @@
       "connect_timeout_s": 140
     }
   },
+  "filesystem_config": {
+    "prefix_replace_path": "s3://fake_data/",
+    "root_datasets_path": "/mnt/fake_data/"
+  },
   "dynamodb_config": {
     "table_name": "fake_db",
     "region": "us-west-2"

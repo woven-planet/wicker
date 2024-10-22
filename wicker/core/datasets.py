@@ -16,7 +16,11 @@ from wicker.core.column_files import (
     ColumnBytesFileLocationV1,
     ColumnBytesFileReader,
 )
-from wicker.core.config import get_config  # type: ignore
+from wicker.core.config import (  # type: ignore
+    AWS_S3_CONFIG,
+    FILESYSTEM_CONFIG,
+    get_config,
+)
 from wicker.core.definitions import DatasetID, DatasetPartition
 from wicker.core.storage import (
     AbstractDataStorage,
@@ -267,7 +271,6 @@ class FileSystemDataset(BaseDataset):
         path_factory: WickerPathFactory,
         storage: FileSystemDataStorage,
         columns_to_load: Optional[List[str]] = None,
-        local_cache_path_prefix: str = "",
         treat_objects_as_bytes: bool = False,
         filters=None,
     ):
@@ -280,7 +283,6 @@ class FileSystemDataset(BaseDataset):
         :param path_factory: WickerPathFactory for pulling consistent paths.
         :param storage: FileSystemDataStorage object for pulling files from filesystem
         :param columns_to_load: list of columns to load, defaults to None which loads all columns
-        :param local_cache_path_prefix: Path to local cache path, if empty don't create cache
         :param treat_objects_as_bytes: If set, don't try to decode ObjectFields and keep them as binary data.
         :param filters: Only returns rows which match the filter. Defaults to None, i.e., returns all rows.
         :type filters: pyarrow.compute.Expression, List[Tuple], or List[List[Tuple]], optional
@@ -300,7 +302,6 @@ class FileSystemDataset(BaseDataset):
             path_factory,
             storage,
             columns_to_load=columns_to_load,
-            local_cache_path_prefix=local_cache_path_prefix,
             treat_objects_as_bytes=treat_objects_as_bytes,
             filters=filters,
         )
@@ -455,6 +456,7 @@ class S3Dataset(BaseDataset):
 
 
 def build_dataset(
+    dataset_config: str,
     dataset_name: str,
     dataset_version: str,
     dataset_partition_name: str,
@@ -468,6 +470,7 @@ def build_dataset(
     This function determines the Wicker dataset type and reads out the remainder of the required
     properties for the dataset from the Wicker config file.
 
+    :param dataset_config: type of dataset configuration, must be either aws_s3_config or filesystem_config
     :param dataset_name: name of the dataset
     :param dataset_version: version of the dataset
     :param dataset_partition_name: partition name
@@ -477,8 +480,11 @@ def build_dataset(
     :type filters: pyarrow.compute.Expression, List[Tuple], or List[List[Tuple]], optional
     .. seealso:: `filters in <https://arrow.apache.org/docs/python/generated/pyarrow.parquet.read_table.html>`__ # noqa
     """
+    if dataset_config not in [AWS_S3_CONFIG, FILESYSTEM_CONFIG]:
+        raise ValueError(f"Input dataset_config {dataset_config} must be one of {AWS_S3_CONFIG}, {FILESYSTEM_CONFIG}")
+
     config = get_config()
-    if config.filesystem_config.loaded:
+    if dataset_config == FILESYSTEM_CONFIG:
         prefix_replace_path = config.filesystem_config.prefix_replace_path
         root_datasets_path = config.filesystem_config.root_datasets_path
         path_factory = WickerPathFactory(root_datasets_path, prefix_replace_path=prefix_replace_path)
@@ -501,9 +507,9 @@ def build_dataset(
         dataset_name,
         dataset_version,
         dataset_partition_name,
+        columns_to_load=columns_to_load,
         storage=storage,
         s3_path_factory=s3_path_factory,
-        columns_to_load=columns_to_load,
         treat_objects_as_bytes=treat_objects_as_bytes,
         filters=filters,
     )
