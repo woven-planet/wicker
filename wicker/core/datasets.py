@@ -454,38 +454,34 @@ class S3Dataset(BaseDataset):
         return self._get_dataset_partition_size()
 
 
-class DatasetFactory:
-    """Provides functions to make it easier for users to create instances of Wicker datasets by
-    creating them with standardized parameters.
+def build_dataset(
+    dataset_name: str,
+    dataset_version: str,
+    dataset_partition_name: str,
+    columns_to_load: Optional[List[str]] = None,
+    treat_objects_as_bytes: bool = False,
+    filters=None,
+) -> AbstractDataset:
+    """Builder function to make it easier for users to create instances of Wicker datasets as the
+    builder encapsulates many of the parameters necessary for the dataset creation.
 
-    To customize the dataset creation process, we recommended deriving a new subclass of this
-    factory and overriding its methods (or adding new ones) in order to support the specific kind of
-    Wicker dataset that you want.
+    This function determines the Wicker dataset type and reads out the remainder of the required
+    properties for the dataset from the Wicker config file.
+
+    :param dataset_name: name of the dataset
+    :param dataset_version: version of the dataset
+    :param dataset_partition_name: partition name
+    :param columns_to_load: list of columns to load, defaults to None which loads all columns
+    :param treat_objects_as_bytes: If set, don't try to decode ObjectFields and keep them as binary data.
+    :param filters: Only returns rows which match the filter. Defaults to None, i.e., returns all rows.
+    :type filters: pyarrow.compute.Expression, List[Tuple], or List[List[Tuple]], optional
+    .. seealso:: `filters in <https://arrow.apache.org/docs/python/generated/pyarrow.parquet.read_table.html>`__ # noqa
     """
-
-    def create_filesystem_dataset(
-        self,
-        dataset_name: str,
-        dataset_version: str,
-        dataset_partition_name: str,
-        root_path: str,
-        columns_to_load: Optional[List[str]] = None,
-        treat_objects_as_bytes: bool = False,
-        filters=None,
-    ) -> FileSystemDataset:
-        """Initializes a FileSystemDataset.
-
-        :param dataset_name: name of the dataset
-        :param dataset_version: version of the dataset
-        :param dataset_partition_name: partition name
-        :param root_path: File system location of the root of the wicker file structure
-        :param columns_to_load: list of columns to load, defaults to None which loads all columns
-        :param treat_objects_as_bytes: If set, don't try to decode ObjectFields and keep them as binary data.
-        :param filters: Only returns rows which match the filter. Defaults to None, i.e., returns all rows.
-        :type filters: pyarrow.compute.Expression, List[Tuple], or List[List[Tuple]], optional
-        .. seealso:: `filters in <https://arrow.apache.org/docs/python/generated/pyarrow.parquet.read_table.html>`__ # noqa
-        """
-        path_factory = WickerPathFactory(root_path)
+    config = get_config()
+    if config.filesystem_config.loaded:
+        prefix_replace_path = config.filesystem_config.prefix_replace_path
+        root_datasets_path = config.filesystem_config.root_datasets_path
+        path_factory = WickerPathFactory(root_datasets_path, prefix_replace_path=prefix_replace_path)
         storage = FileSystemDataStorage()
         return FileSystemDataset(
             dataset_name,
@@ -498,39 +494,16 @@ class DatasetFactory:
             filters=filters,
         )
 
-    def create_s3_dataset(
-        self,
-        dataset_name: str,
-        dataset_version: str,
-        dataset_partition_name: str,
-        columns_to_load: Optional[List[str]] = None,
-        filelock_timeout_seconds: int = FILE_LOCK_TIMEOUT_SECONDS,
-        treat_objects_as_bytes: bool = False,
-        filters=None,
-    ) -> S3Dataset:
-        """Initializes an S3Dataset that caches column files to the local disk.
-
-        :param dataset_name: name of the dataset
-        :param dataset_version: version of the dataset
-        :param dataset_partition_name: partition name
-        :param columns_to_load: list of columns to load, defaults to None which loads all columns
-        :param filelock_timeout_seconds: number of seconds after which to timeout on waiting for downloads,
-            defaults to FILE_LOCK_TIMEOUT_SECONDS
-        :param treat_objects_as_bytes: If set, don't try to decode ObjectFields and keep them as binary data
-        :param filters: Only returns rows which match the filter. Defaults to None, i.e., returns all rows.
-        :type filters: pyarrow.compute.Expression, List[Tuple], or List[List[Tuple]], optional
-        .. seealso:: `filters in <https://arrow.apache.org/docs/python/generated/pyarrow.parquet.read_table.html>`__ # noqa
-        """
-        s3_path_factory = S3PathFactory()
-        storage = S3DataStorage()
-        return S3Dataset(
-            dataset_name,
-            dataset_version,
-            dataset_partition_name,
-            s3_path_factory=s3_path_factory,
-            storage=storage,
-            columns_to_load=columns_to_load,
-            filelock_timeout_seconds=filelock_timeout_seconds,
-            treat_objects_as_bytes=treat_objects_as_bytes,
-            filters=filters,
-        )
+    s3_root_path = config.aws_s3_config.s3_datasets_path
+    s3_path_factory = S3PathFactory(s3_root_path=s3_root_path)
+    storage = S3DataStorage()
+    return S3Dataset(
+        dataset_name,
+        dataset_version,
+        dataset_partition_name,
+        storage=storage,
+        s3_path_factory=s3_path_factory,
+        columns_to_load=columns_to_load,
+        treat_objects_as_bytes=treat_objects_as_bytes,
+        filters=filters,
+    )

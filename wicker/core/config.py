@@ -40,6 +40,7 @@ class BotoS3Config:
 
 @dataclasses.dataclass(frozen=True)
 class WickerAwsS3Config:
+    loaded: bool = False
     s3_datasets_path: str
     region: str
     boto_config: BotoS3Config
@@ -48,10 +49,26 @@ class WickerAwsS3Config:
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> WickerAwsS3Config:
         return cls(
+            loaded=True,
             s3_datasets_path=data["s3_datasets_path"],
             region=data["region"],
             boto_config=BotoS3Config.from_json(data["boto_config"]),
             store_concatenated_bytes_files_in_dataset=data.get("store_concatenated_bytes_files_in_dataset", False),
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class WickerFileSystemConfig:
+    loaded: bool = False
+    prefix_replace_path: str
+    root_datasets_path: str
+
+    @classmethod
+    def from_json(cls, data: Dict[str, Any]) -> WickerFileSystemConfig:
+        return cls(
+            loaded=True,
+            prefix_replace_path=data.get("prefix_replace_path", ""),
+            root_datasets_path=data["root_datasets_path"],
         )
 
 
@@ -72,21 +89,28 @@ class StorageDownloadConfig:
         )
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass()
 class WickerConfig:
     raw: Dict[str, Any]
     aws_s3_config: WickerAwsS3Config
+    filesystem_config: WickerFileSystemConfig
     storage_download_config: StorageDownloadConfig
     wandb_config: WickerWandBConfig
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> WickerConfig:
-        return cls(
-            raw=data,
-            aws_s3_config=WickerAwsS3Config.from_json(data["aws_s3_config"]),
-            storage_download_config=StorageDownloadConfig.from_json(data["storage_download_config"]),
-            wandb_config=WickerWandBConfig.from_json(data.get("wandb_config", {})),
-        )
+        config = cls(raw=data)
+        if "aws_s3_config" in data and "filesystem_config" in data:
+            raise ValueError("Cannot define both aws_s3_config and filesystem_config in wickerconfig file")
+        if "aws_s3_config" in data:
+            config.aws_s3_config = WickerAwsS3Config.from_json(data.get["aws_s3_config"])
+        if "filesystem_config" in data:
+            config.filesystem_config = WickerFileSystemConfig.from_json(data.get["filesystem_config"])
+        if "storage_download_config" in data:
+            config.storage_download_config = StorageDownloadConfig.from_json(data.get["storage_download_config"])
+        if "wandb_config" in data:
+            config.wandb_config = WickerWandBConfig.from_json(data.get["wandb_config"])
+        return config
 
 
 def get_config() -> WickerConfig:

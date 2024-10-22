@@ -11,7 +11,7 @@ import pyarrow.fs as pafs  # type: ignore
 import pyarrow.parquet as papq  # type: ignore
 
 from wicker.core.column_files import ColumnBytesFileWriter
-from wicker.core.datasets import DatasetFactory, FileSystemDataset, S3Dataset
+from wicker.core.datasets import FileSystemDataset, S3Dataset
 from wicker.core.definitions import DatasetID, DatasetPartition
 from wicker.core.storage import FileSystemDataStorage, S3PathFactory, WickerPathFactory
 from wicker.schema import schema, serialization
@@ -117,20 +117,6 @@ class TestFileSystemDataset(unittest.TestCase):
                 tmpdir_size = get_size(os.path.join(tmp_cache_dir, "fake_data"))
                 expect_dir_size = get_size(os.path.join(tmpdir, "__COLUMN_CONCATENATED_FILES__"))
                 assert tmpdir_size == expect_dir_size
-
-                # Also double-check that the factory interface is working correctly
-                ds2 = DatasetFactory().create_filesystem_dataset(
-                    FAKE_NAME,
-                    FAKE_VERSION,
-                    FAKE_PARTITION,
-                    fake_local_path_factory.root_path,
-                )
-
-                for i in range(len(FAKE_DATA)):
-                    retrieved = ds2[i]
-                    reference = FAKE_DATA[i]
-                    self.assertEqual(retrieved["foo"], reference["foo"])
-                    np.testing.assert_array_equal(retrieved["np_arr"], reference["np_arr"])
 
 
 class TestS3Dataset(unittest.TestCase):
