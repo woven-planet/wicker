@@ -49,12 +49,15 @@ def build_mock_wicker_config(tmpdir: str) -> WickerConfig:
     return WickerConfig(
         raw={},
         aws_s3_config=WickerAwsS3Config.from_json({}),
-        filesystem_config=WickerFileSystemConfig.from_json(
-            {
-                "prefix_replace_path": "",
-                "root_datasets_path": os.path.join(tmpdir, "fake_data"),
-            }
-        ),
+        filesystem_configs=[
+            WickerFileSystemConfig.from_json(
+                {
+                    "config_name": "filesystem_1",
+                    "prefix_replace_path": "",
+                    "root_datasets_path": os.path.join(tmpdir, "fake_data"),
+                }
+            ),
+        ],
         storage_download_config=StorageDownloadConfig.from_json({}),
         wandb_config=WickerWandBConfig.from_json({}),
     )
@@ -128,6 +131,7 @@ class TestFileSystemDataset(unittest.TestCase):
                     FAKE_NAME,
                     FAKE_VERSION,
                     FAKE_PARTITION,
+                    config_name="filesystem_1",
                 )
                 for i in range(len(FAKE_DATA)):
                     retrieved = ds2[i]

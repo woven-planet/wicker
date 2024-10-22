@@ -6,7 +6,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 AWS_S3_CONFIG = "aws_s3_config"
 FILESYSTEM_CONFIG = "filesystem_config"
@@ -59,15 +59,21 @@ class WickerAwsS3Config:
 
 @dataclasses.dataclass(frozen=True)
 class WickerFileSystemConfig:
+    config_name: str
     prefix_replace_path: str
     root_datasets_path: str
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> WickerFileSystemConfig:
         return cls(
+            config_name=data.get("config_name", ""),
             prefix_replace_path=data.get("prefix_replace_path", ""),
             root_datasets_path=data.get("root_datasets_path", ""),
         )
+
+    @classmethod
+    def from_json_list(cls, data: List[Dict[str, Any]]) -> List[WickerFileSystemConfig]:
+        return [WickerFileSystemConfig.from_json(d) for d in data]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -91,7 +97,7 @@ class StorageDownloadConfig:
 class WickerConfig:
     raw: Dict[str, Any]
     aws_s3_config: WickerAwsS3Config
-    filesystem_config: WickerFileSystemConfig
+    filesystem_configs: List[WickerFileSystemConfig]
     storage_download_config: StorageDownloadConfig
     wandb_config: WickerWandBConfig
 
@@ -100,7 +106,7 @@ class WickerConfig:
         return cls(
             raw=data,
             aws_s3_config=WickerAwsS3Config.from_json(data.get(AWS_S3_CONFIG, {})),
-            filesystem_config=WickerFileSystemConfig.from_json(data.get(FILESYSTEM_CONFIG, {})),
+            filesystem_configs=WickerFileSystemConfig.from_json_list(data.get("filesystem_configs", [])),
             storage_download_config=StorageDownloadConfig.from_json(data.get("storage_download_config", {})),
             wandb_config=WickerWandBConfig.from_json(data.get("wandb_config", {})),
         )

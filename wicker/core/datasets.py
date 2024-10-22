@@ -19,6 +19,8 @@ from wicker.core.column_files import (
 from wicker.core.config import (  # type: ignore
     AWS_S3_CONFIG,
     FILESYSTEM_CONFIG,
+    WickerConfig,
+    WickerFileSystemConfig,
     get_config,
 )
 from wicker.core.definitions import DatasetID, DatasetPartition
@@ -455,11 +457,19 @@ class S3Dataset(BaseDataset):
         return self._get_dataset_partition_size()
 
 
+def get_filesystem_config(config_name: str, config: WickerConfig) -> Optional[WickerFileSystemConfig]:
+    for filesystem_config in config.filesystem_configs:
+        if filesystem_config.config_name == config_name:
+            return filesystem_config
+    return None
+
+
 def build_dataset(
-    dataset_config: str,
+    config_type: str,
     dataset_name: str,
     dataset_version: str,
     dataset_partition_name: str,
+    config_name: str = "",
     columns_to_load: Optional[List[str]] = None,
     treat_objects_as_bytes: bool = False,
     filters=None,
@@ -470,23 +480,28 @@ def build_dataset(
     This function determines the Wicker dataset type and reads out the remainder of the required
     properties for the dataset from the Wicker config file.
 
-    :param dataset_config: type of dataset configuration, must be either aws_s3_config or filesystem_config
+    :param config_type: type of dataset configuration, must be either aws_s3_config or filesystem_config
     :param dataset_name: name of the dataset
     :param dataset_version: version of the dataset
     :param dataset_partition_name: partition name
+    :param config_name name of dataset configuration (for dataset types that support multiple configurations)
     :param columns_to_load: list of columns to load, defaults to None which loads all columns
     :param treat_objects_as_bytes: If set, don't try to decode ObjectFields and keep them as binary data.
     :param filters: Only returns rows which match the filter. Defaults to None, i.e., returns all rows.
     :type filters: pyarrow.compute.Expression, List[Tuple], or List[List[Tuple]], optional
     .. seealso:: `filters in <https://arrow.apache.org/docs/python/generated/pyarrow.parquet.read_table.html>`__ # noqa
     """
-    if dataset_config not in [AWS_S3_CONFIG, FILESYSTEM_CONFIG]:
-        raise ValueError(f"Input dataset_config {dataset_config} must be one of {AWS_S3_CONFIG}, {FILESYSTEM_CONFIG}")
+    if config_type not in [AWS_S3_CONFIG, FILESYSTEM_CONFIG]:
+        raise ValueError(f"Input config_type {config_type} must be one of {AWS_S3_CONFIG}, {FILESYSTEM_CONFIG}")
 
     config = get_config()
-    if dataset_config == FILESYSTEM_CONFIG:
-        prefix_replace_path = config.filesystem_config.prefix_replace_path
-        root_datasets_path = config.filesystem_config.root_datasets_path
+    if config_type == FILESYSTEM_CONFIG:
+        filesystem_config = get_filesystem_config(config_name, config)
+        if not filesystem_config:
+            raise ValueError(f"No filesystem_config with name '{config_name}' was found")
+
+        prefix_replace_path = filesystem_config.prefix_replace_path
+        root_datasets_path = filesystem_config.root_datasets_path
         path_factory = WickerPathFactory(root_datasets_path, prefix_replace_path=prefix_replace_path)
         storage = FileSystemDataStorage()
         return FileSystemDataset(
