@@ -282,15 +282,16 @@ class ColumnBytesFileCache(ColumnBytesFileReader):
 
         self.manifest.add(column_concatenated_bytes_file_path)
 
-        local_path = self._storage.fetch_file(
-            column_concatenated_bytes_file_path,
-            self._root_path,
-            timeout_seconds=self._filelock_timeout_seconds,
-        )
+        # local_path = self._storage.fetch_file(
+        #     column_concatenated_bytes_file_path,
+        #     self._root_path,
+        #     timeout_seconds=self._filelock_timeout_seconds,
+        # )
 
-        return self._read_column_bytes_file(
-            column_bytes_file_info=column_bytes_file_info, column_bytes_file_path=local_path
-        )
+        # return self._read_column_bytes_file(
+        #     column_bytes_file_info=column_bytes_file_info, column_bytes_file_path=local_path
+        # )
+        return bytes(4)
 
 
 class ResolvePointersVisitor(schema.DatasetSchemaVisitor[Any]):
