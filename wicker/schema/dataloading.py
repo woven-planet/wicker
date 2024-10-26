@@ -85,7 +85,8 @@ class LoadExampleVisitor(schema.DatasetSchemaVisitor[Any]):
         data = validation.validate_field_type(self._current_data, bytes, field.required, self._current_path)
         if data is None:
             return data
-        return field.codec.decode_object(data)
+        # return field.codec.decode_object(data)
+        return None
 
     def process_array_field(self, field: schema.ArrayField) -> Optional[List[Any]]:
         current_data = validation.validate_field_type(self._current_data, list, field.required, self._current_path)
