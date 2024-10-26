@@ -403,7 +403,7 @@ class S3Dataset(AbstractDataset):
         launch_code = launch_gcs_transfer_job(
             aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
             aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
-            description=f"Transfer {self.dataset_name}:{self.dataset_version}:{self.dataset_partition}",
+            description=f"Transfer {self._dataset_id.name}:{self._dataset_id.version}:{self._partition.partition}",
             manifest_location=gcs_file_location_path,
             project_id=os.environ["GCP_PROJECT"],
         )
