@@ -195,6 +195,9 @@ class S3Dataset(AbstractDataset):
         )
         self.filters = filters
 
+    def manifest(self) -> List[str]:
+        return self._column_bytes_file_cache.manifest
+
     def schema(self) -> DatasetSchema:
         if self._schema is None:
             schema_path = self._s3_path_factory.get_dataset_schema_path(self._dataset_id)

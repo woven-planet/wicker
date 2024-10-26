@@ -267,6 +267,7 @@ class ColumnBytesFileCache(ColumnBytesFileReader):
         self._storage = storage if storage is not None else S3DataStorage()
         self._root_path = local_cache_path_prefix
         self._filelock_timeout_seconds = filelock_timeout_seconds
+        self.manifest = set()
 
     def read(self, column_bytes_file_info: ColumnBytesFileLocationV1) -> bytes:
         """Read data from column bytes file.
@@ -278,6 +279,8 @@ class ColumnBytesFileCache(ColumnBytesFileReader):
         column_concatenated_bytes_file_path = os.path.join(
             self._column_bytes_root_path, str(column_bytes_file_info.file_id)
         )
+
+        self.manifest.add(column_concatenated_bytes_file_path)
 
         local_path = self._storage.fetch_file(
             column_concatenated_bytes_file_path,
