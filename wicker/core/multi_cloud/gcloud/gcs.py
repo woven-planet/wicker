@@ -73,7 +73,6 @@ def get_non_existant_s3_file_set(file_list: List[Tuple[str, str]]) -> List[S3Fil
     gcloud_wicker_root_path = config.gcloud_storage_config.bucket_wicker_data_head_path
     aws_transfer_cut_prefix = config.gcloud_storage_config.aws_transfer_cut_prefix
     non_existant_files = []
-    idx = 0
     for file in tqdm.tqdm(file_list):
         bucket, key = file
         gcloud_key = key.replace(aws_transfer_cut_prefix, gcloud_wicker_root_path)
@@ -86,9 +85,6 @@ def get_non_existant_s3_file_set(file_list: List[Tuple[str, str]]) -> List[S3Fil
                 source_key=key,
             )
             non_existant_files.append(non_existant_file)
-            idx += 1
-            if idx >= 5:
-                break
     return non_existant_files
 
 
