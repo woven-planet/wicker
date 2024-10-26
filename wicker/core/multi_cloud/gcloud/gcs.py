@@ -1,5 +1,6 @@
 import csv
 import datetime
+import logging
 import os
 from dataclasses import dataclass
 from typing import List, Tuple
@@ -115,6 +116,9 @@ def launch_gcs_transfer_job(
     """
 
     client = storage_transfer.StorageTransferServiceClient()
+    config = get_config()
+    bucket = config.gcloud_storage_config.bucket
+    manifest_path = os.path.join("gs://", bucket, manifest_location)
 
     source_ds_path = get_config().aws_s3_config.s3_datasets_path
     source_bucket, _ = source_ds_path.replace("s3://", "").split("/", 1)
@@ -144,7 +148,8 @@ def launch_gcs_transfer_job(
                     "gcs_data_sink": {
                         "bucket_name": sink_bucket,
                     },
-                    "transfer_manifest": {"location": "gs://ads-ml-data/manifest.csv"},
+                    "transfer_manifest": {"location": manifest_path},
+
                 },
             }
         }
@@ -189,6 +194,9 @@ def push_manifest_to_gcp(
 
     # create blob and upload
     dataset_blob = gcloud_bucket.blob(gcloud_path)
+    if dataset_blob.exists(gcloud_client):
+        logging.warning(f"Found manifest blob on gcs at {gcloud_path}, deleting and regenerating.")
+        dataset_blob.delete()
     dataset_blob.upload_from_filename(manifest_file_local_path)
 
     return gcloud_path

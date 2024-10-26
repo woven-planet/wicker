@@ -4,6 +4,8 @@ from multiprocessing.pool import ThreadPool
 from typing import Any, List, Tuple
 
 
+THREAD_CHUNK_SIZE = 50
+
 def chunk_data_for_split(chunkable_data: List[Any], chunk_number: int = 500) -> List[List[Any]]:
     """Chunk data into a user specified number of chunks.
 
@@ -21,7 +23,7 @@ def chunk_data_for_split(chunkable_data: List[Any], chunk_number: int = 500) -> 
         if len(chunk) > 0:
             local_chunks.append(chunk)
 
-    last_chunk_size = len(chunkable_data) - (chunk_number * local_chunk_size)
+    last_chunk_size = len(chunkable_data) - ((chunk_number - 1) * local_chunk_size)
     if last_chunk_size > 0:
         last_chunk = chunkable_data[-last_chunk_size:]
         local_chunks.append(last_chunk)
@@ -53,10 +55,10 @@ def multiproc_file_parse(
     Returns:
         int size of file list in bytes.
     """
-    buckets_keys_chunks = chunk_data_for_split(chunkable_data=buckets_keys, chunk_number=200)
-
+    cpu_count_used = cpu_count() - 5
+    buckets_keys_chunks = chunk_data_for_split(chunkable_data=buckets_keys, chunk_number=cpu_count_used)
     logging.info("Grabbing file information from s3 heads")
-    pool = Pool(cpu_count() - 2)
+    pool = Pool(cpu_count_used)
     results = list(pool.map(function_for_process, buckets_keys_chunks))
     if result_collapse_func is not None:
         results = result_collapse_func(results)
@@ -66,7 +68,7 @@ def multiproc_file_parse(
 def thread_file_parse(
     buckets_keys_chunks_local: List[Tuple[str, str]], function_for_thread: Any, result_collapse_func: Any = None
 ) -> Any:
-    """Get file size of a list of s3 paths.
+    """Multi thread head for some process, generally passed to multi proc to thread each proc.
 
     Args:
         buckets_keys_chunks_local (List[Tuple[str, str]]):
@@ -79,11 +81,12 @@ def thread_file_parse(
     Returns:
         int: size of the set of files in bytes
     """
-    local_chunks = chunk_data_for_split(chunkable_data=buckets_keys_chunks_local, chunk_number=200)
+    chunk_number = len(buckets_keys_chunks_local) // THREAD_CHUNK_SIZE
+    local_chunks = chunk_data_for_split(chunkable_data=buckets_keys_chunks_local, chunk_number=chunk_number)
     thread_pool = ThreadPool()
     results = list(thread_pool.map(function_for_thread, local_chunks))  # type: ignore
     if result_collapse_func is not None:
-        return result_collapse_func(results)
+        results = result_collapse_func(results)
     return results
 
 

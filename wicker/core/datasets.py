@@ -40,7 +40,8 @@ logger = logging.getLogger(__name__)
 
 
 def thread_func_head_size(buckets_keys_chunks_local: List[Tuple[str, str]]):
-    return thread_file_parse(buckets_keys_chunks_local, iterate_bucket_key_chunk_for_size, sum)
+    thread_results = thread_file_parse(buckets_keys_chunks_local, iterate_bucket_key_chunk_for_size, sum)
+    return thread_results
 
 
 def thread_func_non_existant_gcloud(buckets_keys_chunks_local: List[Tuple[str, str]]):
@@ -62,15 +63,11 @@ def iterate_bucket_key_chunk_for_size(bucket_key_locs: List[Tuple[str, str]]) ->
     # create the s3 resource locally and don't pass in. Boto3 docs state to do this in each thread
     # and not pass around.
     s3_resource = boto3.resource("s3")
-    idx = 0
     for bucket_key_loc in bucket_key_locs:
         bucket_loc, key_loc = bucket_key_loc
         # get the byte length for the object
         byte_length = s3_resource.Object(bucket_loc, key_loc).content_length
         local_len += byte_length
-        idx += 1
-        if idx == 10:
-            break
     return local_len
 
 
@@ -390,9 +387,8 @@ class S3Dataset(AbstractDataset):
 
         # get the total set that do not exist on gcloud
         # do this in case previous transfer failed and we pick up midway
-        cut_down = list(heavy_pointer_buckets_keys)[:50]
-        files_to_move = multiproc_file_parse(cut_down, thread_func_non_existant_gcloud, list_combine)
-
+        buckets_keys_list = list(self.heavy_pointer_buckets_keys)
+        files_to_move = multiproc_file_parse(buckets_keys_list, thread_func_non_existant_gcloud, list_combine)
         # when you have the file list create the gcloud transfer service
         # manifest file
         manifest_file_local_path = "./manifest.csv"
@@ -404,13 +400,12 @@ class S3Dataset(AbstractDataset):
             dataset_version=self._dataset_id.version,
             manifest_file_local_path=manifest_file_local_path,
         )
-
         launch_code = launch_gcs_transfer_job(
             aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
             aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
-            description="test job",
+            description=f"Transfer {self.dataset_name}:{self.dataset_version}:{self.dataset_partition}",
             manifest_location=gcs_file_location_path,
-            project_id="wp-dev-eai-n321",
+            project_id=os.environ["GCP_PROJECT"],
         )
         return launch_code
 
@@ -421,7 +416,7 @@ class S3Dataset(AbstractDataset):
 
         buckets_keys = set()
         arrow_table = self.arrow_table()
-        for heavy_pntr_col in self.heavy_pointer_files[:5]:
+        for heavy_pntr_col in self.heavy_pointer_files:
             logging.info(f"Evaulating {heavy_pntr_col} for column file locations")
             # Each individual row only knows which column file it goes to, so we have to
             # neccesarily parse all rows :( to get the column files. This should be cached
@@ -472,7 +467,7 @@ class S3Dataset(AbstractDataset):
         column_files_byte_size = multiproc_file_parse(
             buckets_keys=buckets_keys_list,
             function_for_process=thread_func_head_size,
-            result_collapse_func=list_combine,
+            result_collapse_func=sum,
         )
         return column_files_byte_size + par_dir_bytes
 

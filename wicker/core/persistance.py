@@ -83,16 +83,16 @@ class AbstractDataPersistor(abc.ABC):
     @staticmethod
     def persist_wicker_partition(
         dataset_name: str,
-        spark_partition_iter: Iterable[Tuple[str, ParsedExample]],
+        partition_iter: Iterable[Tuple[str, ParsedExample]],
         schema: schema_module.DatasetSchema,
         s3_storage: S3DataStorage,
         s3_path_factory: S3PathFactory,
         target_max_column_file_numrows: int = 50,
     ) -> Iterable[Tuple[str, PointerParsedExample]]:
-        """Persists a Spark partition of examples with parsed bytes into S3Storage as ColumnBytesFiles,
-        returning a new Spark partition of examples with heavy-pointers and metadata only.
+        """Persists a partition of examples with parsed bytes into S3Storage as ColumnBytesFiles,
+        returning a new partition of examples with heavy-pointers and metadata only.
         :param dataset_name: dataset name
-        :param spark_partition_iter: Spark partition of `(partition_str, example)`, where `example`
+        :param partition_iter: Partition of `(partition_str, example)`, where `example`
             is a dictionary of parsed bytes that needs to be uploaded to S3
         :param target_max_column_file_numrows: Maximum number of rows in column files. Defaults to 50.
         :return: a Generator of `(partition_str, example)`, where `example` is a dictionary with heavy-pointers
@@ -102,7 +102,7 @@ class AbstractDataPersistor(abc.ABC):
         heavy_pointer_columns = schema.get_pointer_columns()
         metadata_columns = schema.get_non_pointer_columns()
 
-        for partition, example in spark_partition_iter:
+        for partition, example in partition_iter:
             # Create ColumnBytesFileWriter lazily as required, for each partition
             if partition not in column_bytes_file_writers:
                 column_bytes_file_writers[partition] = ColumnBytesFileWriter(
