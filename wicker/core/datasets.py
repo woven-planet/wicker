@@ -2,9 +2,7 @@ import abc
 import logging
 import os
 from functools import cached_property
-from multiprocessing import Pool, cpu_count
-from multiprocessing.pool import ThreadPool
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import boto3
 import pyarrow  # type: ignore
@@ -18,6 +16,13 @@ from wicker.core.column_files import (
 )
 from wicker.core.config import get_config  # type: ignore
 from wicker.core.definitions import DatasetDefinition, DatasetID, DatasetPartition
+from wicker.core.multi_cloud.gcloud.gcs import (
+    generate_manifest_file,
+    get_non_existant_s3_file_set,
+    launch_gcs_transfer_job,
+    push_manifest_to_gcp,
+)
+from wicker.core.parsing import list_combine, multiproc_file_parse, thread_file_parse
 from wicker.core.storage import (
     AbstractDataStorage,
     FileSystemDataStorage,
@@ -34,70 +39,13 @@ FILE_LOCK_TIMEOUT_SECONDS = 300
 logger = logging.getLogger(__name__)
 
 
-def get_file_size_s3_multiproc(buckets_keys: List[Tuple[str, str]]) -> int:
-    """Get file size of s3 files, most often column files.
-
-    This works on any list of buckets and keys but is generally only
-    used for column files as those are the majority of what is stored on
-    s3 for Wicker. Wicker also stores parquet files on s3 but those are limited
-    to one file per dataset and one schema file.
-
-    This splits your buckets_keys_list across multiple processes on your local host
-    where each process is then multi threaded further. This reduces the i/o wait by
-    parellelizing across all available procs and threads on a single machine.
-
-    Args:
-        buckets_keys: (List[Tuple[str, str]]): A list of buckets and keys for which
-        to fetch size in bytes on s3. Tuple index 0 is bucket and index 1 is key of the file.
-
-    Returns:
-        int size of file list in bytes.
-    """
-    buckets_keys_chunks = chunk_data_for_split(chunkable_data=buckets_keys, chunk_number=200)
-
-    logging.info("Grabbing file information from s3 heads")
-    pool = Pool(cpu_count() - 1)
-    return sum(list(pool.map(get_file_size_s3_threaded, buckets_keys_chunks)))
+def thread_func_head_size(buckets_keys_chunks_local: List[Tuple[str, str]]):
+    thread_results = thread_file_parse(buckets_keys_chunks_local, iterate_bucket_key_chunk_for_size, sum)
+    return thread_results
 
 
-def get_file_size_s3_threaded(buckets_keys_chunks_local: List[Tuple[str, str]]) -> int:
-    """Get file size of a list of s3 paths.
-
-    Args:
-        buckets_keys_chunks_local - The list of tuples denoting bucket and key of files on s3 to
-        parse. Generally column files but will work with any data.
-
-    Returns:
-        int: size of the set of files in bytes
-    """
-    local_chunks = chunk_data_for_split(chunkable_data=buckets_keys_chunks_local, chunk_number=200)
-    thread_pool = ThreadPool()
-
-    return sum(list(thread_pool.map(iterate_bucket_key_chunk_for_size, local_chunks)))  # type: ignore
-
-
-def chunk_data_for_split(chunkable_data: List[Any], chunk_number: int = 500) -> List[List[Any]]:
-    """Chunk data into a user specified number of chunks.
-
-    Args:
-        chunkable_data (List[Any]): Data to be chunked into smaller pieces.
-        chunk_number (int): Number of chunks to form.
-
-    Returns:
-        List[List[Any]]: List of subsets of input data.
-    """
-    local_chunks = []
-    local_chunk_size = len(chunkable_data) // chunk_number
-    for i in range(0, chunk_number - 1):
-        chunk = chunkable_data[i * local_chunk_size : (i + 1) * local_chunk_size]
-        local_chunks.append(chunk)
-
-    last_chunk_size = len(chunkable_data) - (chunk_number * local_chunk_size)
-    if last_chunk_size > 0:
-        last_chunk = chunkable_data[-last_chunk_size:]
-        local_chunks.append(last_chunk)
-
-    return local_chunks
+def thread_func_non_existant_gcloud(buckets_keys_chunks_local: List[Tuple[str, str]]):
+    return thread_file_parse(buckets_keys_chunks_local, get_non_existant_s3_file_set, list_combine)
 
 
 def iterate_bucket_key_chunk_for_size(bucket_key_locs: List[Tuple[str, str]]) -> int:  # type: ignore
@@ -191,6 +139,18 @@ class AbstractDataset(abc.ABC):
     def arrow_table(self) -> pyarrow.Table:
         """Return the pyarrow table with all the metadata fields and pointers of the dataset."""
         pass
+
+    @cached_property
+    def heavy_pointer_files(self) -> List[str]:
+        """Get list of heavy pointer files in the dataset"""
+        schema = self.schema
+        heavy_pointer_cols = []
+        for col_name in schema.get_all_column_names():
+            column = schema.get_column(col_name)
+            if column is not None and column.is_heavy_pointer:
+                heavy_pointer_cols.append(col_name)
+
+        return heavy_pointer_cols
 
     @cached_property
     def schema(self) -> DatasetSchema:
@@ -421,6 +381,57 @@ class S3Dataset(AbstractDataset):
             self.schema,
         )
 
+    def copy_partition_to_gcloud(self) -> bool:
+        # get the total set of col files in the ds
+        heavy_pointer_buckets_keys = self.heavy_pointer_buckets_keys
+
+        # get the total set that do not exist on gcloud
+        # do this in case previous transfer failed and we pick up midway
+        buckets_keys_list = list(self.heavy_pointer_buckets_keys)
+        files_to_move = multiproc_file_parse(buckets_keys_list, thread_func_non_existant_gcloud, list_combine)
+        # when you have the file list create the gcloud transfer service
+        # manifest file
+        manifest_file_local_path = "./manifest.csv"
+        generate_manifest_file(files_to_move=files_to_move, manifest_dest_path=manifest_file_local_path)
+
+        gcs_file_location_path = push_manifest_to_gcp(
+            dataset_name=self._dataset_id.name,
+            dataset_partition=self._partition.partition,
+            dataset_version=self._dataset_id.version,
+            manifest_file_local_path=manifest_file_local_path,
+        )
+        launch_code = launch_gcs_transfer_job(
+            aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
+            aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
+            description=f"Transfer {self._dataset_id.name}:{self._dataset_id.version}:{self._partition.partition}",
+            manifest_location=gcs_file_location_path,
+            project_id=os.environ["GCP_PROJECT"],
+        )
+        return launch_code
+
+    @cached_property
+    def heavy_pointer_buckets_keys(self) -> Set[Tuple[str, str]]:
+        """Get the bucket key pairs for each heavy point file."""
+        logging.info("Processing through heavy pointers")
+
+        buckets_keys = set()
+        arrow_table = self.arrow_table()
+        for heavy_pntr_col in self.heavy_pointer_files:
+            logging.info(f"Evaulating {heavy_pntr_col} for column file locations")
+            # Each individual row only knows which column file it goes to, so we have to
+            # neccesarily parse all rows :( to get the column files. This should be cached
+            # as metadata but that would require re-curating the datasets.
+            for location_bytes in arrow_table[heavy_pntr_col].to_pylist():
+                location = ColumnBytesFileLocationV1.from_bytes(location_bytes)
+                # type ignore because this is guaranteed to have a S3PathFactory as the
+                # path factory attr
+                path = self._path_factory.get_column_concatenated_bytes_s3path_from_uuid(  # type: ignore
+                    location.file_id.bytes, dataset_name=self._dataset_id.name
+                )
+                bucket, key = path.replace("s3://", "").split("/", 1)
+                buckets_keys.add((bucket, key))
+        return buckets_keys
+
     def _get_parquet_dir_size(self) -> int:
         """Get the parquet path and find all the files within, count their bytes
 
@@ -452,41 +463,12 @@ class S3Dataset(AbstractDataset):
         logging.info("Parsing parquet and arrow dir for size.")
         par_dir_bytes = self._get_parquet_dir_size()
 
-        # need to know which columns are heavy pntr columns we go to for
-        # byte adding
-        schema = self.schema
-        heavy_pointer_cols = []
-        for col_name in schema.get_all_column_names():
-            column = schema.get_column(col_name)
-            if column is not None and column.is_heavy_pointer:
-                heavy_pointer_cols.append(col_name)
-
-        # create arrow table for parsing
-        # only know the single partition arrow table loc so can only get one partition size
-        logging.info("Creating arrow table")
-        arrow_table = self.arrow_table()
-
-        buckets_keys = set()
-
-        logging.info("Processing through heavy pointers")
-        for heavy_pntr_col in heavy_pointer_cols:
-            logging.info(f"Evaulating {heavy_pntr_col} for column file locations")
-            # Each individual row only knows which column file it goes to, so we have to
-            # neccesarily parse all rows :( to get the column files. This should be cached
-            # as metadata but that would require re-curating the datasets.
-            for location_bytes in arrow_table[heavy_pntr_col].to_pylist():
-                location = ColumnBytesFileLocationV1.from_bytes(location_bytes)
-                # type ignore because this is guaranteed to have a S3PathFactory as the
-                # path factory attr
-                path = self._path_factory.get_column_concatenated_bytes_s3path_from_uuid(  # type: ignore
-                    location.file_id.bytes, dataset_name=self._dataset_id.name
-                )
-                bucket, key = path.replace("s3://", "").split("/", 1)
-                buckets_keys.add((bucket, key))
-
-        # pass the data to the multi proc management function
-        buckets_keys_list = list(buckets_keys)
-        column_files_byte_size = get_file_size_s3_multiproc(buckets_keys_list)
+        buckets_keys_list = list(self.heavy_pointer_buckets_keys)
+        column_files_byte_size = multiproc_file_parse(
+            buckets_keys=buckets_keys_list,
+            function_for_process=thread_func_head_size,
+            result_collapse_func=sum,
+        )
         return column_files_byte_size + par_dir_bytes
 
     @cached_property
