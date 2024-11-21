@@ -25,3 +25,6 @@ test:
 	python -m unittest discover
 
 .PHONY: black docs lint type-check test
+
+hello:
+	g++ -std=c++17 cplusplus/hello.cpp -o cplusplus/hello
