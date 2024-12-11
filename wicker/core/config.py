@@ -6,7 +6,10 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
-from typing import Any, Dict
+from typing import Any, Dict, List
+
+AWS_S3_CONFIG = "aws_s3_config"
+FILESYSTEM_CONFIG = "filesystem_config"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -16,7 +19,6 @@ class WickerWandBConfig:
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> WickerWandBConfig:
-        # only load them if they exist, otherwise leave out
         return cls(
             wandb_api_key=data.get("wandb_api_key", None),
             wandb_base_url=data.get("wandb_base_url", None),
@@ -32,9 +34,9 @@ class BotoS3Config:
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> BotoS3Config:
         return cls(
-            max_pool_connections=data["max_pool_connections"],
-            read_timeout_s=data["read_timeout_s"],
-            connect_timeout_s=data["connect_timeout_s"],
+            max_pool_connections=data.get("max_pool_connections", 0),
+            read_timeout_s=data.get("read_timeout_s", 0),
+            connect_timeout_s=data.get("connect_timeout_s", 0),
         )
 
 
@@ -48,11 +50,30 @@ class WickerAwsS3Config:
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> WickerAwsS3Config:
         return cls(
-            s3_datasets_path=data["s3_datasets_path"],
-            region=data["region"],
-            boto_config=BotoS3Config.from_json(data["boto_config"]),
+            s3_datasets_path=data.get("s3_datasets_path", ""),
+            region=data.get("region", ""),
+            boto_config=BotoS3Config.from_json(data.get("boto_config", {})),
             store_concatenated_bytes_files_in_dataset=data.get("store_concatenated_bytes_files_in_dataset", False),
         )
+
+
+@dataclasses.dataclass(frozen=True)
+class WickerFileSystemConfig:
+    config_name: str
+    prefix_replace_path: str
+    root_datasets_path: str
+
+    @classmethod
+    def from_json(cls, data: Dict[str, Any]) -> WickerFileSystemConfig:
+        return cls(
+            config_name=data.get("config_name", ""),
+            prefix_replace_path=data.get("prefix_replace_path", ""),
+            root_datasets_path=data.get("root_datasets_path", ""),
+        )
+
+    @classmethod
+    def from_json_list(cls, data: List[Dict[str, Any]]) -> List[WickerFileSystemConfig]:
+        return [WickerFileSystemConfig.from_json(d) for d in data]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -65,17 +86,18 @@ class StorageDownloadConfig:
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> StorageDownloadConfig:
         return cls(
-            retries=data["retries"],
-            timeout=data["timeout"],
-            retry_backoff=data["retry_backoff"],
-            retry_delay_s=data["retry_delay_s"],
+            retries=data.get("retries", 0),
+            timeout=data.get("timeout", 0),
+            retry_backoff=data.get("retry_backoff", 0),
+            retry_delay_s=data.get("retry_delay_s", 0),
         )
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass()
 class WickerConfig:
     raw: Dict[str, Any]
     aws_s3_config: WickerAwsS3Config
+    filesystem_configs: List[WickerFileSystemConfig]
     storage_download_config: StorageDownloadConfig
     wandb_config: WickerWandBConfig
 
@@ -83,8 +105,9 @@ class WickerConfig:
     def from_json(cls, data: Dict[str, Any]) -> WickerConfig:
         return cls(
             raw=data,
-            aws_s3_config=WickerAwsS3Config.from_json(data["aws_s3_config"]),
-            storage_download_config=StorageDownloadConfig.from_json(data["storage_download_config"]),
+            aws_s3_config=WickerAwsS3Config.from_json(data.get(AWS_S3_CONFIG, {})),
+            filesystem_configs=WickerFileSystemConfig.from_json_list(data.get("filesystem_configs", [])),
+            storage_download_config=StorageDownloadConfig.from_json(data.get("storage_download_config", {})),
             wandb_config=WickerWandBConfig.from_json(data.get("wandb_config", {})),
         )
 

@@ -37,7 +37,7 @@ class TestFileSystemDataStorage(TestCase):
             # create local file store
             local_datastore = FileSystemDataStorage()
             # save file to destination
-            local_datastore.fetch_file(src_dir, dst_path)
+            local_datastore.fetch_file(src_path, dst_dir)
 
             # verify file exists
             assert os.path.exists(dst_path)
